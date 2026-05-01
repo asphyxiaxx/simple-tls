@@ -1,5 +1,7 @@
 # simple-tls
 
+[![Tests](https://github.com/asphyxiaxx/simple-tls/actions/workflows/tests.yml/badge.svg)](https://github.com/asphyxiaxx/simple-tls/actions/workflows/tests.yml)
+
 A custom, lightweight implementation of the TLS protocol (supporting TLS 1.0 through TLS 1.3) built entirely in Python.
 
 `simple-tls` is designed to be a seamless, drop-in replacement for Python's built-in `ssl` module, allowing you to utilize advanced TLS features without having to rewrite your existing socket logic.

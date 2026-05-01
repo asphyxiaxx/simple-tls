@@ -1,4 +1,4 @@
-name: Build and Publish
+name: PyPI publish
 
 on:
   release:
@@ -6,6 +6,7 @@ on:
 
 jobs:
   lint:
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
