@@ -25,9 +25,31 @@ jobs:
           ruff format --check --diff src
           mypy src
 
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install build tool and create sdist
+        run: |
+          pip install build
+          python -m build --sdist
+
+      - name: Upload sdist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cibw-sdist
+          path: dist/*.tar.gz
+
   build_wheels:
-    name: Build wheels on ${{ matrix.os }} (${{ matrix.arch }})
-    needs: [lint]
+    name: Build on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -83,7 +105,7 @@ jobs:
 
   upload_pypi:
     name: Upload to PyPI
-    needs: [build_wheels]
+    needs: [lint, build_sdist, build_wheels]
     runs-on: ubuntu-latest
 
     permissions:
@@ -95,10 +117,10 @@ jobs:
       url: https://pypi.org/p/simple-tls
 
     steps:
-      - name: Download all compiled wheels
+      - name: Download all compiled wheels and source
         uses: actions/download-artifact@v4
         with:
-          pattern: cibw-wheels-*
+          pattern: cibw-*
           path: dist
           merge-multiple: true
 

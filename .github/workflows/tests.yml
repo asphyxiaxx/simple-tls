@@ -24,9 +24,31 @@ jobs:
           ruff format --check --diff src
           mypy src
 
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install build tool and create sdist
+        run: |
+          pip install build
+          python -m build --sdist
+
+      - name: Upload sdist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cibw-sdist
+          path: dist/*.tar.gz
+          
   build_wheels:
     name: Build on ${{ matrix.os }} (${{ matrix.arch }})
-    needs: [lint]
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -77,5 +99,5 @@ jobs:
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          name: cibw-wheels-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
