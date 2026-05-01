@@ -75,7 +75,9 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
     return _HASH_ALGORITHMS[hash_algorithm]
 
 
-def get_hash(hash_algorithm: HashAlgorithm, message: bytes = b"") -> hashes.Hash:
+def get_hash(
+    hash_algorithm: HashAlgorithm, message: bytes = b""
+) -> hashes.Hash:
     if hash_algorithm == HashAlgorithm.MD5_SHA1:
         hashobj = typing.cast(hashes.Hash, MD5_SHA1_Hash())
     else:
@@ -133,7 +135,10 @@ def _sign_rsa_pss(
         raise TypeError("Invalid key type")
     if algorithm is None:
         raise ValueError("Missing algorithm")
-    p = padding.PSS(mgf=padding.MGF1(algorithm), salt_length=algorithm.digest_size)
+    p = padding.PSS(
+        mgf=padding.MGF1(algorithm),
+        salt_length=algorithm.digest_size,
+    )
     return key.sign(data, p, utils.Prehashed(algorithm))
 
 
@@ -279,7 +284,10 @@ def _verify_rsa_pss(
         raise TypeError("Invalid key type")
     if algorithm is None:
         raise ValueError("Missing algorithm")
-    p = padding.PSS(mgf=padding.MGF1(algorithm), salt_length=algorithm.digest_size)
+    p = padding.PSS(
+        mgf=padding.MGF1(algorithm),
+        salt_length=algorithm.digest_size,
+    )
     key.verify(signature, data, p, utils.Prehashed(algorithm))
 
 

@@ -183,7 +183,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         ## Configurations
         # Cipher Suites
-        self._conf_cipher_suites: tuple[CipherSuite, ...] = tuple(context.cipher_suites)
+        self._conf_cipher_suites: tuple[CipherSuite, ...] = tuple(
+            context.cipher_suites
+        )
 
         # Signature algorithms
         signature_algorithms = tuple(
@@ -196,7 +198,9 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         # Supported groups
-        self._conf_supported_groups: tuple[int, ...] = tuple(context.supported_groups)
+        self._conf_supported_groups: tuple[int, ...] = tuple(
+            context.supported_groups
+        )
 
         # ALPN protocols
         self._conf_alpn_protocols: tuple[bytes, ...] | None = (
@@ -208,7 +212,9 @@ class TLSHandshakeServer(TLSHandshake):
         self._conf_encrypt_then_mac: bool = context.encrypt_then_mac
 
         # Extended Master Secret
-        self._conf_extended_master_secret: bool = context.extended_master_secret
+        self._conf_extended_master_secret: bool = (
+            context.extended_master_secret
+        )
 
         # NPN Protocols
         self._conf_npn_protocols: tuple[bytes, ...] | None = (
@@ -231,7 +237,9 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         # PSK Key Exchange Mode
-        self._conf_psk_kex_modes: tuple[int, ...] = (PSKKeyExchangeMode.PSK_DHE_KE,)
+        self._conf_psk_kex_modes: tuple[int, ...] = (
+            PSKKeyExchangeMode.PSK_DHE_KE,
+        )
 
         # Cookie for HRR
         self._conf_cookie: bytes | None = None
@@ -283,7 +291,9 @@ class TLSHandshakeServer(TLSHandshake):
         # pre shared key extension
         self._pre_shared_key: tuple[bytes, bytes] | None = None
 
-        self._key_exchange: typing.Union[ECDHKeyExchange, FFDHKeyExchange] | None = None
+        self._key_exchange: (
+            typing.Union[ECDHKeyExchange, FFDHKeyExchange] | None
+        ) = None
 
     @property
     def done(self) -> bool:
@@ -331,7 +341,9 @@ class TLSHandshakeServer(TLSHandshake):
         ext_map = client_hello.extension_map(ExtensionSource.CLIENT)
 
         # Negotiate version
-        supported_versions = range(self._maximum_version, self._minimum_version - 1, -1)
+        supported_versions = range(
+            self._maximum_version, self._minimum_version - 1, -1
+        )
         supported_version_ext = typing.cast(
             ClientSupportedVersionsExtension | None,
             ext_map.get(ExtensionType.SUPPORTED_VERSIONS),
@@ -394,7 +406,9 @@ class TLSHandshakeServer(TLSHandshake):
         if sigalgs_ext is not None:
             self._peer_signature_algorithms = tuple(sigalgs_ext.data)
         elif version >= TLSVersion.TLSv1_3:
-            raise AlertMissingExtension("Missing signature algorithms extension")
+            raise AlertMissingExtension(
+                "Missing signature algorithms extension"
+            )
 
         # Supported groups
         supported_groups_ext = typing.cast(
@@ -458,7 +472,9 @@ class TLSHandshakeServer(TLSHandshake):
                 self._signature_algorithm = default_sigalg
 
         elif cipher_suite.auth != Authentication.ANON:
-            raise AlertHandshakeFailure("No private key and certificates provided")
+            raise AlertHandshakeFailure(
+                "No private key and certificates provided"
+            )
 
         ticket_ext = client_hello.get_extension(SessionTicketExtension)
         ticket_supported = ticket_ext is not None and (
@@ -478,11 +494,18 @@ class TLSHandshakeServer(TLSHandshake):
             )
 
         if session is not None:
-            if session.extended_master_secret and not self._extended_master_secret:
-                raise AlertHandshakeFailure("Resumed EMS session without EMS extenison")
+            if (
+                session.extended_master_secret
+                and not self._extended_master_secret
+            ):
+                raise AlertHandshakeFailure(
+                    "Resumed EMS session without EMS extenison"
+                )
 
             if session.encrypt_then_mac and not self._encrypt_then_mac:
-                raise AlertHandshakeFailure("Resumed ETM session without ETM extension")
+                raise AlertHandshakeFailure(
+                    "Resumed ETM session without ETM extension"
+                )
 
             if (
                 session.extended_master_secret != self._extended_master_secret
@@ -506,12 +529,16 @@ class TLSHandshakeServer(TLSHandshake):
             version == TLSVersion.TLSv1_2
             and self._maximum_version >= TLSVersion.TLSv1_3
         ):
-            self._server_random = self._server_random[:24] + TLS12_DOWNGRADE_SENTINEL
+            self._server_random = (
+                self._server_random[:24] + TLS12_DOWNGRADE_SENTINEL
+            )
         elif (
             version <= TLSVersion.TLSv1_1
             and self._maximum_version >= TLSVersion.TLSv1_2
         ):
-            self._server_random = self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
+            self._server_random = (
+                self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
+            )
 
         self._key_deriver = KeyDeriver(
             version=version,
@@ -551,7 +578,9 @@ class TLSHandshakeServer(TLSHandshake):
             extensions.append(EncryptThenMacExtension())
 
         if ExtensionType.EC_POINT_FORMATS in self._extensions_recv:
-            extensions.append(ECPointFormatsExtension(self._conf_ec_point_formats))
+            extensions.append(
+                ECPointFormatsExtension(self._conf_ec_point_formats)
+            )
 
         if self._npn_expected:
             if self._conf_npn_protocols is None:
@@ -676,7 +705,9 @@ class TLSHandshakeServer(TLSHandshake):
                 cert_types.append(ClientCertificateType.ECDSA_SIGN)
 
             if not cert_types:
-                raise AlertInternalError("Missing supported signature algorithms")
+                raise AlertInternalError(
+                    "Missing supported signature algorithms"
+                )
 
             if self.protocol_version() == TLSVersion.TLSv1_2:
                 cert_request = CertificateRequestTLS12(
@@ -774,7 +805,9 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertInternalError("Unsupported cipher suite selected")
 
             if not peer_key:
-                raise AlertDecodeError("Empty key share in client key exchange")
+                raise AlertDecodeError(
+                    "Empty key share in client key exchange"
+                )
 
             kea = self._key_exchange
             premaster_secret = kea.compute_shared_secret(peer_key)
@@ -960,7 +993,9 @@ class TLSHandshakeServer(TLSHandshake):
             if self._session is not None:
                 raise AlertInternalError("Unexpected session set")
 
-            self._established_session = typing.cast(TLSSession, self._new_session)
+            self._established_session = typing.cast(
+                TLSSession, self._new_session
+            )
             self._established_session.not_resumable = False
         else:
             if self._session is None:
@@ -992,7 +1027,9 @@ class TLSHandshakeServer(TLSHandshake):
         self._session_id = client_hello.session_id
 
         if self._private_key is None or self._x509_certs is None:
-            raise AlertHandshakeFailure("certificate and private key not provided")
+            raise AlertHandshakeFailure(
+                "certificate and private key not provided"
+            )
 
         x509_leaf = self._x509_certs[0]
         try:
@@ -1013,7 +1050,9 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         key_share_ext = client_hello.get_extension(ClientKeyShareExtension)
-        psk_kex_modes_ext = client_hello.get_extension(PSKKeyExchangeModesExtension)
+        psk_kex_modes_ext = client_hello.get_extension(
+            PSKKeyExchangeModesExtension
+        )
         psk_ext = client_hello.get_extension(ClientPSKExtension)
 
         cipher_suite = self.cipher()
@@ -1021,14 +1060,18 @@ class TLSHandshakeServer(TLSHandshake):
         psk_kex_mode = None
 
         if psk_kex_modes_ext is not None:
-            psk_kex_mode = negotiate(self._conf_psk_kex_modes, psk_kex_modes_ext.data)
+            psk_kex_mode = negotiate(
+                self._conf_psk_kex_modes, psk_kex_modes_ext.data
+            )
 
         if psk_ext is not None:
             # RFC 8446, section 4.2.9
             # servers MUST abort the handshake if the client pre_shared_key without
             # psk_key_exchange_modes.
             if psk_kex_modes_ext is None:
-                raise AlertMissingExtension("Missing pre shared key modes extension")
+                raise AlertMissingExtension(
+                    "Missing pre shared key modes extension"
+                )
 
             if psk_kex_mode is not None and (
                 self.context.session_storage is not None
@@ -1090,11 +1133,15 @@ class TLSHandshakeServer(TLSHandshake):
                 ks.group: ks.key_exchange for ks in key_share_ext.key_shares
             }
             if len(shared_key_shares) != len(key_share_ext.key_shares):
-                raise AlertIllegalParameter("Duplicated group in key share extension")
+                raise AlertIllegalParameter(
+                    "Duplicated group in key share extension"
+                )
 
             for group in shared_key_shares:
                 if group not in self._peer_supported_groups:
-                    raise AlertIllegalParameter("Invalid supported groups extension")
+                    raise AlertIllegalParameter(
+                        "Invalid supported groups extension"
+                    )
 
             # Check if prefered key share in client key share. If not,
             # check if it is in client supported groups. If so, do a
@@ -1154,7 +1201,9 @@ class TLSHandshakeServer(TLSHandshake):
                 self.skip_early_data = True
 
         if hrr:
-            self._transcript.update_for_hello_retry_request(cipher_suite.prf_hash)
+            self._transcript.update_for_hello_retry_request(
+                cipher_suite.prf_hash
+            )
             self._set_state(ServerState.SEND_HELLO_RETRY_REQUEST_TLS13)
             return Status.OK
 
@@ -1172,7 +1221,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Selected key share group extension
         if self._selected_key_share_group is not None:
-            extensions.append(HRRKeyShareExtension(self._selected_key_share_group))
+            extensions.append(
+                HRRKeyShareExtension(self._selected_key_share_group)
+            )
 
         if not extensions:
             # Currently still not support send cookie extension
@@ -1224,7 +1275,10 @@ class TLSHandshakeServer(TLSHandshake):
         ):
             raise AlertIllegalParameter()
 
-        if self._selected_key_share_group is None and self._conf_cookie is None:
+        if (
+            self._selected_key_share_group is None
+            and self._conf_cookie is None
+        ):
             raise AlertInternalError()
 
         key_share_ext = client_hello.get_extension(ClientKeyShareExtension)
@@ -1301,7 +1355,9 @@ class TLSHandshakeServer(TLSHandshake):
         extensions: list[TLSExtension] = []
 
         # Server supported version extension
-        extensions.append(ServerSupportedVersionExtension(self.protocol_version()))
+        extensions.append(
+            ServerSupportedVersionExtension(self.protocol_version())
+        )
 
         if self._selected_psk is not None:
             extensions.append(ServerPSKExtension(self._selected_psk))
@@ -1375,7 +1431,9 @@ class TLSHandshakeServer(TLSHandshake):
         if self._early_data_accepted:
             enc_extensions.append(ServerEarlyDataExtension())
 
-        enc_ext = EncryptedExtensions(self._serialize_extensions(enc_extensions))
+        enc_ext = EncryptedExtensions(
+            self._serialize_extensions(enc_extensions)
+        )
         self.do_message_cb("write", enc_ext)
         self._add_message(enc_ext)
 
@@ -1416,7 +1474,9 @@ class TLSHandshakeServer(TLSHandshake):
             self._private_key, cert_verify_data, self._signature_algorithm
         )
 
-        cert_verify = CertificateVerifyTLS12(signature, self._signature_algorithm)
+        cert_verify = CertificateVerifyTLS12(
+            signature, self._signature_algorithm
+        )
         self.do_message_cb("write", cert_verify)
         self._add_message(cert_verify)
 
@@ -1609,7 +1669,10 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_new_session_ticket_tls13(self) -> Status:
-        if self.context.session_storage is None and self.context.session_keys is None:
+        if (
+            self.context.session_storage is None
+            and self.context.session_keys is None
+        ):
             self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
             return Status.OK
 
@@ -1710,7 +1773,9 @@ class TLSHandshakeServer(TLSHandshake):
             self._update_traffic_key_tls13(Direction.DECRYPT)
 
             if message_type == KeyUpdateMessageType.UPDATE_REQUESTED:
-                self._write_key_update(KeyUpdateMessageType.UPDATE_NOT_REQUESTED)
+                self._write_key_update(
+                    KeyUpdateMessageType.UPDATE_NOT_REQUESTED
+                )
 
                 self._set_state(ServerState.COMPLETE_UPDATE_TRAFFIC)
                 return Status.PACK_FLIGHT
@@ -1763,7 +1828,10 @@ class TLSHandshakeServer(TLSHandshake):
                 x509.PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
             ):
                 auth = Authentication.RSA
-            elif x509_leaf.public_key_algorithm_oid == x509.PublicKeyAlgorithmOID.DSA:
+            elif (
+                x509_leaf.public_key_algorithm_oid
+                == x509.PublicKeyAlgorithmOID.DSA
+            ):
                 auth = Authentication.DSS
             elif x509_leaf.public_key_algorithm_oid in (
                 x509.PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
@@ -1811,7 +1879,9 @@ class TLSHandshakeServer(TLSHandshake):
         )
         if ri_ext is not None:
             if ri_ext.data:
-                raise AlertHandshakeFailure("Invalid renegotiation info extension")
+                raise AlertHandshakeFailure(
+                    "Invalid renegotiation info extension"
+                )
             secure_renegotiate = True
         elif CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV in typing.cast(
             tuple[int, ...], self._peer_cipher_suites
@@ -1838,7 +1908,10 @@ class TLSHandshakeServer(TLSHandshake):
                 CompressedCertificateExtension | None,
                 ext_map.get(ExtensionType.COMPRESS_CERTIFICATE),
             )
-            if self._conf_cert_comp_algs is not None and comp_cert_ext is not None:
+            if (
+                self._conf_cert_comp_algs is not None
+                and comp_cert_ext is not None
+            ):
                 self._certificate_compression = negotiate(
                     self._conf_cert_comp_algs, comp_cert_ext.data
                 )
@@ -1881,7 +1954,11 @@ class TLSHandshakeServer(TLSHandshake):
                 Symmetric.AES_256_CBC,
                 Symmetric.TRIPLE_DES_EDE_CBC,
             )
-            if self._conf_encrypt_then_mac and is_block_cipher and etm_ext is not None:
+            if (
+                self._conf_encrypt_then_mac
+                and is_block_cipher
+                and etm_ext is not None
+            ):
                 self._encrypt_then_mac = True
 
             # EC point formats extension
@@ -1893,7 +1970,9 @@ class TLSHandshakeServer(TLSHandshake):
                 ecpfs_ext is not None
                 and ECPointFormat.UNCOMPRESSED not in ecpfs_ext.data
             ):
-                raise AlertIllegalParameter("Invalid EC point formats extension")
+                raise AlertIllegalParameter(
+                    "Invalid EC point formats extension"
+                )
 
             # NPN extension
             npn_ext = typing.cast(

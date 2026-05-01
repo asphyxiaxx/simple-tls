@@ -206,7 +206,9 @@ class Bcrypt:
                     salt_hash = hashfunc(salt + struct.pack(">I", count))
 
                     out_le = _bcrypt_hash(salt_hash)  # little endian
-                    out = struct.pack("<IIIIIIII", *struct.unpack(">IIIIIIII", out_le))
+                    out = struct.pack(
+                        "<IIIIIIII", *struct.unpack(">IIIIIIII", out_le)
+                    )
                     acc = out
 
                     for _ in range(iterations - 1):

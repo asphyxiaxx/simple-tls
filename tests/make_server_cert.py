@@ -24,7 +24,9 @@ def write_to_file(filename: str, data: bytes):
 def generate_root_ca():
     print("Generating RSA Root CA...")
     # 1. Generate RSA 2048-bit Private Key
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048
+    )
 
     # 2. Build the CA Subject/Issuer Name
     subject = issuer = x509.Name(
@@ -32,7 +34,9 @@ def generate_root_ca():
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "State"),
             x509.NameAttribute(NameOID.LOCALITY_NAME, "City"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Test Organization"),
+            x509.NameAttribute(
+                NameOID.ORGANIZATION_NAME, "My Test Organization"
+            ),
             x509.NameAttribute(NameOID.COMMON_NAME, "My Master RSA Root CA"),
         ]
     )
@@ -47,7 +51,8 @@ def generate_root_ca():
         .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
             # Valid for 10 years
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
+            datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(days=3650)
         )
         .add_extension(
             x509.BasicConstraints(ca=True, path_length=None),
@@ -65,7 +70,9 @@ def generate_intermediate_ca(
 ):
     print("Generating RSA Intermediate CA...")
     # 1. Generate RSA 2048-bit Private Key for Intermediate
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048
+    )
 
     # 2. Build the Intermediate CA Subject Name
     subject = x509.Name(
@@ -73,7 +80,9 @@ def generate_intermediate_ca(
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "State"),
             x509.NameAttribute(NameOID.LOCALITY_NAME, "City"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "My Test Organization"),
+            x509.NameAttribute(
+                NameOID.ORGANIZATION_NAME, "My Test Organization"
+            ),
             x509.NameAttribute(NameOID.COMMON_NAME, "My Intermediate RSA CA"),
         ]
     )
@@ -88,7 +97,8 @@ def generate_intermediate_ca(
         .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
             # Valid for 5 years
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1825)
+            datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(days=1825)
         )
         .add_extension(
             # path_length=0 means it can sign leaf certs, but cannot sign other CAs
@@ -110,7 +120,9 @@ def generate_intermediate_ca(
             critical=True,
         )
         .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(root_key.public_key()),
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                root_key.public_key()
+            ),
             critical=False,
         )
         .sign(root_key, hashes.SHA256())
@@ -153,7 +165,8 @@ def generate_leaf_cert(
         .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
             # Valid for 1 year
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)
+            datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(days=365)
         )
         .add_extension(
             x509.SubjectAlternativeName(
@@ -187,7 +200,9 @@ def generate_leaf_cert(
             critical=False,
         )
         .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                ca_key.public_key()
+            ),
             critical=False,
         )
         # Signed by the CA's RSA private key
@@ -253,7 +268,9 @@ if __name__ == "__main__":
     )
 
     # 3. Generate RSA Leaf (Signed by Intermediate CA)
-    rsa_leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    rsa_leaf_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048
+    )
     generate_leaf_cert(
         int_key,
         int_cert,

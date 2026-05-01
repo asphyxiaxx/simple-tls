@@ -34,38 +34,43 @@ Here is a complete example of connecting securely to a website using `simple-tls
 
 ```python
 import socket
+
+import certifi
 from simple_tls import pyssl
 
-hostname = 'www.python.org'
+hostname = "www.python.org"
 port = 443
 
-# 1. Create a secure default context using simple-tls
-# This automatically loads the system's trusted CA certificates
+# Create a secure default context using simple-tls
 context = pyssl.SSLContext()
+context.load_verify_locations(cafile=certifi.where())
+context.verify_mode = pyssl.CERT_REQUIRED
+context.check_hostname = True
 
-# 2. Create a standard TCP socket
+# Create a standard TCP socket
 with socket.create_connection((hostname, port)) as sock:
-    # 3. Wrap the socket to secure it
-    # server_hostname is required for SNI (Server Name Indication) and hostname verification
+    # Wrap the socket to secure it
+    # server_hostname is required for SNI and hostname verification
+
     with context.wrap_socket(sock, server_hostname=hostname) as ssock:
         print(f"Connected to {hostname} securely!")
         print(f"TLS Version: {ssock.version()}")
         print(f"Cipher Suite: {ssock.cipher()}\n")
-        
-        # 4. Send encrypted data (A simple HTTP GET request)
+
+        # Send encrypted data (A simple HTTP GET request)
         request = f"GET / HTTP/1.1\r\nHost: {hostname}\r\nConnection: close\r\n\r\n"
-        ssock.sendall(request.encode('utf-8'))
-        
-        # 5. Receive the encrypted response
+        ssock.sendall(request.encode("utf-8"))
+
+        # Receive the encrypted response
         response = b""
         while True:
             data = ssock.recv(1024)
             if not data:
                 break
             response += data
-            
+
         print("Received headers:")
-        print(response.split(b"\r\n\r\n")[0].decode('utf-8'))
+        print(response.split(b"\r\n\r\n")[0].decode("utf-8"))
 ```
 
 ## 📄 License

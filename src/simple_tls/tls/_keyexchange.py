@@ -447,7 +447,9 @@ class ECDHKeyExchange:
                 Encoding.X962, PublicFormat.UncompressedPoint
             )
         else:
-            return self._public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+            return self._public_key.public_bytes(
+                Encoding.Raw, PublicFormat.Raw
+            )
 
     def compute_shared_secret(self, peer_public: bytes) -> bytes:
         try:
@@ -459,7 +461,9 @@ class ECDHKeyExchange:
                 return self._private_key.exchange(algorithm, pk_ec)
 
             elif isinstance(self._private_key, x25519.X25519PrivateKey):
-                pk_x25519 = x25519.X25519PublicKey.from_public_bytes(peer_public)
+                pk_x25519 = x25519.X25519PublicKey.from_public_bytes(
+                    peer_public
+                )
                 return self._private_key.exchange(pk_x25519)
 
             elif isinstance(self._private_key, x448.X448PrivateKey):
@@ -536,7 +540,9 @@ class KEMKeyExchange:
 
     def compute_shared_secret(self, peer_public: bytes) -> bytes:
         expected_pqc_ct_len = _PQC_CIPHERTEXT_LEN[self._group]
-        peer_pqc_ct, peer_ec_pk = self._split_pk(peer_public, expected_pqc_ct_len)
+        peer_pqc_ct, peer_ec_pk = self._split_pk(
+            peer_public, expected_pqc_ct_len
+        )
 
         ec_ss = self._ec_kex.compute_shared_secret(peer_ec_pk)
         try:
@@ -553,7 +559,9 @@ class KEMKeyExchange:
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
         expected_pqc_pk_len = _PQC_KEY_LEN[self._group]
-        peer_pqc_pk, peer_ec_pk = self._split_pk(peer_public, expected_pqc_pk_len)
+        peer_pqc_pk, peer_ec_pk = self._split_pk(
+            peer_public, expected_pqc_pk_len
+        )
 
         ec_pk, ec_ss = self._ec_kex.generate_and_compute(peer_ec_pk)
 
@@ -562,9 +570,13 @@ class KEMKeyExchange:
             mlkem.MLKEM1024PublicKey,
         ]
         if self._group == NamedGroup.SECP384R1MLKEM1024:
-            peer_pqc_pubkey = mlkem.MLKEM1024PublicKey.from_public_bytes(peer_pqc_pk)
+            peer_pqc_pubkey = mlkem.MLKEM1024PublicKey.from_public_bytes(
+                peer_pqc_pk
+            )
         else:
-            peer_pqc_pubkey = mlkem.MLKEM768PublicKey.from_public_bytes(peer_pqc_pk)
+            peer_pqc_pubkey = mlkem.MLKEM768PublicKey.from_public_bytes(
+                peer_pqc_pk
+            )
 
         try:
             pqc_ss, pqc_ct = peer_pqc_pubkey.encapsulate()

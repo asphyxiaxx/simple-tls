@@ -121,7 +121,9 @@ def generate_kat_file():
     with open(filepath, "w") as f:
         json.dump(test_vectors, f, indent=4)
 
-    print(f"Successfully generated {len(test_vectors)} test vectors in '{filepath}'")
+    print(
+        f"Successfully generated {len(test_vectors)} test vectors in '{filepath}'"
+    )
 
 
 if __name__ == "__main__":

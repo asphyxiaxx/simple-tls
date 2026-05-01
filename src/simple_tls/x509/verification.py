@@ -82,7 +82,9 @@ class Store:
     def get(self, key: Name, default: _T = ...) -> list[Certificate] | _T: ...
 
     @typing.overload
-    def get(self, key: Name, default: None = ...) -> list[Certificate] | None: ...
+    def get(
+        self, key: Name, default: None = ...
+    ) -> list[Certificate] | None: ...
 
     def get(
         self, key: Name, default: _T | None = None
@@ -124,8 +126,12 @@ class ExtensionPolicy:
             dict[ObjectIdentifier, PresentExtensionValidatorCallback | None]
         ] = None,
     ):
-        self._may_be_present = _may_be_present.copy() if _may_be_present else {}
-        self._require_present = _require_present.copy() if _require_present else {}
+        self._may_be_present = (
+            _may_be_present.copy() if _may_be_present else {}
+        )
+        self._require_present = (
+            _require_present.copy() if _require_present else {}
+        )
 
     @classmethod
     def defaults_ca(cls) -> ExtensionPolicy:
@@ -156,7 +162,9 @@ class ExtensionPolicy:
         new_require = self._require_present.copy()
         new_require.pop(extension_oid, None)
 
-        return ExtensionPolicy(_may_be_present=new_may, _require_present=new_require)
+        return ExtensionPolicy(
+            _may_be_present=new_may, _require_present=new_require
+        )
 
     def require_present(
         self,
@@ -174,7 +182,9 @@ class ExtensionPolicy:
         new_may = self._may_be_present.copy()
         new_may.pop(extension_oid, None)
 
-        return ExtensionPolicy(_may_be_present=new_may, _require_present=new_require)
+        return ExtensionPolicy(
+            _may_be_present=new_may, _require_present=new_require
+        )
 
     def verify(self, verifier: Verifier, certificate: Certificate) -> None:
         exts = certificate.extensions
@@ -359,7 +369,9 @@ class Verifier:
 
             # pathLenConstraint (applies to issuer.basicConstraints.path_length)
             try:
-                bc = issuer.extensions.get_extension_for_class(BasicConstraints).value
+                bc = issuer.extensions.get_extension_for_class(
+                    BasicConstraints
+                ).value
             except ExtensionNotFound:
                 raise PolicyViolationError(
                     f"{child} at index '{i}' has no basic constraint extension "
@@ -407,7 +419,9 @@ class Verifier:
         try:
             child.verify_directly_issued_by(issuer)
         except (TypeError, ValueError, InvalidSignature) as exc:
-            err_str = f"{child} at index '{index}' signature verification failed"
+            err_str = (
+                f"{child} at index '{index}' signature verification failed"
+            )
             exc_str = str(exc)
             if exc_str:
                 err_str += f" [{exc_str}]"
@@ -445,12 +459,16 @@ class Verifier:
     def _aki_ski_compatible(issuer: Certificate, cert: Certificate) -> bool:
         # If AKI present in cert and SKI present in issuer, match them.
         try:
-            aki = cert.extensions.get_extension_for_class(AuthorityKeyIdentifier).value
+            aki = cert.extensions.get_extension_for_class(
+                AuthorityKeyIdentifier
+            ).value
         except ExtensionNotFound:
             aki = None
 
         try:
-            ski = issuer.extensions.get_extension_for_class(SubjectKeyIdentifier).value
+            ski = issuer.extensions.get_extension_for_class(
+                SubjectKeyIdentifier
+            ).value
         except ExtensionNotFound:
             ski = None
 

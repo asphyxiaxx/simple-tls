@@ -103,7 +103,9 @@ class SSLObject(_ssl.SSLObject):
     @typing.overload  # type: ignore[override]
     def read(self, len: int = 1024, buffer: bytearray = ...) -> int: ...
 
-    def read(self, len: int = 1024, buffer: bytearray | None = None) -> bytes | int:
+    def read(
+        self, len: int = 1024, buffer: bytearray | None = None
+    ) -> bytes | int:
         """
         Read up to 'len' bytes from the SSL object and return them.
 
@@ -132,7 +134,9 @@ class SSLObject(_ssl.SSLObject):
     ) -> dict[str, typing.Any] | None: ...
 
     @typing.overload
-    def getpeercert(self, binary_form: typing.Literal[True] = ...) -> bytes | None: ...
+    def getpeercert(
+        self, binary_form: typing.Literal[True] = ...
+    ) -> bytes | None: ...
 
     @typing.overload
     def getpeercert(

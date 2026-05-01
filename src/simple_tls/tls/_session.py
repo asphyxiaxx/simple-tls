@@ -269,7 +269,7 @@ class SessionKey:
 
 
 class TLSSessionKeys:
-    def __init__(self):
+    def __init__(self) -> None:
         self._keys = [SessionKey.generate()]
         self._current_key = self._keys[0]
         self._lock = threading.Lock()
@@ -309,8 +309,8 @@ class TLSSessionKeys:
 
 
 class TLSSessionStorage:
-    def __init__(self):
-        self._storage = {}
+    def __init__(self) -> None:
+        self._storage: dict[bytes, TLSSession] = {}
 
     def get(self, key: bytes) -> TLSSession | None:
         return self._storage.get(key, None)

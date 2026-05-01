@@ -94,9 +94,13 @@ class TLSConnection:
 
         if server_side:
             if server_hostname:
-                raise ValueError("server_hostname can only be specified in client mode")
+                raise ValueError(
+                    "server_hostname can only be specified in client mode"
+                )
             if session is not None or session_ticket_handler is not None:
-                raise ValueError("session can only be specified in client mode")
+                raise ValueError(
+                    "session can only be specified in client mode"
+                )
             handshake = typing.cast(TLSHandshake, TLSHandshakeServer(context))
         else:
             handshake = typing.cast(
@@ -255,7 +259,9 @@ class TLSConnection:
     def read(self, length: int = 1024, buffer: None = ...) -> bytes: ...
 
     @typing.overload
-    def read(self, length: int = 1024, buffer: WritableBuffer = ...) -> int: ...
+    def read(
+        self, length: int = 1024, buffer: WritableBuffer = ...
+    ) -> int: ...
 
     def read(
         self, length: int = 1024, buffer: WritableBuffer | None = None
@@ -341,12 +347,16 @@ class TLSConnection:
             early_session = hs.early_session
             assert early_session is not None
 
-            if self._early_data_processed >= early_session.ticket_max_early_data:
+            if (
+                self._early_data_processed
+                >= early_session.ticket_max_early_data
+            ):
                 hs.can_early_write = False
 
             max_send_frament = min(
                 max_send_frament,
-                early_session.ticket_max_early_data - self._early_data_processed,
+                early_session.ticket_max_early_data
+                - self._early_data_processed,
             )
 
         if len(data) > max_send_frament:
@@ -389,7 +399,11 @@ class TLSConnection:
 
     def get_unverified_chain(self) -> list[bytes]:
         session = self._handshake.established_session
-        if session is None or session.x509_peer is None or session.x509_chain is None:
+        if (
+            session is None
+            or session.x509_peer is None
+            or session.x509_chain is None
+        ):
             return []
 
         return [
@@ -498,7 +512,9 @@ class TLSConnection:
             raise TLSLocalAlert(alert.description, reason)
         return None
 
-    def _do_hs_callback(self, direction: str, message: HandshakeMessage) -> None:
+    def _do_hs_callback(
+        self, direction: str, message: HandshakeMessage
+    ) -> None:
         cb = self.context.message_callback
         if cb is None:
             return
@@ -543,7 +559,9 @@ class TLSConnection:
         record_version = self._record_version()
         css = ChangeCipherSpec(type=1)
         css_data = css.serialize()
-        header = self._get_header(css.content_type, record_version, len(css_data))
+        header = self._get_header(
+            css.content_type, record_version, len(css_data)
+        )
         self._pending_flight.extend(header)
         self._pending_flight.extend(css_data)
 
@@ -572,7 +590,9 @@ class TLSConnection:
 
         with memoryview(pending_hs_data) as view:
             for i in range(0, len(view), fragment):
-                record_data = self._seal_record(content_type, view[i : i + fragment])
+                record_data = self._seal_record(
+                    content_type, view[i : i + fragment]
+                )
                 self._pending_flight.extend(record_data)
 
         self._handshake.clear_flight()
@@ -614,7 +634,9 @@ class TLSConnection:
             and content_type == ContentType.APPLICATION_DATA
             and len(plaintext) > 1
         ):
-            written = self._seal_record_internal(content_type, plaintext[:1], buf)
+            written = self._seal_record_internal(
+                content_type, plaintext[:1], buf
+            )
             plaintext = plaintext[1:]
             buf = buf[written:]
 
@@ -698,14 +720,18 @@ class TLSConnection:
             version_ok = record_version == self._record_version()
 
         if not version_ok:
-            self._send_alert(AlertDescription.PROTOCOL_VERSION, "Wrong version number")
+            self._send_alert(
+                AlertDescription.PROTOCOL_VERSION, "Wrong version number"
+            )
 
         # Check the record header fields
         # 2**14 (default record size limit)
         # 1024 (maximum compression overhead)
         # 1024 (maximum encryption overhead)
         if length > self._recv_record_limit + 1024 + 1024:
-            self._send_alert(AlertDescription.RECORD_OVERFLOW, "record too large")
+            self._send_alert(
+                AlertDescription.RECORD_OVERFLOW, "record too large"
+            )
 
         # Extract full record
         if inbio.pending < length:
@@ -842,7 +868,9 @@ class TLSConnection:
             self._read_shutdown = Shutdown.ERROR
             raise TLSRemoteAlert(alert.description)
 
-        self._send_alert(AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type")
+        self._send_alert(
+            AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type"
+        )
 
     def _record_version(self) -> int:
         if self._handshake.version == TLSVersion.UNSPECIFIED:
@@ -868,5 +896,7 @@ class TLSConnection:
         return value, pos
 
     @staticmethod
-    def _get_header(content_type: int, record_version: int, length: int) -> bytes:
+    def _get_header(
+        content_type: int, record_version: int, length: int
+    ) -> bytes:
         return struct.pack("!BHH", content_type, record_version, length)

@@ -42,7 +42,9 @@ class Parser(typing.Generic[ReadableBuffer]):
         self._bookmark = self._index
 
     def data_since_bookmark(self) -> ReadableBuffer:
-        return typing.cast(ReadableBuffer, self._data[self._bookmark : self._index])
+        return typing.cast(
+            ReadableBuffer, self._data[self._bookmark : self._index]
+        )
 
     def read_bytes(self, size: int) -> ReadableBuffer:
         if size < 0:
@@ -66,7 +68,9 @@ class Parser(typing.Generic[ReadableBuffer]):
         length = self.read_int(prefix_size)
         return self.read_bytes(length)
 
-    def read_prefixed_int_list(self, item_size: int, prefix_size: int) -> list[int]:
+    def read_prefixed_int_list(
+        self, item_size: int, prefix_size: int
+    ) -> list[int]:
         length = self.read_int(prefix_size)
         if length % item_size != 0:
             raise ParseError(
@@ -127,7 +131,9 @@ class Writer:
         except OverflowError:
             raise ValueError(f"int too big to convert given size '{size}'")
 
-    def write_prefixed_bytes(self, data: bytes | Writer, prefix_size: int) -> None:
+    def write_prefixed_bytes(
+        self, data: bytes | Writer, prefix_size: int
+    ) -> None:
         length = len(data)
         self.write_int(length, prefix_size)
         self.write_bytes(data)

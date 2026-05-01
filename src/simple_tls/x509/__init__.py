@@ -156,9 +156,13 @@ def _decode_sequence_len(data: bytes, offset: int) -> tuple[int, int]:
     # Long form
     num_length_bytes = length_byte & 0x7F
     if num_length_bytes == 0:
-        raise ValueError("Indefinite length ASN.1 encoding is not supported for DER.")
+        raise ValueError(
+            "Indefinite length ASN.1 encoding is not supported for DER."
+        )
     if offset + 1 + num_length_bytes > len(data):
-        raise ValueError("Truncated DER data while reading long form length bytes.")
+        raise ValueError(
+            "Truncated DER data while reading long form length bytes."
+        )
 
     length = bytes_to_int(data[offset + 1 : offset + 1 + num_length_bytes])
     return length, 1 + num_length_bytes

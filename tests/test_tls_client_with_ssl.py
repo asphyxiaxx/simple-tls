@@ -88,7 +88,9 @@ def dsa_server():
 
 @pytest.fixture
 def ec_server():
-    ctx = create_ssl_context(SERVER_EC_SECP256R1_CERTFILE, SERVER_EC_SECP256R1_KEYFILE)
+    ctx = create_ssl_context(
+        SERVER_EC_SECP256R1_CERTFILE, SERVER_EC_SECP256R1_KEYFILE
+    )
     return VirtualTLSServer(ctx)
 
 

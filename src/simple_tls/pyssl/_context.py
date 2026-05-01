@@ -76,7 +76,7 @@ class SSLContext:
             self.verify_mode = VerifyMode.CERT_NONE
             self.check_hostname = False
 
-    def _set_options(self):
+    def _set_options(self) -> None:
         if self._options & Options.OP_NO_TICKET:
             self._context.session_keys = None
             self._context.session_storage = None
@@ -165,7 +165,9 @@ class SSLContext:
 
             self._context.sni_callback = shim_cb
 
-    def set_psk_client_callback(self, callback: _PSKClientCbType | None) -> None:
+    def set_psk_client_callback(
+        self, callback: _PSKClientCbType | None
+    ) -> None:
         raise NotImplementedError
 
     def set_psk_server_callback(
@@ -175,7 +177,9 @@ class SSLContext:
     ) -> None:
         raise NotImplementedError
 
-    def set_exts_order_callback(self, callback: _ExtensionsCbType | None) -> None:
+    def set_exts_order_callback(
+        self, callback: _ExtensionsCbType | None
+    ) -> None:
         if callback is not None and not callable(callback):
             raise TypeError("Not a callback object")
         self._context.extensions_order_cb = callback
@@ -211,7 +215,9 @@ class SSLContext:
     def set_ech_config(self, ech_config: bytes | None) -> None:
         self._context.ech_configs = str_to_bytes(ech_config)
 
-    def _load_windows_store_certs(self, storename: str, purpose: Purpose) -> None:
+    def _load_windows_store_certs(
+        self, storename: str, purpose: Purpose
+    ) -> None:
         if not hasattr(_ssl, "enum_certificates"):
             return
 
@@ -238,7 +244,9 @@ class SSLContext:
             data["x509"] += 1
 
             try:
-                ba = c.extensions.get_extension_for_class(x509.BasicConstraints)
+                ba = c.extensions.get_extension_for_class(
+                    x509.BasicConstraints
+                )
             except x509.ExtensionNotFound:
                 pass
             else:
@@ -275,7 +283,9 @@ class SSLContext:
             cadata=cadata,  # type: ignore
         )
 
-    def load_default_certs(self, purpose: Purpose = Purpose.SERVER_AUTH) -> None:
+    def load_default_certs(
+        self, purpose: Purpose = Purpose.SERVER_AUTH
+    ) -> None:
         if not isinstance(purpose, _ssl._ASN1Object):
             raise TypeError(purpose)
 
@@ -283,10 +293,20 @@ class SSLContext:
             for storename in self._windows_cert_stores:
                 self._load_windows_store_certs(storename, purpose)
 
-        self._context.set_default_verify_paths()
+        self.set_default_verify_paths()
+
+    def set_default_verify_paths(self) -> None:
+        try:
+            import certifi
+        except ImportError:
+            pass
+        else:
+            self.load_verify_locations(cafile=certifi.where())
 
     @staticmethod
-    def _get_version(value: TLSVersion, default: tls.TLSVersion) -> tls.TLSVersion:
+    def _get_version(
+        value: TLSVersion, default: tls.TLSVersion
+    ) -> tls.TLSVersion:
         if value == TLSVersion.MAXIMUM_SUPPORTED:
             return tls.TLSVersion.TLSv1_3
         elif value == TLSVersion.MINIMUM_SUPPORTED:

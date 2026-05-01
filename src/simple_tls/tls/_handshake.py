@@ -105,9 +105,9 @@ class TLSHandshake:
         self.do_message_cb: typing.Callable[[str, HandshakeMessage], None] = (
             lambda rw, m: None
         )
-        self.setup_traffic_cb: typing.Callable[[Direction, Epoch, TLSCipher], None] = (
-            lambda d, e, c: None
-        )
+        self.setup_traffic_cb: typing.Callable[
+            [Direction, Epoch, TLSCipher], None
+        ] = lambda d, e, c: None
         self.update_traffic_cb: typing.Callable[[Direction, Epoch], None] = (
             lambda d, e: None
         )
@@ -189,7 +189,9 @@ class TLSHandshake:
         self._dec_secret: dict[Epoch, bytes] = {}
 
         if self._minimum_version > self._maximum_version:
-            raise ValueError("minimum_version cannot be larger then maximum_version")
+            raise ValueError(
+                "minimum_version cannot be larger then maximum_version"
+            )
 
     @property
     def done(self) -> bool:
@@ -329,7 +331,9 @@ class TLSHandshake:
         del self._hs_buf[:data_len]
         return self._cache
 
-    def _add_message(self, message: HandshakeMessage, update_hash: bool = True) -> None:
+    def _add_message(
+        self, message: HandshakeMessage, update_hash: bool = True
+    ) -> None:
         handshake = Handshake(message.handshake_type, message.serialize())
         handshake_data = handshake.serialize()
         self._pending_hs_data.extend(handshake_data)
@@ -399,7 +403,9 @@ class TLSHandshake:
             fixed_iv=read_iv,
             encrypt_then_mac=encrypt_then_mac,
         )
-        self.setup_traffic_cb(Direction.DECRYPT, Epoch.APPLICATION_DATA, read_cipher)
+        self.setup_traffic_cb(
+            Direction.DECRYPT, Epoch.APPLICATION_DATA, read_cipher
+        )
 
         write_cipher = TLSCipher(
             direction=Direction.ENCRYPT,
@@ -410,7 +416,9 @@ class TLSHandshake:
             fixed_iv=write_iv,
             encrypt_then_mac=encrypt_then_mac,
         )
-        self.setup_traffic_cb(Direction.ENCRYPT, Epoch.APPLICATION_DATA, write_cipher)
+        self.setup_traffic_cb(
+            Direction.ENCRYPT, Epoch.APPLICATION_DATA, write_cipher
+        )
 
     def _setup_traffic_key_tls13(
         self,
@@ -469,8 +477,12 @@ class TLSHandshake:
         version = session.protocol_version()
         cipher_suite = session.cipher_suite
         key_size, iv_size = TLSCipher.get_key_iv_size(version, cipher_suite)
-        key = self._key_schedule.hkdf_expand_label(secret, b"key", b"", key_size)
-        fixed_nonce = self._key_schedule.hkdf_expand_label(secret, b"iv", b"", iv_size)
+        key = self._key_schedule.hkdf_expand_label(
+            secret, b"key", b"", key_size
+        )
+        fixed_nonce = self._key_schedule.hkdf_expand_label(
+            secret, b"iv", b"", iv_size
+        )
         cipher = TLSCipher(
             direction=direction,
             version=version,
@@ -564,7 +576,9 @@ class TLSHandshake:
             except ValueError as exc:
                 raise AlertBadCertificate(str(exc))
             except UnsupportedCompression:
-                raise AlertInternalError("certificate compression is unsupported")
+                raise AlertInternalError(
+                    "certificate compression is unsupported"
+                )
         else:
             certificate = message.get_handshake(CertificateTLS13)
 
@@ -621,7 +635,9 @@ class TLSHandshake:
                     compression_algorithm, certificate
                 )
             except UnsupportedCompression:
-                raise AlertInternalError("certificate compression is unsupported")
+                raise AlertInternalError(
+                    "certificate compression is unsupported"
+                )
 
         return certificate
 
@@ -655,7 +671,10 @@ class TLSHandshake:
             cipher_suite = None
 
         if isinstance(public_key, rsa.RSAPublicKey):
-            if cipher_suite is not None and cipher_suite.auth != Authentication.RSA:
+            if (
+                cipher_suite is not None
+                and cipher_suite.auth != Authentication.RSA
+            ):
                 raise AlertIllegalParameter("Invalid key type")
 
             if public_key.key_size < 1024:
@@ -664,7 +683,10 @@ class TLSHandshake:
                 )
 
         elif isinstance(public_key, dsa.DSAPublicKey):
-            if cipher_suite is not None and cipher_suite.auth != Authentication.DSS:
+            if (
+                cipher_suite is not None
+                and cipher_suite.auth != Authentication.DSS
+            ):
                 raise AlertIllegalParameter("Invalid key type")
 
             if public_key.key_size < 1024:
@@ -673,16 +695,24 @@ class TLSHandshake:
                 )
 
         elif isinstance(public_key, ec.EllipticCurvePublicKey):
-            if cipher_suite is not None and cipher_suite.auth != Authentication.ECDSA:
+            if (
+                cipher_suite is not None
+                and cipher_suite.auth != Authentication.ECDSA
+            ):
                 raise AlertIllegalParameter("Invalid key type")
 
-        elif isinstance(public_key, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)):
+        elif isinstance(
+            public_key, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)
+        ):
             if version <= TLSVersion.TLSv1_1:
                 raise AlertIllegalParameter(
                     "Unexpected EdDSA Key for older TLS version"
                 )
 
-            if cipher_suite is not None and cipher_suite.auth != Authentication.ECDSA:
+            if (
+                cipher_suite is not None
+                and cipher_suite.auth != Authentication.ECDSA
+            ):
                 raise AlertIllegalParameter("Invalid key type")
 
         else:
@@ -822,7 +852,9 @@ class TLSHandshake:
         hostname: bytes | str | None = None,
     ) -> None:
         if session.x509_peer is None or session.x509_chain is None:
-            raise AlertInternalError("Missing x509_peer or x509_chain in session")
+            raise AlertInternalError(
+                "Missing x509_peer or x509_chain in session"
+            )
 
         ee_policy = context.ee_policy
         ca_policy = context.ca_policy
@@ -834,7 +866,9 @@ class TLSHandshake:
 
             if hostname:
                 san_validator = SANValidator(bytes_to_str(hostname))
-                ee_policy = ee_policy.require_present(san_validator.oid, san_validator)
+                ee_policy = ee_policy.require_present(
+                    san_validator.oid, san_validator
+                )
 
         eku_validator = EKUValidator(purpose)
         ee_policy = ee_policy.require_present(eku_validator.oid, eku_validator)
@@ -846,7 +880,9 @@ class TLSHandshake:
             ca_policy=ca_policy,
         )
         try:
-            verified_certs = verifier.verify(session.x509_peer, session.x509_chain)
+            verified_certs = verifier.verify(
+                session.x509_peer, session.x509_chain
+            )
         except (x509.CertificateExpired, x509.CertificateNotYetValid) as exc:
             raise AlertCertificateExpired(str(exc))
         except x509.UntrustedRoot as exc:
@@ -902,7 +938,9 @@ class TLSHandshake:
                 raise AlertInternalError("Missing key_schedule")
 
             context_string = (
-                CLIENT_CONTEXT_STRING if self.server_side else SERVER_CONTEXT_STRING
+                CLIENT_CONTEXT_STRING
+                if self.server_side
+                else SERVER_CONTEXT_STRING
             )
             data = self._key_schedule.certificate_verify_data(
                 context_string, self._transcript
@@ -911,6 +949,8 @@ class TLSHandshake:
             data = self._transcript.get()
 
         try:
-            verify_signature(peer_public_key, cert_verify.signature, data, verify_alg)
+            verify_signature(
+                peer_public_key, cert_verify.signature, data, verify_alg
+            )
         except InvalidSignature:
             raise AlertDecryptError("Invalid signature in certificate verify")

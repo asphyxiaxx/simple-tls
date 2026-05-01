@@ -90,7 +90,9 @@ def wycheproof_tests(*paths):
         @pytest.mark.parametrize("path", paths)
         def wrapper(path, subtests, pytestconfig):
             if pytestconfig.getoption("--no-wycheproof"):
-                pytest.skip("Skipping Wycheproof test (--no-wycheproof flag provided)")
+                pytest.skip(
+                    "Skipping Wycheproof test (--no-wycheproof flag provided)"
+                )
 
             for test_case in yield_wycheproof_tests(path):
                 with subtests.test(file=path, tc_id=test_case.tc_id):
@@ -107,7 +109,9 @@ SERVER_RSA_CERTFILE = format_path("certs", "server_rsa_chain.crt")
 SERVER_RSA_KEYFILE = format_path("certs", "server_rsa.key")
 SERVER_DSA_CERTFILE = format_path("certs", "server_dsa_chain.crt")
 SERVER_DSA_KEYFILE = format_path("certs", "server_dsa.key")
-SERVER_EC_SECP256R1_CERTFILE = format_path("certs", "server_ec_secp256r1_chain.crt")
+SERVER_EC_SECP256R1_CERTFILE = format_path(
+    "certs", "server_ec_secp256r1_chain.crt"
+)
 SERVER_EC_SECP256R1_KEYFILE = format_path("certs", "server_ec_secp256r1.key")
 SERVER_ED25519_CERTFILE = format_path("certs", "server_ed25519_chain.crt")
 SERVER_ED25519_KEYFILE = format_path("certs", "server_ed25519.key")

@@ -125,7 +125,9 @@ def test_seal(test_vectors, kem_id, kdf_id, aead_id):
                 sk_s = suite.kem.deserialize_private_key(sk_sm)
                 psk = unhexlify(vector["psk"])
                 psk_id = unhexlify(vector["psk_id"])
-                enc, context = suite.setup_auth_psk_send(pk_r, info, sk_s, psk, psk_id)
+                enc, context = suite.setup_auth_psk_send(
+                    pk_r, info, sk_s, psk, psk_id
+                )
             else:
                 continue
 
@@ -188,7 +190,9 @@ def test_open(test_vectors, kem_id, kdf_id, aead_id):
             pk_s = suite.kem.deserialize_public_key(pk_sm)
             psk = unhexlify(vector["psk"])
             psk_id = unhexlify(vector["psk_id"])
-            context = suite.setup_auth_psk_recv(enc, sk_r, info, pk_s, psk, psk_id)
+            context = suite.setup_auth_psk_recv(
+                enc, sk_r, info, pk_s, psk, psk_id
+            )
         else:
             continue
 

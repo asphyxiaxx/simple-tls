@@ -352,7 +352,9 @@ class CustomSSLContext:
                 ssl_conn.set_tlsext_host_name(host_name)
 
         elif verify is not stls.TLSVerifyMode.CERT_NONE:
-            raise ValueError("Cannot validate certificate hostname without SNI")
+            raise ValueError(
+                "Cannot validate certificate hostname without SNI"
+            )
 
         if server.alpn_offers:
             ssl_conn.set_alpn_protos(server.alpn_offers)

@@ -12,4 +12,6 @@ else:
 Buffer: TypeAlias = typing.Union[bytes, bytearray, memoryview]
 ReadableBuffer: TypeAlias = Buffer
 WritableBuffer: TypeAlias = typing.Union[bytearray, memoryview]
-StrOrBytesPath: TypeAlias = typing.Union[str, bytes, PathLike[str], PathLike[bytes]]
+StrOrBytesPath: TypeAlias = typing.Union[
+    str, bytes, PathLike[str], PathLike[bytes]
+]

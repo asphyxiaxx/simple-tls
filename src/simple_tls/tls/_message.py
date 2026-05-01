@@ -127,7 +127,9 @@ class Handshake(Message):
     handshake_type: int
     data: bytes
 
-    _cache: typing.Any = field(default=None, init=False, repr=False, compare=False)
+    _cache: typing.Any = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Handshake:

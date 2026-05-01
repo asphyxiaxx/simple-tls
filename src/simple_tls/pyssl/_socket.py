@@ -105,8 +105,12 @@ class SSLSocket(_ssl.SSLSocket):
                     # This prevents pending data sent to the socket before it was
                     # closed from escaping to the caller who could otherwise
                     # presume it came through a successful TLS connection.
-                    reason = "Closed before TLS handshake with data in recv buffer."
-                    notconn_pre_handshake_data_error = SSLError(e.errno, reason)
+                    reason = (
+                        "Closed before TLS handshake with data in recv buffer."
+                    )
+                    notconn_pre_handshake_data_error = SSLError(
+                        e.errno, reason
+                    )
                     # Add the SSLError attributes that _ssl.c always adds.
                     notconn_pre_handshake_data_error.reason = reason
                     notconn_pre_handshake_data_error.library = ""
@@ -141,7 +145,9 @@ class SSLSocket(_ssl.SSLSocket):
                     context=self._context._context,
                     server_side=self.server_side,
                     server_hostname=self.server_hostname,
-                    session=(session.session if session is not None else session),
+                    session=(
+                        session.session if session is not None else session
+                    ),
                     session_ticket_handler=session_ticket_handler,
                 )
 
@@ -193,7 +199,9 @@ class SSLSocket(_ssl.SSLSocket):
         return None
 
     def dup(self) -> SSLSocket:
-        raise NotImplementedError(f"Can't dup() {self.__class__.__name__} instances")
+        raise NotImplementedError(
+            f"Can't dup() {self.__class__.__name__} instances"
+        )
 
     def _checkClosed(self, msg: typing.Any | None = None) -> None:
         # raise an exception here if you wish to check for spurious closes
@@ -210,7 +218,9 @@ class SSLSocket(_ssl.SSLSocket):
     def _session_ticket_handler(self, session: tls.TLSSession) -> None:
         self._session = SSLSession(session)
 
-    def _drive_tls(self, func: typing.Callable, *args: typing.Any) -> typing.Any:
+    def _drive_tls(
+        self, func: typing.Callable, *args: typing.Any
+    ) -> typing.Any:
         """
         Drive a TLS operation safely in non-blocking mode.
         """
@@ -332,10 +342,14 @@ class SSLSocket(_ssl.SSLSocket):
         return self._drive_tls(self._sslobj.write, data)
 
     @typing.overload  # type: ignore[override]
-    def getpeercert(self, binary_form: typing.Literal[False] = ...) -> dict | None: ...
+    def getpeercert(
+        self, binary_form: typing.Literal[False] = ...
+    ) -> dict | None: ...
 
     @typing.overload  # type: ignore[override]
-    def getpeercert(self, binary_form: typing.Literal[True] = ...) -> bytes | None: ...
+    def getpeercert(
+        self, binary_form: typing.Literal[True] = ...
+    ) -> bytes | None: ...
 
     def getpeercert(self, binary_form: bool = False) -> dict | bytes | None:
         self._checkClosed()
@@ -508,7 +522,9 @@ class SSLSocket(_ssl.SSLSocket):
     ) -> None: ...
 
     @typing.overload
-    def _real_connect(self, addr: "_Address", connect_ex: bool) -> int | None: ...
+    def _real_connect(
+        self, addr: "_Address", connect_ex: bool
+    ) -> int | None: ...
 
     def _real_connect(self, addr: "_Address", connect_ex: bool) -> int | None:
         if self.server_side:

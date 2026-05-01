@@ -421,7 +421,10 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
     assert client.established_session is not None
-    assert client.established_session.peer_signature_algorithm == signature_algorithm
+    assert (
+        client.established_session.peer_signature_algorithm
+        == signature_algorithm
+    )
 
 
 def test_tls13_handshake_with_ec_secp256r1():
@@ -445,7 +448,10 @@ def test_tls13_handshake_with_ec_secp256r1():
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
     assert client.established_session is not None
-    assert client.established_session.peer_signature_algorithm == signature_algorithm
+    assert (
+        client.established_session.peer_signature_algorithm
+        == signature_algorithm
+    )
 
 
 def test_tls13_handshake_hello_retry_request(subtests):

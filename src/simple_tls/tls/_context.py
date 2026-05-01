@@ -272,7 +272,9 @@ class TLSContext:
     @session_keys.setter
     def session_keys(self, value: TLSSessionKeys | None) -> None:
         if value is not None and not isinstance(value, TLSSessionKeys):
-            raise TypeError("session_storage must be TLSSessionKeysManager instance")
+            raise TypeError(
+                "session_storage must be TLSSessionKeysManager instance"
+            )
         self._session_keys = value
 
     @property
@@ -282,7 +284,9 @@ class TLSContext:
     @session_storage.setter
     def session_storage(self, value: TLSSessionStorage | None) -> None:
         if value is not None and not isinstance(value, TLSSessionStorage):
-            raise TypeError("session_storage must be TLSSessionStorage instance")
+            raise TypeError(
+                "session_storage must be TLSSessionStorage instance"
+            )
         self._session_storage = value
 
     @property
@@ -292,7 +296,8 @@ class TLSContext:
     @cipher_suites.setter
     def cipher_suites(self, value: typing.Sequence[CipherSuite]) -> None:
         self._cipher_suites = tuple(
-            CipherSuite(v) if not isinstance(v, CipherSuite) else v for v in value
+            CipherSuite(v) if not isinstance(v, CipherSuite) else v
+            for v in value
         )
 
     @property
@@ -467,6 +472,3 @@ class TLSContext:
             else:
                 certificates = x509.load_der_x509_certificates(cadata)
                 self.castore.extend(certificates)
-
-    def set_default_verify_paths(self) -> None:
-        pass

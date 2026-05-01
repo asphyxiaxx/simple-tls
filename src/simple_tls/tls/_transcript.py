@@ -62,7 +62,9 @@ class Transcript:
         cls = self.__class__
         new = cls.__new__(cls)
         new.__buffer = self.__buffer.copy()
-        new.__hashes = {hashalg: h.copy() for hashalg, h in self.__hashes.items()}
+        new.__hashes = {
+            hashalg: h.copy() for hashalg, h in self.__hashes.items()
+        }
         return new
 
 
@@ -183,12 +185,19 @@ class KeySchedule:
         self.secret = bytes(self.digest_size)
         self.label_prefix = b"tls13"
 
-    def certificate_verify_data(self, context: bytes, transcript: Transcript) -> bytes:
+    def certificate_verify_data(
+        self, context: bytes, transcript: Transcript
+    ) -> bytes:
         return (
-            (b"\x20" * 64) + context + b"\x00" + transcript.digest(self.hash_algorithm)
+            (b"\x20" * 64)
+            + context
+            + b"\x00"
+            + transcript.digest(self.hash_algorithm)
         )
 
-    def finished_verify_data(self, secret: bytes, transcript: Transcript) -> bytes:
+    def finished_verify_data(
+        self, secret: bytes, transcript: Transcript
+    ) -> bytes:
         hmac_key = self.hkdf_expand_label(
             secret=secret,
             label=b"finished",

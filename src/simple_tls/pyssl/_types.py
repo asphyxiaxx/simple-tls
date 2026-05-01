@@ -17,4 +17,6 @@ else:
 
 ReadableBuffer: TypeAlias = Buffer
 WritableBuffer: TypeAlias = Buffer
-StrOrBytesPath: TypeAlias = typing.Union[str, bytes, PathLike[str], PathLike[bytes]]
+StrOrBytesPath: TypeAlias = typing.Union[
+    str, bytes, PathLike[str], PathLike[bytes]
+]

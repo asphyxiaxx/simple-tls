@@ -50,9 +50,17 @@ dependencies = [
 "Homepage" = "https://github.com/asphyxiaxx/simple-tls"
 "Bug Tracker" = "https://github.com/asphyxiaxx/simple-tls/issues"
 
+[tool.mypy]
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+ignore_missing_imports = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+
 [tool.ruff]
-line-length = 88
+line-length = 79
 
 [tool.ruff.format]
 docstring-code-format = true
-docstring-code-line-length = 88
+docstring-code-line-length = 79

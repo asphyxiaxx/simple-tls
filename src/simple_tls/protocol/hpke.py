@@ -230,7 +230,9 @@ class DHKEM_Weierstrass(DHKEM):
         return int_to_bytes(scalar, sk_x.key_size // 8)
 
     @classmethod
-    def deserialize_private_key(cls, sk_xm: bytes) -> ec.EllipticCurvePrivateKey:
+    def deserialize_private_key(
+        cls, sk_xm: bytes
+    ) -> ec.EllipticCurvePrivateKey:
         scalar = bytes_to_int(sk_xm)
         return ec.derive_private_key(scalar, cls.curve)
 
@@ -416,7 +418,9 @@ class CipherSuite:
     kdf: type[HKDF]
     aead: type[AEAD]
 
-    def _verify_psk_inputs(self, mode: Mode, psk: bytes, psk_id: bytes) -> None:
+    def _verify_psk_inputs(
+        self, mode: Mode, psk: bytes, psk_id: bytes
+    ) -> None:
         if not isinstance(psk, bytes):
             raise TypeError("psk must be bytes object")
         if not isinstance(psk_id, bytes):
@@ -433,7 +437,9 @@ class CipherSuite:
         if got_psk:
             assert mode in (Mode.PSK, Mode.AUTH_PSK)
             if len(psk) < 32:
-                raise ValueError("the PSK MUST have at least 32 bytes of entropy")
+                raise ValueError(
+                    "the PSK MUST have at least 32 bytes of entropy"
+                )
         else:
             assert mode in (Mode.BASE, Mode.AUTH)
 
@@ -453,7 +459,9 @@ class CipherSuite:
         aead = self.aead
         suite_id = b"HPKE" + struct.pack(">HHH", kem.id, kdf.id, aead.id)
 
-        psk_id_hash = kdf.labeled_extract(b"", b"psk_id_hash", psk_id, suite_id)
+        psk_id_hash = kdf.labeled_extract(
+            b"", b"psk_id_hash", psk_id, suite_id
+        )
         info_hash = kdf.labeled_extract(b"", b"info_hash", info, suite_id)
         key_schedule_context = bytes([mode]) + psk_id_hash + info_hash
 
@@ -461,7 +469,9 @@ class CipherSuite:
 
         nk = aead.key_size
         nn = aead.nonce_size
-        key = kdf.labeled_expand(secret, b"key", key_schedule_context, nk, suite_id)
+        key = kdf.labeled_expand(
+            secret, b"key", key_schedule_context, nk, suite_id
+        )
         base_nonce = kdf.labeled_expand(
             secret, b"base_nonce", key_schedule_context, nn, suite_id
         )
@@ -483,7 +493,9 @@ class CipherSuite:
     ) -> tuple[bytes, SenderContext]:
         mode = Mode.BASE
         shared_secret, enc = self.kem.encap(pk_r)
-        return enc, self._key_schedule(SenderContext, mode, shared_secret, info)
+        return enc, self._key_schedule(
+            SenderContext, mode, shared_secret, info
+        )
 
     def setup_recv(
         self, enc: bytes, sk_r: HPKEPrivateKeyType, info: bytes
@@ -520,7 +532,9 @@ class CipherSuite:
     ) -> tuple[bytes, SenderContext]:
         mode = Mode.AUTH
         shared_secret, enc = self.kem.auth_encap(pk_r, sk_s)
-        return enc, self._key_schedule(SenderContext, mode, shared_secret, info)
+        return enc, self._key_schedule(
+            SenderContext, mode, shared_secret, info
+        )
 
     def setup_auth_recv(
         self,

@@ -220,7 +220,9 @@ class PrefixedIntListExtension(TLSExtension):
 
     def serialize(self) -> bytes:
         writer = Writer()
-        writer.write_prefixed_int_list(self.data, self._item_size, self._prefix_size)
+        writer.write_prefixed_int_list(
+            self.data, self._item_size, self._prefix_size
+        )
         data = writer.tobytes()
 
         if not (self._min_length <= len(data) <= self._max_length):
@@ -608,7 +610,9 @@ class ClientStatusRequestExtension(TLSExtension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientStatusRequestExtension(responder_id_list, request_extensions)
+        return ClientStatusRequestExtension(
+            responder_id_list, request_extensions
+        )
 
     def serialize(self) -> bytes:
         rid_writer = Writer()
@@ -841,12 +845,16 @@ class ServerEarlyDataExtension(EmptyExtension):
 
 @dataclass
 class ClientSCTExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
+    extension_type: typing.ClassVar[int] = (
+        ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
+    )
 
 
 @dataclass
 class ServerSCTExtension(PrefixedBytesExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
+    extension_type: typing.ClassVar[int] = (
+        ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
+    )
     _prefix_size = 2
 
 

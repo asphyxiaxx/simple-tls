@@ -349,9 +349,15 @@ class SignatureScheme(int, TLSEnum):
 
     ECDSA_SHA1 = _sigscheme(HashAlgorithm.SHA1, SignatureAlgorithm.ECDSA)
     ECDSA_SHA224 = _sigscheme(HashAlgorithm.SHA224, SignatureAlgorithm.ECDSA)
-    ECDSA_SECP256R1_SHA256 = _sigscheme(HashAlgorithm.SHA256, SignatureAlgorithm.ECDSA)
-    ECDSA_SECP384R1_SHA384 = _sigscheme(HashAlgorithm.SHA384, SignatureAlgorithm.ECDSA)
-    ECDSA_SECP521R1_SHA512 = _sigscheme(HashAlgorithm.SHA512, SignatureAlgorithm.ECDSA)
+    ECDSA_SECP256R1_SHA256 = _sigscheme(
+        HashAlgorithm.SHA256, SignatureAlgorithm.ECDSA
+    )
+    ECDSA_SECP384R1_SHA384 = _sigscheme(
+        HashAlgorithm.SHA384, SignatureAlgorithm.ECDSA
+    )
+    ECDSA_SECP521R1_SHA512 = _sigscheme(
+        HashAlgorithm.SHA512, SignatureAlgorithm.ECDSA
+    )
 
     ED25519 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.ED25519)
     ED448 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.ED448)

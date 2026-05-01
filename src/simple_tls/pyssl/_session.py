@@ -4,7 +4,9 @@ from simple_tls import tls
 class SSLSession:
     def __init__(self, session: tls.TLSSession):
         if not isinstance(session, tls.TLSSession):
-            raise TypeError(f"session must be TLSSession object, not {session}")
+            raise TypeError(
+                f"session must be TLSSession object, not {session}"
+            )
 
         self._session = session
 

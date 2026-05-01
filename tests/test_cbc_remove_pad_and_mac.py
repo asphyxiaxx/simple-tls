@@ -27,7 +27,9 @@ def test_cbc_remove_pad_and_mac_constant_time(vector):
         expected_length = vector["expected_length"]
         expected_mac = bytes.fromhex(vector["expected_mac_hex"])
 
-        length, extracted_mac = cbc_remove_pad_and_mac(data, digest_size, block_size)
+        length, extracted_mac = cbc_remove_pad_and_mac(
+            data, digest_size, block_size
+        )
 
         assert length == expected_length, (
             f"Expected length {expected_length}, got {length}"

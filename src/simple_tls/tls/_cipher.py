@@ -214,7 +214,9 @@ class TLSCipher:
                     open = self._decrypt_then_mac
 
                 self._max_overhead = (
-                    self._block_size + algorithm.digest_size + self._variable_nonce_len
+                    self._block_size
+                    + algorithm.digest_size
+                    + self._variable_nonce_len
                 )
 
             else:
@@ -610,7 +612,9 @@ class TLSCipher:
             raise InvalidTag("ciphertext length not multiple of block_length")
 
         try:
-            plaintext_len, _ = cbc_remove_pad_and_mac(out[:written], 0, block_size)
+            plaintext_len, _ = cbc_remove_pad_and_mac(
+                out[:written], 0, block_size
+            )
         except ValueError as exc:
             raise InvalidTag(exc)
 
