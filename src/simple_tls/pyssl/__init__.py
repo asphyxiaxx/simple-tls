@@ -1,0 +1,196 @@
+# Copyright (c) 2026 The simple-tls Contributors
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the “Software”), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+from __future__ import annotations
+
+from ._constant import (
+    ALERT_DESCRIPTION_ACCESS_DENIED,
+    ALERT_DESCRIPTION_BAD_CERTIFICATE,
+    ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE,
+    ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE,
+    ALERT_DESCRIPTION_BAD_RECORD_MAC,
+    ALERT_DESCRIPTION_CERTIFICATE_EXPIRED,
+    ALERT_DESCRIPTION_CERTIFICATE_REVOKED,
+    ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN,
+    ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE,
+    ALERT_DESCRIPTION_CLOSE_NOTIFY,
+    ALERT_DESCRIPTION_DECODE_ERROR,
+    ALERT_DESCRIPTION_DECOMPRESSION_FAILURE,
+    ALERT_DESCRIPTION_DECRYPT_ERROR,
+    ALERT_DESCRIPTION_HANDSHAKE_FAILURE,
+    ALERT_DESCRIPTION_ILLEGAL_PARAMETER,
+    ALERT_DESCRIPTION_INSUFFICIENT_SECURITY,
+    ALERT_DESCRIPTION_INTERNAL_ERROR,
+    ALERT_DESCRIPTION_NO_RENEGOTIATION,
+    ALERT_DESCRIPTION_PROTOCOL_VERSION,
+    ALERT_DESCRIPTION_RECORD_OVERFLOW,
+    ALERT_DESCRIPTION_UNEXPECTED_MESSAGE,
+    ALERT_DESCRIPTION_UNKNOWN_CA,
+    ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY,
+    ALERT_DESCRIPTION_UNRECOGNIZED_NAME,
+    ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE,
+    ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION,
+    ALERT_DESCRIPTION_USER_CANCELLED,
+    CERT_NONE,
+    CERT_OPTIONAL,
+    CERT_REQUIRED,
+    CHANNEL_BINDING_TYPES,
+    HAS_NEVER_CHECK_COMMON_NAME,
+    OP_ALL,
+    OP_CIPHER_SERVER_PREFERENCE,
+    OP_ENABLE_MIDDLEBOX_COMPAT,
+    OP_NO_COMPRESSION,
+    OP_NO_RENEGOTIATION,
+    OP_NO_TICKET,
+    OP_SINGLE_DH_USE,
+    OP_SINGLE_ECDH_USE,
+    PEM_FOOTER,
+    PEM_HEADER,
+    PROTOCOL_TLS,
+    PROTOCOL_TLS_CLIENT,
+    PROTOCOL_TLS_SERVER,
+    SSL_ERROR_EOF,
+    SSL_ERROR_WANT_READ,
+    SSL_ERROR_WANT_WRITE,
+    AlertDescription,
+    Options,
+    PROTOCOL_TLSv1,
+    PROTOCOL_TLSv1_1,
+    PROTOCOL_TLSv1_2,
+    Purpose,
+    TLSVersion,
+    VerifyFlags,
+    VerifyMode,
+)
+from ._context import SSLContext
+from ._exception import (
+    SSLEOFError,
+    SSLError,
+    SSLSyscallError,
+    SSLWantReadError,
+    SSLWantWriteError,
+    SSLZeroReturnError,
+    socket_error,
+)
+from ._object import SSLObject
+from ._session import SSLSession
+from ._socket import SSLSocket
+from ._util import (
+    DER_cert_to_PEM_cert,
+    PEM_cert_to_DER_cert,
+    cert_time_to_seconds,
+    create_default_context,
+    get_default_verify_paths,
+    get_protocol_name,
+    get_server_certificate,
+)
+
+__all__ = [
+    "ALERT_DESCRIPTION_ACCESS_DENIED",
+    "ALERT_DESCRIPTION_BAD_CERTIFICATE",
+    "ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE",
+    "ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE",
+    "ALERT_DESCRIPTION_BAD_RECORD_MAC",
+    "ALERT_DESCRIPTION_CERTIFICATE_EXPIRED",
+    "ALERT_DESCRIPTION_CERTIFICATE_REVOKED",
+    "ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN",
+    "ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE",
+    "ALERT_DESCRIPTION_CLOSE_NOTIFY",
+    "ALERT_DESCRIPTION_DECODE_ERROR",
+    "ALERT_DESCRIPTION_DECOMPRESSION_FAILURE",
+    "ALERT_DESCRIPTION_DECRYPT_ERROR",
+    "ALERT_DESCRIPTION_HANDSHAKE_FAILURE",
+    "ALERT_DESCRIPTION_ILLEGAL_PARAMETER",
+    "ALERT_DESCRIPTION_INSUFFICIENT_SECURITY",
+    "ALERT_DESCRIPTION_INTERNAL_ERROR",
+    "ALERT_DESCRIPTION_NO_RENEGOTIATION",
+    "ALERT_DESCRIPTION_PROTOCOL_VERSION",
+    "ALERT_DESCRIPTION_RECORD_OVERFLOW",
+    "ALERT_DESCRIPTION_UNEXPECTED_MESSAGE",
+    "ALERT_DESCRIPTION_UNKNOWN_CA",
+    "ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY",
+    "ALERT_DESCRIPTION_UNRECOGNIZED_NAME",
+    "ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE",
+    "ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION",
+    "ALERT_DESCRIPTION_USER_CANCELLED",
+    "CERT_NONE",
+    "CERT_OPTIONAL",
+    "CERT_REQUIRED",
+    "CHANNEL_BINDING_TYPES",
+    "HAS_NEVER_CHECK_COMMON_NAME",
+    "OP_ALL",
+    "OP_CIPHER_SERVER_PREFERENCE",
+    "OP_ENABLE_MIDDLEBOX_COMPAT",
+    "OP_NO_COMPRESSION",
+    "OP_NO_RENEGOTIATION",
+    "OP_NO_TICKET",
+    "OP_SINGLE_DH_USE",
+    "OP_SINGLE_ECDH_USE",
+    "PEM_FOOTER",
+    "PEM_HEADER",
+    "PROTOCOL_TLS",
+    "PROTOCOL_TLS_CLIENT",
+    "PROTOCOL_TLS_SERVER",
+    "SSL_ERROR_EOF",
+    "SSL_ERROR_WANT_READ",
+    "SSL_ERROR_WANT_WRITE",
+    "AlertDescription",
+    "Options",
+    "PROTOCOL_TLSv1",
+    "PROTOCOL_TLSv1_1",
+    "PROTOCOL_TLSv1_2",
+    "Purpose",
+    "TLSVersion",
+    "VerifyFlags",
+    "VerifyMode",
+    "SSLContext",
+    "SSLEOFError",
+    "SSLError",
+    "SSLSyscallError",
+    "SSLWantReadError",
+    "SSLWantWriteError",
+    "SSLZeroReturnError",
+    "socket_error",
+    "SSLObject",
+    "SSLSession",
+    "SSLSocket",
+    "DER_cert_to_PEM_cert",
+    "PEM_cert_to_DER_cert",
+    "cert_time_to_seconds",
+    "create_default_context",
+    "get_default_verify_paths",
+    "get_protocol_name",
+    "get_server_certificate",
+]
+
+
+for __class in (
+    SSLContext,
+    SSLObject,
+    SSLSocket,
+    SSLSession,
+    SSLEOFError,
+    SSLError,
+    SSLSyscallError,
+    SSLWantReadError,
+    SSLWantWriteError,
+    SSLZeroReturnError,
+    create_default_context,
+):
+    __class.__module__ = "simple_tls.pyssl"

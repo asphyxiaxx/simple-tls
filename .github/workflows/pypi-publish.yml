@@ -1,0 +1,106 @@
+name: Build and Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install packages
+        run: pip install check-manifest mypy ruff cryptography==43.0.0
+
+      - name: Run linters
+        run: |
+          ruff check src
+          ruff format --check --diff src
+          mypy src
+
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }} (${{ matrix.arch }})
+    needs: [lint]
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS
+          - os: macos-lastest
+            arch: arm64
+          - os: macos-latest
+            arch: x86_64 # Older Intel Macs
+
+          # Linux
+          - os: ubuntu-latest # Standard 64-bit Linux (Intel/AMD)
+            arch: x86_64
+          - os: ubuntu-24.04-arm # Modern ARM-based Linux servers (e.g., AWS Graviton)
+            arch: aarch64
+          - os: ubuntu-latest # 32-bit Linux (Still uses Ubuntu, but targets i686)
+            arch: i686
+
+          # Windows
+          - os: windows-latest # Standard 64-bit Windows
+            arch: AMD64
+          - os: windows-latest # 32-bit Windows
+            arch: x86
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.1.0
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+          CIBW_SKIP: "pp*"
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
+          CIBW_PRERELEASE_PYTHONS: "1"
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: pytest {project}/tests
+          # cryptography doesnt have prebuild binary for 32-bit platforms
+          CIBW_TEST_SKIP: "*-{manylinux_i686,musllinux_i686,musllinux_1_1,win32}"
+
+      - name: Upload wheels as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ matrix.arch }}
+          path: ./wheelhouse/*.whl
+
+  upload_pypi:
+    name: Upload to PyPI
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/simple-tls
+
+    steps:
+      - name: Download all compiled wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
