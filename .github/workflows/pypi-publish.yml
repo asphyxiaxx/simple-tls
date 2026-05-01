@@ -35,7 +35,7 @@ jobs:
       matrix:
         include:
           # macOS
-          - os: macos-lastest
+          - os: macos-latest
             arch: arm64
           - os: macos-latest
             arch: x86_64 # Older Intel Macs
