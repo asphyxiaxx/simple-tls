@@ -63,7 +63,14 @@ warn_unused_ignores = false
 
 [tool.ruff]
 line-length = 79
-
-[tool.ruff.format]
-docstring-code-format = true
-docstring-code-line-length = 79
+lint.ignore = ["N801", "N818", "UP007"]
+lint.select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "N",
+    "UP", # pyupgrade
+    "RUF",
+]
