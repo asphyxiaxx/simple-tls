@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -119,12 +120,14 @@ class ExtensionPolicy:
     def __init__(
         self,
         *,
-        _may_be_present: typing.Optional[
-            dict[ObjectIdentifier, MaybeExtensionValidatorCallback | None]
-        ] = None,
-        _require_present: typing.Optional[
-            dict[ObjectIdentifier, PresentExtensionValidatorCallback | None]
-        ] = None,
+        _may_be_present: dict[
+            ObjectIdentifier, MaybeExtensionValidatorCallback | None
+        ]
+        | None = None,
+        _require_present: dict[
+            ObjectIdentifier, PresentExtensionValidatorCallback | None
+        ]
+        | None = None,
     ):
         self._may_be_present = (
             _may_be_present.copy() if _may_be_present else {}
@@ -195,7 +198,7 @@ class ExtensionPolicy:
             except ExtensionNotFound:
                 raise PolicyViolationError(
                     f"Extension '{oid}' required not found in {certificate}"
-                )
+                ) from None
 
             if valitator is not None:
                 valitator(verifier, certificate, r_ext)
@@ -310,7 +313,7 @@ class Verifier:
                     continue
                 seen_sigpairs.add(sigid)
 
-                new_chain = chain + [issuer]
+                new_chain = [*chain, issuer]
 
                 # If issuer is in store and acceptable as trust anchor,
                 # record candidate chain
@@ -320,7 +323,8 @@ class Verifier:
                         # assert issuer in store_certs
                         chains.append(new_chain)
                     elif self.allow_partial_chain:
-                        # If partial chains are ok we accept this as candidate anchor
+                        # If partial chains are ok we accept this as candidate
+                        # anchor
                         chains.append(new_chain)
 
                 # continue BFS
@@ -349,7 +353,8 @@ class Verifier:
         if len(chain) > self.max_chain_depth:
             raise PolicyViolationError("chain length exceeds max depth")
 
-        # ca_count_below: number of CA certs below current issuer per RFC pathLen semantics
+        # ca_count_below: number of CA certs below current issuer per RFC
+        # pathLen semantics
         ca_count_below = 0
 
         now = utcnow()
@@ -367,16 +372,16 @@ class Verifier:
             # signature
             self._verify_signature(i, child, issuer)
 
-            # pathLenConstraint (applies to issuer.basicConstraints.path_length)
+            # Basic constraint
             try:
                 bc = issuer.extensions.get_extension_for_class(
                     BasicConstraints
                 ).value
             except ExtensionNotFound:
                 raise PolicyViolationError(
-                    f"{child} at index '{i}' has no basic constraint extension "
-                    f"which is required for CA certificate"
-                )
+                    f"{child} at index '{i}' has no basic constraint extension"
+                    f" which is required for CA certificate"
+                ) from None
 
             if bc.path_length is not None and ca_count_below > bc.path_length:
                 raise PolicyViolationError(
@@ -425,7 +430,7 @@ class Verifier:
             exc_str = str(exc)
             if exc_str:
                 err_str += f" [{exc_str}]"
-            raise SignatureVerificationError(err_str)
+            raise SignatureVerificationError(err_str) from exc
 
     @staticmethod
     def _verify_validity_now(
@@ -440,11 +445,13 @@ class Verifier:
 
         if now + delta < not_before:
             raise CertificateNotYetValid(
-                f"{child} at index '{index}' not valid until {not_before.isoformat()}"
+                f"{child} at index '{index}' not valid until "
+                f"{not_before.isoformat()}"
             )
         if now - delta > not_after:
             raise CertificateExpired(
-                f"{child} at index '{index}' expired at {not_after.isoformat()}"
+                f"{child} at index '{index}' expired at "
+                f"{not_after.isoformat()}"
             )
 
     @staticmethod

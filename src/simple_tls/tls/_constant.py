@@ -1,25 +1,28 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
 import enum
+
+# ruff: disable[E501]
 
 TLS11_DOWNGRADE_SENTINEL = b"DOWNGRD\x00"
 TLS12_DOWNGRADE_SENTINEL = b"DOWNGRD\x01"
@@ -314,6 +317,7 @@ class SignatureAlgorithm(int, TLSEnum):
 
 
 class SignatureScheme(int, TLSEnum):
+    # fmt: off
     RSA_MD5 = _sigscheme(HashAlgorithm.MD5, SignatureAlgorithm.RSA)
 
     RSA_PKCS1_SHA1 = _sigscheme(HashAlgorithm.SHA1, SignatureAlgorithm.RSA)
@@ -322,24 +326,12 @@ class SignatureScheme(int, TLSEnum):
     RSA_PKCS1_SHA384 = _sigscheme(HashAlgorithm.SHA384, SignatureAlgorithm.RSA)
     RSA_PKCS1_SHA512 = _sigscheme(HashAlgorithm.SHA512, SignatureAlgorithm.RSA)
 
-    RSA_PSS_RSAE_SHA256 = _sigscheme(
-        HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_RSAE_SHA256
-    )
-    RSA_PSS_RSAE_SHA384 = _sigscheme(
-        HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_RSAE_SHA384
-    )
-    RSA_PSS_RSAE_SHA512 = _sigscheme(
-        HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_RSAE_SHA512
-    )
-    RSA_PSS_PSS_SHA256 = _sigscheme(
-        HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_PSS_SHA256
-    )
-    RSA_PSS_PSS_SHA384 = _sigscheme(
-        HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_PSS_SHA384
-    )
-    RSA_PSS_PSS_SHA512 = _sigscheme(
-        HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_PSS_SHA512
-    )
+    RSA_PSS_RSAE_SHA256 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_RSAE_SHA256)
+    RSA_PSS_RSAE_SHA384 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_RSAE_SHA384)
+    RSA_PSS_RSAE_SHA512 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_RSAE_SHA512)
+    RSA_PSS_PSS_SHA256 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_PSS_SHA256)
+    RSA_PSS_PSS_SHA384 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_PSS_SHA384)
+    RSA_PSS_PSS_SHA512 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.RSA_PSS_PSS_SHA512)
 
     DSA_SHA1 = _sigscheme(HashAlgorithm.SHA1, SignatureAlgorithm.DSA)
     DSA_SHA224 = _sigscheme(HashAlgorithm.SHA224, SignatureAlgorithm.DSA)
@@ -349,21 +341,16 @@ class SignatureScheme(int, TLSEnum):
 
     ECDSA_SHA1 = _sigscheme(HashAlgorithm.SHA1, SignatureAlgorithm.ECDSA)
     ECDSA_SHA224 = _sigscheme(HashAlgorithm.SHA224, SignatureAlgorithm.ECDSA)
-    ECDSA_SECP256R1_SHA256 = _sigscheme(
-        HashAlgorithm.SHA256, SignatureAlgorithm.ECDSA
-    )
-    ECDSA_SECP384R1_SHA384 = _sigscheme(
-        HashAlgorithm.SHA384, SignatureAlgorithm.ECDSA
-    )
-    ECDSA_SECP521R1_SHA512 = _sigscheme(
-        HashAlgorithm.SHA512, SignatureAlgorithm.ECDSA
-    )
+    ECDSA_SECP256R1_SHA256 = _sigscheme(HashAlgorithm.SHA256, SignatureAlgorithm.ECDSA)
+    ECDSA_SECP384R1_SHA384 = _sigscheme(HashAlgorithm.SHA384, SignatureAlgorithm.ECDSA)
+    ECDSA_SECP521R1_SHA512 = _sigscheme(HashAlgorithm.SHA512, SignatureAlgorithm.ECDSA)
 
     ED25519 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.ED25519)
     ED448 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.ED448)
 
     #
     RSA_MD5_SHA1 = _sigscheme(HashAlgorithm.MD5_SHA1, SignatureAlgorithm.RSA)
+    # fmt: on
 
 
 class TLSVersion(int, TLSEnum):
@@ -381,7 +368,6 @@ class _Cipher:
         name: str,
         minimum_version: int,
         maximum_version: int,
-        description: str,
         strength_bits: int,
         alg_bits: int,
         aead: bool,
@@ -398,7 +384,6 @@ class _Cipher:
         self.name = name
         self.minimum_version = minimum_version
         self.maximum_version = maximum_version
-        self.description = description
         self.strength_bits = strength_bits
         self.alg_bits = alg_bits
         self.aead = aead
@@ -513,7 +498,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_NULL_MD5",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=0,
         alg_bits=0,
         aead=False,
@@ -530,7 +514,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_NULL_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=0,
         alg_bits=0,
         aead=False,
@@ -547,7 +530,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_NULL_SHA256",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=0,
         alg_bits=0,
         aead=False,
@@ -564,7 +546,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_RC4_128_MD5",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -581,7 +562,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_RC4_128_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -598,7 +578,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_3DES_EDE_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=112,
         alg_bits=168,
         aead=False,
@@ -615,7 +594,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_128_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -632,7 +610,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_256_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -649,7 +626,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_128_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -666,7 +642,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_256_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -683,7 +658,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_128_CCM",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -700,7 +674,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_256_CCM",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -717,7 +690,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_128_CCM_8",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -734,7 +706,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_256_CCM_8",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -751,7 +722,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_128_GCM_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -768,7 +738,6 @@ class CipherSuite(TLSEnum):
         name="TLS_RSA_WITH_AES_256_GCM_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -785,7 +754,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=112,
         alg_bits=168,
         aead=False,
@@ -802,7 +770,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_AES_128_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -819,7 +786,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_AES_256_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -836,7 +802,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_AES_128_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -853,7 +818,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_AES_256_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -870,7 +834,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_AES_128_GCM_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -887,7 +850,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_DSS_WITH_AES_256_GCM_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -904,7 +866,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=112,
         alg_bits=168,
         aead=False,
@@ -921,7 +882,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_128_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -938,7 +898,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_256_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -955,7 +914,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_128_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="DHE-RSA-AES128-SHA256 TLSv1.2 Kx=DH Au=RSA Enc=AES(128) Mac=SHA256",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -972,7 +930,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_256_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="DHE-RSA-AES256-SHA256 TLSv1.2 Kx=DH Au=RSA Enc=AES(256) Mac=SHA256",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -989,7 +946,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_128_CCM",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1006,7 +962,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_256_CCM",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1023,7 +978,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_128_CCM_8",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1040,7 +994,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_256_CCM_8",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1057,7 +1010,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="DHE-RSA-AES128-GCM-SHA256 TLSv1.2 Kx=DH Au=RSA Enc=AESGCM(128) Mac=AEAD",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1074,7 +1026,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_AES_256_GCM_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="DHE-RSA-AES256-GCM-SHA384 TLSv1.2 Kx=DH Au=RSA Enc=AESGCM(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1091,7 +1042,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1108,7 +1058,6 @@ class CipherSuite(TLSEnum):
         name="TLS_DHE_RSA_WITH_CHACHA20_POLY1305_draft_00",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1125,7 +1074,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_NULL_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=0,
         alg_bits=0,
         aead=False,
@@ -1142,7 +1090,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_RC4_128_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1159,7 +1106,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=112,
         alg_bits=168,
         aead=False,
@@ -1176,7 +1122,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1193,7 +1138,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -1210,7 +1154,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-RSA-AES128-SHA256 TLSv1.2 Kx=ECDH Au=RSA Enc=AES(128) Mac=SHA256",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1227,7 +1170,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-RSA-AES256-SHA384 TLSv1.2 Kx=ECDH Au=RSA Enc=AES(256) Mac=SHA384",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -1244,7 +1186,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 Kx=ECDH Au=RSA Enc=AESGCM(128) Mac=AEAD",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1261,7 +1202,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-RSA-AES256-GCM-SHA384 TLSv1.2 Kx=ECDH Au=RSA Enc=AESGCM(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1278,7 +1218,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_draft_00",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1295,7 +1234,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-RSA-CHACHA20-POLY1305 TLSv1.2 Kx=ECDH Au=RSA Enc=CHACHA20/POLY1305(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1312,7 +1250,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_NULL_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=0,
         alg_bits=0,
         aead=False,
@@ -1329,7 +1266,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_RC4_128_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1346,7 +1282,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=112,
         alg_bits=168,
         aead=False,
@@ -1363,7 +1298,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1380,7 +1314,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -1397,7 +1330,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-ECDSA-AES128-SHA256 TLSv1.2 Kx=ECDH Au=ECDSA Enc=AES(128) Mac=SHA256",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1414,7 +1346,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-ECDSA-AES256-SHA384 TLSv1.2 Kx=ECDH Au=ECDSA Enc=AES(256) Mac=SHA384",
         strength_bits=256,
         alg_bits=256,
         aead=False,
@@ -1431,7 +1362,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_128_CCM",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1448,7 +1378,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_256_CCM",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1465,7 +1394,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1482,7 +1410,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1499,7 +1426,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-ECDSA-AES128-GCM-SHA256 TLSv1.2 Kx=ECDH Au=ECDSA Enc=AESGCM(128) Mac=AEAD",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1516,7 +1442,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-ECDSA-AES256-GCM-SHA384 TLSv1.2 Kx=ECDH Au=ECDSA Enc=AESGCM(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1533,7 +1458,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_draft_00",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1550,7 +1474,6 @@ class CipherSuite(TLSEnum):
         name="TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
         minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
-        description="ECDHE-ECDSA-CHACHA20-POLY1305 TLSv1.2 Kx=ECDH Au=ECDSA Enc=CHACHA20/POLY1305(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1567,7 +1490,6 @@ class CipherSuite(TLSEnum):
         name="TLS_FALLBACK_SCSV",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="TLS_FALLBACK_SCSV",
         strength_bits=0,
         alg_bits=0,
         aead=False,
@@ -1584,7 +1506,6 @@ class CipherSuite(TLSEnum):
         name="TLS_EMPTY_RENEGOTIATION_INFO_SCSV",
         minimum_version=TLSVersion.TLSv1,
         maximum_version=TLSVersion.TLSv1_2,
-        description="TLS_EMPTY_RENEGOTIATION_INFO_SCSV",
         strength_bits=128,
         alg_bits=128,
         aead=False,
@@ -1601,7 +1522,6 @@ class CipherSuite(TLSEnum):
         name="TLS_AES_128_GCM_SHA256",
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        description="TLS_AES_128_GCM_SHA256 TLSv1.3 Kx=any Au=any Enc=AESGCM(128) Mac=AEAD",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1618,7 +1538,6 @@ class CipherSuite(TLSEnum):
         name="TLS_AES_256_GCM_SHA384",
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        description="TLS_AES_256_GCM_SHA384 TLSv1.3 Kx=any Au=any Enc=AESGCM(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1635,7 +1554,6 @@ class CipherSuite(TLSEnum):
         name="TLS_CHACHA20_POLY1305_SHA256",
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        description="TLS_CHACHA20_POLY1305_SHA256 TLSv1.3 Kx=any Au=any Enc=CHACHA20/POLY1305(256) Mac=AEAD",
         strength_bits=256,
         alg_bits=256,
         aead=True,
@@ -1652,7 +1570,6 @@ class CipherSuite(TLSEnum):
         name="TLS_AES_128_CCM_SHA256",
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        description="TLS_AES_128_CCM_SHA256 TLSv1.3 Kx=any Au=any Enc=AESGCM(256) Mac=AEAD",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1669,7 +1586,6 @@ class CipherSuite(TLSEnum):
         name="TLS_AES_128_CCM_8_SHA256",
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        description="TLS_AES_128_CCM_8_SHA256 TLSv1.3 Kx=any Au=any Enc=AESGCM(256) Mac=AEAD",
         strength_bits=128,
         alg_bits=128,
         aead=True,
@@ -1774,3 +1690,5 @@ KEM_GROUPS = (
     NamedGroup.X25519MLKEM768,
     NamedGroup.SECP384R1MLKEM1024,
 )
+
+# ruff: enable[E501]

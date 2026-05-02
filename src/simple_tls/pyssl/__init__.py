@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -151,32 +152,32 @@ __all__ = [
     "SSL_ERROR_WANT_READ",
     "SSL_ERROR_WANT_WRITE",
     "AlertDescription",
+    "DER_cert_to_PEM_cert",
     "Options",
+    "PEM_cert_to_DER_cert",
     "PROTOCOL_TLSv1",
     "PROTOCOL_TLSv1_1",
     "PROTOCOL_TLSv1_2",
     "Purpose",
-    "TLSVersion",
-    "VerifyFlags",
-    "VerifyMode",
     "SSLContext",
     "SSLEOFError",
     "SSLError",
+    "SSLObject",
+    "SSLSession",
+    "SSLSocket",
     "SSLSyscallError",
     "SSLWantReadError",
     "SSLWantWriteError",
     "SSLZeroReturnError",
-    "socket_error",
-    "SSLObject",
-    "SSLSession",
-    "SSLSocket",
-    "DER_cert_to_PEM_cert",
-    "PEM_cert_to_DER_cert",
+    "TLSVersion",
+    "VerifyFlags",
+    "VerifyMode",
     "cert_time_to_seconds",
     "create_default_context",
     "get_default_verify_paths",
     "get_protocol_name",
     "get_server_certificate",
+    "socket_error",
 ]
 
 

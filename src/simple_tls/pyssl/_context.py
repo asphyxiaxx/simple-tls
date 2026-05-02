@@ -24,14 +24,14 @@ from ._constant import (
 from ._object import SSLObject
 from ._session import SSLSession
 from ._socket import SSLSocket
-from ._types import StrOrBytesPath, TypeAlias, ReadableBuffer
+from ._types import ReadableBuffer, StrOrBytesPath, TypeAlias
 
 _PSKClientCbType: TypeAlias = typing.Callable[
-    [typing.Optional[str]],
-    tuple[typing.Optional[str], bytes],
+    [str | None],
+    tuple[str | None, bytes],
 ]
 _PSKServerCbType: TypeAlias = typing.Callable[
-    [typing.Optional[str]],
+    [str | None],
     bytes,
 ]
 _SrvnmeCbType: TypeAlias = typing.Callable[
@@ -199,12 +199,14 @@ class SSLContext:
             try:
                 group = lookup_map[c]
             except KeyError:
-                raise ValueError(f"unknown elliptic curve name '{c}'")
+                raise ValueError(
+                    f"Unknown elliptic curve name '{c}'"
+                ) from None
             else:
                 groups.append(group)
 
         if not groups:
-            raise ValueError(f"unknown elliptic curve name '{curve}'")
+            raise ValueError(f"Unknown elliptic curve name '{curve}'")
 
         self._context.supported_groups = groups
         self._context.key_share_groups = groups[:2]
@@ -221,18 +223,23 @@ class SSLContext:
         if not hasattr(_ssl, "enum_certificates"):
             return
 
-        enum_certificates = getattr(_ssl, "enum_certificates")
+        enum_certificates = _ssl.enum_certificates
         certs = bytearray()
 
         try:
             for cert, encoding, trust in enum_certificates(storename):
                 # CA certs are never PKCS#7 encoded
                 if encoding == "x509_asn":
+                    if trust is False:
+                        continue
                     if trust is True or purpose.oid in trust:
                         certs.extend(cert)
 
         except PermissionError:
-            warnings.warn("unable to enumerate Windows certificate store")
+            warnings.warn(
+                "unable to enumerate Windows certificate store",
+                stacklevel=2,
+            )
 
         if certs:
             self.load_verify_locations(cadata=bytes(certs))
@@ -390,7 +397,7 @@ class SSLContext:
         try:
             value = Options(value)
         except ValueError:
-            raise ValueError(f"Unknown Options ({value})")
+            raise ValueError(f"Unknown Options ({value})") from None
         self._options = value
 
     @property

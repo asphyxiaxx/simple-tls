@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -94,7 +95,11 @@ class ExtensionsMessage:
                 try:
                     ext_map[ext_type] = ext_cls.from_bytes(ext_data)
                 except ParseError as exc:
-                    raise ParseError(f"Decode error '0x{ext_type:02X}': {exc}")
+                    raise ParseError(
+                        f"Error in parsing extension data for "
+                        f"'0x{ext_type:02X}': {exc}"
+                    ) from exc
+
         return ext_map
 
     @classmethod
@@ -110,8 +115,11 @@ class ExtensionsMessage:
                     ext_data = parser.read_prefixed_bytes(2)
                 except ParseError as exc:
                     if ext_type is None:
-                        raise ParseError("Not an extension")
-                    raise ParseError(f"Decode error '0x{ext_type:02X}': {exc}")
+                        raise ParseError("Not an extension") from None
+                    raise ParseError(
+                        f"Error in reading extension data for "
+                        f"'0x{ext_type:02X}': {exc}"
+                    ) from exc
 
                 extensions.append((ext_type, ext_data))
                 seen.add(ext_type)
@@ -253,7 +261,7 @@ class IntExtension(TLSExtension):
         try:
             return int_to_bytes(self.data, self._item_size)
         except OverflowError:
-            raise ValueError("data too large")
+            raise ValueError("data too large") from None
 
 
 @dataclass
@@ -1064,7 +1072,6 @@ COMPRESSIBLE_EXTENSIONS = (
     ExtensionType.PSK_KEY_EXCHANGE_MODES,
     ExtensionType.EARLY_DATA,
     ExtensionType.KEY_SHARE,
-    # ExtensionType.supported_versions, # When minimum version >= TLSv1.3 can be compressed
     ExtensionType.COOKIE,
     ExtensionType.SUPPORTED_GROUPS,
     ExtensionType.COMPRESS_CERTIFICATE,

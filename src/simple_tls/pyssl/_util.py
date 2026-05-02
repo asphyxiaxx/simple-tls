@@ -8,10 +8,10 @@ from ssl import (
 )
 
 from ._constant import (
+    CERT_NONE,
+    CERT_REQUIRED,
     PROTOCOL_TLS_CLIENT,
     PROTOCOL_TLS_SERVER,
-    CERT_REQUIRED,
-    CERT_NONE,
     ASN1Object,
     Purpose,
 )

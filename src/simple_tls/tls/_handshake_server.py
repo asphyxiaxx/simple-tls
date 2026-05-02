@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -141,6 +142,7 @@ class TLSHandshakeServer(TLSHandshake):
         super().__init__(context)
 
         ## Dispatch function
+        # ruff: disable[E501]
         self._handle_dispatch = {
             ServerState.START_ACCEPT: self._do_start_accept,
             ServerState.READ_CLIENT_HELLO: self._do_read_client_hello,
@@ -180,6 +182,7 @@ class TLSHandshakeServer(TLSHandshake):
             ServerState.PROCESS_UPDATE_TRAFFIC: self._do_process_update_traffic,
             ServerState.COMPLETE_UPDATE_TRAFFIC: self._do_complete_update_traffic,
         }
+        # ruff: enable[E501]
 
         ## Configurations
         # Cipher Suites
@@ -224,7 +227,7 @@ class TLSHandshakeServer(TLSHandshake):
         # EC point formats
         ec_point_formats = tuple(context.ec_point_formats)
         if ECPointFormat.UNCOMPRESSED not in ec_point_formats:
-            ec_point_formats = (ECPointFormat.UNCOMPRESSED,) + ec_point_formats
+            ec_point_formats = (ECPointFormat.UNCOMPRESSED, *ec_point_formats)
         self._conf_ec_point_formats: tuple[int, ...] = ec_point_formats
 
         # TLSv1.3 above configs
@@ -291,9 +294,7 @@ class TLSHandshakeServer(TLSHandshake):
         # pre shared key extension
         self._pre_shared_key: tuple[bytes, bytes] | None = None
 
-        self._key_exchange: (
-            typing.Union[ECDHKeyExchange, FFDHKeyExchange] | None
-        ) = None
+        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
 
     @property
     def done(self) -> bool:
@@ -447,8 +448,10 @@ class TLSHandshakeServer(TLSHandshake):
             x509_leaf = self._x509_certs[0]
             try:
                 public_key = x509_leaf.public_key()
-            except ValueError:
-                raise AlertInternalError("Unsupported public key format")
+            except ValueError as exc:
+                raise AlertInternalError(
+                    "Unsupported public key format"
+                ) from exc
 
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
@@ -1034,8 +1037,8 @@ class TLSHandshakeServer(TLSHandshake):
         x509_leaf = self._x509_certs[0]
         try:
             public_key = x509_leaf.public_key()
-        except ValueError:
-            raise AlertInternalError("Unsupported public key format")
+        except ValueError as exc:
+            raise AlertInternalError("Unsupported public key format") from exc
 
         _, supported_sigalgs = self._sigalgs_for_pubkey(
             version=self.protocol_version(),
@@ -1066,8 +1069,8 @@ class TLSHandshakeServer(TLSHandshake):
 
         if psk_ext is not None:
             # RFC 8446, section 4.2.9
-            # servers MUST abort the handshake if the client pre_shared_key without
-            # psk_key_exchange_modes.
+            # servers MUST abort the handshake if the client pre_shared_key
+            # without psk_key_exchange_modes.
             if psk_kex_modes_ext is None:
                 raise AlertMissingExtension(
                     "Missing pre shared key modes extension"
@@ -1366,7 +1369,7 @@ class TLSHandshakeServer(TLSHandshake):
             if self._peer_key is None:
                 raise AlertInternalError("Missing peer_key")
 
-            kex: typing.Union[ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange]
+            kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
             ks_group = self._selected_key_share_group
             if ks_group in ECC_GROUPS:
                 kex = ECDHKeyExchange(ks_group)
@@ -1462,7 +1465,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         certificate = self._create_certificate_tls13(
             x509_certs=self._x509_certs,
-            compression_algorithm=self._certificate_compression,
+            compression=self._certificate_compression,
         )
         self.do_message_cb("write", certificate)
         self._add_message(certificate)
@@ -1808,7 +1811,9 @@ class TLSHandshakeServer(TLSHandshake):
             try:
                 description = AlertDescription(result)
             except ValueError:
-                raise AlertInternalError()
+                raise AlertInternalError(
+                    f"Unknown alert description '{description}'"
+                ) from None
             else:
                 raise CustomAlert(description)
 
@@ -2022,7 +2027,8 @@ class TLSHandshakeServer(TLSHandshake):
             ticket_handle = context.session_keys.create_ticket(session)
 
         # Stateful Random ID (Database Reference)
-        # Only generate a random ID if we didn't create an encrypted ticket above.
+        # Only generate a random ID if we didn't create an encrypted ticket
+        # above.
         if ticket_handle is None:
             # 32 bytes (256 bits) is standard for Session IDs
             ticket_handle = get_random_bytes(32)

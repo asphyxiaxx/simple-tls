@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from datetime import datetime, timedelta
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .. import x509
-from ..utils.codec import Parser, Writer, ParseError
+from ..utils.codec import ParseError, Parser, Writer
 from ..utils.constant_time import compare_digest
 from ..utils.misc import utcnow
 from ..utils.random import get_random_bytes
@@ -48,7 +49,7 @@ class TLSSession:
     cipher_suite: CipherSuite | None = None
     """selected cipher suite"""
     secret: bytes = b""
-    """secret is master secret for TLSv1.2 below and resumption secret 
+    """secret is master secret for TLSv1.2 below and resumption secret
     for TLSv1.3 above"""
     session_id: bytes = b""
     """session id"""
@@ -111,10 +112,8 @@ class TLSSession:
     def renew_timeout(self, timeout: int) -> None:
         self.rebase_time()
         delta = timedelta(seconds=timeout)
-        if self.timeout > delta:
-            return
-
-        self.timeout = delta
+        if self.timeout <= delta:
+            self.timeout = delta
 
     def time_valid(self) -> bool:
         now = utcnow()
@@ -181,7 +180,7 @@ class TLSSession:
         return new
 
     @classmethod
-    def from_bytes(self, data: bytes) -> TLSSession:
+    def from_bytes(cls, data: bytes) -> TLSSession:
         parser = Parser(data)
 
         server_side = bool(parser.read_int(1))

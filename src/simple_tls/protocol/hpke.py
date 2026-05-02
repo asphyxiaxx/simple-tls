@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -33,10 +34,14 @@ from ..protocol.kdf import hkdf_expand, hkdf_extract
 from ..utils.math import bytes_to_int, int_to_bytes, strxor
 
 HPKEPrivateKeyType = typing.Union[
-    ec.EllipticCurvePrivateKey, x25519.X25519PrivateKey, x448.X448PrivateKey
+    ec.EllipticCurvePrivateKey,
+    x25519.X25519PrivateKey,
+    x448.X448PrivateKey,
 ]
 HPKEPublicKeyType = typing.Union[
-    ec.EllipticCurvePublicKey, x25519.X25519PublicKey, x448.X448PublicKey
+    ec.EllipticCurvePublicKey,
+    x25519.X25519PublicKey,
+    x448.X448PublicKey,
 ]
 AEADContext = typing.Union[aead.AESGCM, aead.ChaCha20Poly1305]
 
@@ -615,11 +620,12 @@ def create_suite(kem_id: int, kdf_id: int, aead_id: int) -> CipherSuite:
     name_pairs = ("KEM", "KDF", "AEAD")
     maps = (_KEMS, _KDFS, _AEADS)
     args = []
-    for name, id, map in zip(name_pairs, id_pairs, maps):
+
+    for name, id, map in zip(name_pairs, id_pairs, maps, strict=True):
         try:
-            args.append(map[id])  # type: ignore[index]
+            args.append(map[id])  # type: ignore
         except KeyError:
-            raise ValueError(f"Unsupported {name} id: {id}")
+            raise ValueError(f"Unsupported {name} id: {id}") from None
 
     _CACHE[id_pairs] = cipher_suite = CipherSuite(*args)
     return cipher_suite

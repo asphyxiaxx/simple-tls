@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -31,17 +32,17 @@ from ..key.types import (
 from ._constant import HashAlgorithm, SignatureScheme
 
 
-class MD5_SHA1(hashes.HashAlgorithm):
+class MD5SHA1(hashes.HashAlgorithm):
     name = "md5-sha1"
     digest_size = 36
     block_size = 64
 
 
-class MD5_SHA1_Hash:
+class MD5SHA1Hash:
     def __init__(self) -> None:
         self.__md5 = hashes.Hash(hashes.MD5())
         self.__sha1 = hashes.Hash(hashes.SHA1())
-        self.__algorithm = MD5_SHA1()
+        self.__algorithm = MD5SHA1()
 
     @property
     def algorithm(self) -> hashes.HashAlgorithm:
@@ -54,8 +55,8 @@ class MD5_SHA1_Hash:
     def finalize(self) -> bytes:
         return self.__md5.finalize() + self.__sha1.finalize()
 
-    def copy(self) -> "MD5_SHA1_Hash":
-        new = MD5_SHA1_Hash()
+    def copy(self) -> MD5SHA1Hash:
+        new = MD5SHA1Hash()
         new.__md5 = self.__md5.copy()
         new.__sha1 = self.__sha1.copy()
         return new
@@ -79,7 +80,7 @@ def get_hash(
     hash_algorithm: HashAlgorithm, message: bytes = b""
 ) -> hashes.Hash:
     if hash_algorithm == HashAlgorithm.MD5_SHA1:
-        hashobj = typing.cast(hashes.Hash, MD5_SHA1_Hash())
+        hashobj = typing.cast(hashes.Hash, MD5SHA1Hash())
     else:
         algorithm = get_algorithm(hash_algorithm)
         hashobj = hashes.Hash(algorithm)
@@ -214,15 +215,17 @@ def create_signature(
     try:
         sign_func, hashalg = _CREATE_SIGNATURE_FUNC[signature_algorithm]
     except KeyError:
-        raise ValueError("Invalid signature_algorithm")
+        raise ValueError(
+            f"Invalid signature_algorithm '{signature_algorithm}'"
+        ) from None
 
     if hashalg == HashAlgorithm.INTRINSIC:
         algorithm = None
         msg_hash = msg
     else:
         if hashalg == HashAlgorithm.MD5_SHA1:
-            algorithm = typing.cast(hashes.HashAlgorithm, MD5_SHA1())
-            hashobj = typing.cast(hashes.Hash, MD5_SHA1_Hash())
+            algorithm = typing.cast(hashes.HashAlgorithm, MD5SHA1())
+            hashobj = typing.cast(hashes.Hash, MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
@@ -387,15 +390,17 @@ def verify_signature(
     try:
         verify_func, hashalg = _VERIFY_SIGNATURE_FUNC[signature_algorithm]
     except KeyError:
-        raise ValueError("Invalid signature_algorithm")
+        raise ValueError(
+            f"Invalid signature_algorithm '{signature_algorithm}'"
+        ) from None
 
     if hashalg == HashAlgorithm.INTRINSIC:
         algorithm = None
         msg_hash = msg
     else:
         if hashalg == HashAlgorithm.MD5_SHA1:
-            algorithm = typing.cast(hashes.HashAlgorithm, MD5_SHA1())
-            hashobj = typing.cast(hashes.Hash, MD5_SHA1_Hash())
+            algorithm = typing.cast(hashes.HashAlgorithm, MD5SHA1())
+            hashobj = typing.cast(hashes.Hash, MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)

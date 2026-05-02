@@ -17,7 +17,7 @@ from ._exception import (
     SSLWantWriteError,
 )
 from ._session import SSLSession
-from ._types import WritableBuffer, ReadableBuffer
+from ._types import ReadableBuffer, WritableBuffer
 
 if typing.TYPE_CHECKING:
     from socket import _Address
@@ -26,7 +26,7 @@ if typing.TYPE_CHECKING:
 
 
 class SSLSocket(_ssl.SSLSocket):
-    _context: "SSLContext"
+    _context: SSLContext
     _sslobj: tls.TLSConnection | None
     _session: SSLSession | None
     _connected: bool
@@ -87,13 +87,10 @@ class SSLSocket(_ssl.SSLSocket):
                 blocking = self.getblocking()
                 self.setblocking(False)
                 try:
-                    # We are not connected so this is not supposed to block, but
-                    # testing revealed otherwise on macOS and Windows so we do
-                    # the non-blocking dance regardless. Our raise when any data
-                    # is found means consuming the data is harmless.
                     notconn_pre_handshake_data = self.recv(1)
                 except OSError as e2:
-                    # EINVAL occurs for recv(1) on non-connected on unix sockets.
+                    # EINVAL occurs for recv(1) on non-connected on unix
+                    # sockets.
                     if e2.errno not in (errno.ENOTCONN, errno.EINVAL):
                         raise
 
@@ -102,9 +99,10 @@ class SSLSocket(_ssl.SSLSocket):
                 self.setblocking(blocking)
 
                 if notconn_pre_handshake_data:
-                    # This prevents pending data sent to the socket before it was
-                    # closed from escaping to the caller who could otherwise
-                    # presume it came through a successful TLS connection.
+                    # This prevents pending data sent to the socket before it
+                    # was closed from escaping to the caller who could
+                    # otherwisepresume it came through a successful TLS
+                    # connection.
                     reason = (
                         "Closed before TLS handshake with data in recv buffer."
                     )
@@ -118,7 +116,7 @@ class SSLSocket(_ssl.SSLSocket):
                         raise notconn_pre_handshake_data_error
                     finally:
                         # Explicitly break the reference cycle.
-                        notconn_pre_handshake_data_error = None  # type: ignore[assignment]
+                        notconn_pre_handshake_data_error = None  # type: ignore
 
             else:
                 connected = True
@@ -203,7 +201,7 @@ class SSLSocket(_ssl.SSLSocket):
             f"Can't dup() {self.__class__.__name__} instances"
         )
 
-    def _checkClosed(self, msg: typing.Any | None = None) -> None:
+    def _checkClosed(self, msg: typing.Any | None = None) -> None:  # noqa: N802
         # raise an exception here if you wish to check for spurious closes
         pass
 
@@ -238,10 +236,10 @@ class SSLSocket(_ssl.SSLSocket):
                 self._tls_send()
                 self._tls_recv()
             except tls.TLSEOFError:
-                raise SSLEOFError
-            except tls.TLSError as e:
+                raise SSLEOFError from None
+            except tls.TLSError as exc:
                 self._tls_send()
-                raise SSLError(e)
+                raise SSLError(exc) from exc
 
         # Flush any newly generated ciphertext
         self._tls_send()
@@ -260,7 +258,7 @@ class SSLSocket(_ssl.SSLSocket):
             try:
                 sent = socket.send(self, self._pending_write)
             except BlockingIOError:
-                raise SSLWantWriteError
+                raise SSLWantWriteError from None
 
             if sent == 0:
                 raise SSLEOFError("socket closed during TLS write")
@@ -281,7 +279,7 @@ class SSLSocket(_ssl.SSLSocket):
                 except BlockingIOError:
                     # Store unsent portion
                     self._pending_write.extend(data[total_sent:])
-                    raise SSLWantWriteError()
+                    raise SSLWantWriteError() from None
 
                 if sent == 0:
                     raise SSLEOFError("socket closed during TLS write")
@@ -296,7 +294,7 @@ class SSLSocket(_ssl.SSLSocket):
         try:
             data = socket.recv(self, 65535)
         except BlockingIOError:
-            raise SSLWantReadError()
+            raise SSLWantReadError() from None
 
         if not data:
             raise SSLEOFError("connection closed")
@@ -408,7 +406,8 @@ class SSLSocket(_ssl.SSLSocket):
         if self._sslobj is not None:
             if flags != 0:
                 raise ValueError(
-                    f"non-zero flags not allowed in calls to send() on {self.__class__}"
+                    f"non-zero flags not allowed in calls to send() on "
+                    f"{self.__class__}"
                 )
             return self.write(data)
         else:
@@ -445,7 +444,8 @@ class SSLSocket(_ssl.SSLSocket):
         if self._sslobj is not None:
             if flags != 0:
                 raise ValueError(
-                    f"non-zero flags not allowed in calls to recv() on {self.__class__}"
+                    f"non-zero flags not allowed in calls to recv() on "
+                    f"{self.__class__}"
                 )
             return self.read(buflen)
         else:
@@ -457,8 +457,8 @@ class SSLSocket(_ssl.SSLSocket):
         nbytes: int | None = None,
         flags: int = 0,
     ) -> int:
-        super().recv_into
         self._checkClosed()
+
         if nbytes is None:
             if buffer is not None:
                 with memoryview(buffer) as view:
@@ -513,20 +513,20 @@ class SSLSocket(_ssl.SSLSocket):
 
     @typing.overload
     def _real_connect(
-        self, addr: "_Address", connect_ex: typing.Literal[True]
+        self, addr: _Address, connect_ex: typing.Literal[True]
     ) -> int: ...
 
     @typing.overload
     def _real_connect(
-        self, addr: "_Address", connect_ex: typing.Literal[False]
+        self, addr: _Address, connect_ex: typing.Literal[False]
     ) -> None: ...
 
     @typing.overload
     def _real_connect(
-        self, addr: "_Address", connect_ex: bool
+        self, addr: _Address, connect_ex: bool
     ) -> int | None: ...
 
-    def _real_connect(self, addr: "_Address", connect_ex: bool) -> int | None:
+    def _real_connect(self, addr: _Address, connect_ex: bool) -> int | None:
         if self.server_side:
             raise ValueError("can't connect in server-side mode")
 
@@ -547,7 +547,6 @@ class SSLSocket(_ssl.SSLSocket):
             session=session,
             session_ticket_handler=self._session_ticket_handler,
         )
-        self._sslobj
 
         try:
             if connect_ex:
@@ -566,14 +565,14 @@ class SSLSocket(_ssl.SSLSocket):
             self._sslobj = None
             raise
 
-    def connect(self, addr: "_Address") -> None:
+    def connect(self, addr: _Address) -> None:
         """
         Connects to remote ADDR, and then wraps the connection in
         an SSL channel.
         """
         self._real_connect(addr, False)
 
-    def connect_ex(self, addr: "_Address") -> int:
+    def connect_ex(self, addr: _Address) -> int:
         """
         Connects to remote ADDR, and then wraps the connection in
         an SSL channel.

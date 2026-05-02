@@ -1,25 +1,24 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
-
-import typing
 
 from ..io.serialization import Encoding, PublicFormat
 from ..key import dh, ec, mlkem, x448, x25519
@@ -355,9 +354,8 @@ class FFDHKeyExchange:
         parameters: dh.DHParameters | None = None,
     ) -> None:
         if parameters is None:
-            try:
-                dh_group = _RFC7919_FFDHE_GROUPS[group]
-            except KeyError:
+            dh_group = _RFC7919_FFDHE_GROUPS.get(group, None)
+            if dh_group is None:
                 raise AlertInternalError(f"Unsupport dh group '{group}")
 
             parameter_numbers = dh.DHParameterNumbers(
@@ -399,13 +397,12 @@ class FFDHKeyExchange:
         try:
             return self._private_key.exchange(peer_public_key)
         except ValueError as exc:
-            raise AlertIllegalParameter(str(exc))
+            raise AlertIllegalParameter(str(exc)) from None
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
-        return (
-            self.generate_key_share(),
-            self.compute_shared_secret(peer_public),
-        )
+        key_share = self.generate_key_share()
+        shared_secret = self.compute_shared_secret(peer_public)
+        return (key_share, shared_secret)
 
 
 _NAMEDGROUP_TO_CURVE: dict[int, ec.EllipticCurve] = {
@@ -420,13 +417,13 @@ _NAMEDGROUP_TO_CURVE: dict[int, ec.EllipticCurve] = {
 class ECDHKeyExchange:
     def __init__(self, group: int) -> None:
         if group not in ECC_GROUPS:
-            raise AlertInternalError("Invalid group for EC curve'%s'" % group)
+            raise AlertInternalError(f"Invalid group for EC curve '{group}'")
 
-        private_key: typing.Union[
-            x25519.X25519PrivateKey,
-            x448.X448PrivateKey,
-            ec.EllipticCurvePrivateKey,
-        ]
+        private_key: (
+            x25519.X25519PrivateKey
+            | x448.X448PrivateKey
+            | ec.EllipticCurvePrivateKey
+        )
         if group == NamedGroup.X25519:
             private_key = x25519.X25519PrivateKey.generate()
         elif group == NamedGroup.X448:
@@ -435,7 +432,10 @@ class ECDHKeyExchange:
             try:
                 ec_curve = _NAMEDGROUP_TO_CURVE[group]
             except KeyError:
-                raise AlertInternalError("Unsupported curve")
+                raise AlertInternalError(
+                    f"Unsupported curve '{group}'"
+                ) from None
+
             private_key = ec.generate_private_key(ec_curve)
 
         self._private_key = private_key
@@ -476,13 +476,12 @@ class ECDHKeyExchange:
                 )
 
         except ValueError as exc:
-            raise AlertDecodeError(str(exc))
+            raise AlertDecodeError(str(exc)) from None
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
-        return (
-            self.generate_key_share(),
-            self.compute_shared_secret(peer_public),
-        )
+        key_share = self.generate_key_share()
+        shared_secret = self.compute_shared_secret(peer_public)
+        return (key_share, shared_secret)
 
 
 _EC_KEY_LEN: dict[int, int] = {
@@ -506,10 +505,7 @@ _PQC_CIPHERTEXT_LEN: dict[int, int] = {
 
 class KEMKeyExchange:
     def __init__(self, group: int) -> None:
-        pqc_private_key: typing.Union[
-            mlkem.MLKEM768PrivateKey,
-            mlkem.MLKEM1024PrivateKey,
-        ]
+        pqc_private_key: mlkem.MLKEM768PrivateKey | mlkem.MLKEM1024PrivateKey
         if group == NamedGroup.X25519MLKEM768:
             curve = NamedGroup.X25519
             pqc_private_key = mlkem.MLKEM768PrivateKey.generate()
@@ -520,7 +516,7 @@ class KEMKeyExchange:
             curve = NamedGroup.SECP384R1
             pqc_private_key = mlkem.MLKEM1024PrivateKey.generate()
         else:
-            raise AlertInternalError("Unknown KEM group '%s'" % group)
+            raise AlertInternalError(f"Unsupported KEM group '{group}'")
 
         self._group = group
         self._ec_kex = ECDHKeyExchange(curve)
@@ -548,7 +544,7 @@ class KEMKeyExchange:
         try:
             pqc_ss = self._private_key.decapsulate(peer_pqc_ct)
         except ValueError as exc:
-            raise AlertDecodeError(str(exc))
+            raise AlertDecodeError(str(exc)) from None
 
         if self._group == NamedGroup.X25519MLKEM768:
             shared_secret = pqc_ss + ec_ss
@@ -565,10 +561,7 @@ class KEMKeyExchange:
 
         ec_pk, ec_ss = self._ec_kex.generate_and_compute(peer_ec_pk)
 
-        peer_pqc_pubkey: typing.Union[
-            mlkem.MLKEM768PublicKey,
-            mlkem.MLKEM1024PublicKey,
-        ]
+        peer_pqc_pubkey: mlkem.MLKEM768PublicKey | mlkem.MLKEM1024PublicKey
         if self._group == NamedGroup.SECP384R1MLKEM1024:
             peer_pqc_pubkey = mlkem.MLKEM1024PublicKey.from_public_bytes(
                 peer_pqc_pk
@@ -581,7 +574,7 @@ class KEMKeyExchange:
         try:
             pqc_ss, pqc_ct = peer_pqc_pubkey.encapsulate()
         except ValueError as exc:
-            raise AlertIllegalParameter(str(exc))
+            raise AlertIllegalParameter(str(exc)) from None
 
         if self._group == NamedGroup.X25519MLKEM768:
             key_share = pqc_ct + ec_pk

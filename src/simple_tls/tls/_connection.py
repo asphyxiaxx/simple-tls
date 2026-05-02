@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -27,7 +28,6 @@ from .. import x509
 from ..io.serialization import Encoding
 from ..utils.math import bytes_to_str, int_to_bytes, str_to_bytes
 from ._alert import AlertException
-from ._types import ReadableBuffer, WritableBuffer
 from ._cipher import InvalidTag, NullCipher, TLSCipher
 from ._constant import (
     AlertDescription,
@@ -52,6 +52,7 @@ from ._handshake_client import TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
 from ._message import Alert, ChangeCipherSpec, HandshakeMessage
 from ._session import TLSSession
+from ._types import ReadableBuffer, WritableBuffer
 
 HEADER_LENGTH = 5
 MAX_EARLY_DATA_SKIPPED = 16384
@@ -498,7 +499,7 @@ class TLSConnection:
         description: AlertDescription,
         reason: typing.Any | None = None,
         fatal: bool = True,
-    ) -> typing.NoReturn | None:
+    ) -> None:
         if self._write_shutdown == Shutdown.NONE:
             if not fatal:
                 alert = Alert(description, AlertLevel.WARNING)
@@ -766,8 +767,8 @@ class TLSConnection:
             raise SkipDataException()
 
         # Check for cleartext alerts received during an encrypted epoch.
-        # In TLS 1.3, encrypted records ALWAYS have an outer content_type of 23.
-        # If it is 21, the peer aborted before/during key generation.
+        # In TLS 1.3, encrypted records ALWAYS have an outer content_type
+        # of 23. If it is 21, the peer aborted before/during key generation.
         if (
             content_type == ContentType.ALERT
             and state.hide_content_type
@@ -788,7 +789,7 @@ class TLSConnection:
         except InvalidTag as exc:
             if self._handshake.skip_early_data:
                 self._skip_early_data(len(ciphertext))
-                raise SkipDataException()
+                raise SkipDataException() from None
 
             self._send_alert(
                 AlertDescription.BAD_RECORD_MAC,

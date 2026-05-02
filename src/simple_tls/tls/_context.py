@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -34,20 +35,20 @@ from ._constant import (
     SignatureScheme,
     TLSVersion,
 )
-from ._types import StrOrBytesPath, ReadableBuffer
 from ._enum import TLSVerifyMode
 from ._session import TLSSessionKeys, TLSSessionStorage
+from ._types import ReadableBuffer, StrOrBytesPath
 
 _ExtensionsOrderCallback = typing.Callable[
     [list[int]],
     list[int],
 ]
 _SNICallback = typing.Callable[
-    ["TLSContext", typing.Optional[str], typing.Optional[object]],
-    typing.Optional[int],
+    ["TLSContext", str | None, object | None],
+    int | None,
 ]
 _MessageCallback = typing.Callable[
-    [typing.Optional[object], typing.Literal["write", "read"], int, bytes],
+    [object | None, typing.Literal["write", "read"], int, bytes],
     None,
 ]
 
@@ -58,9 +59,9 @@ class TLSContext:
     """
 
     def __init__(self) -> None:
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # Identity & Credentials (The "Who am I?")
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         self._private_key: CertificateIssuerPrivateKeyTypes | None = None
         self._x509_certs: tuple[x509.Certificate, ...] | None = None
 
@@ -73,9 +74,9 @@ class TLSContext:
         self._ee_policy = x509.ExtensionPolicy.defaults_ee()
         self._ca_policy = x509.ExtensionPolicy.defaults_ca()
 
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # Protocol & Version Control (The "How do we talk?")
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         self._minimum_version: TLSVersion = TLSVersion.TLSv1_2
         self._maximum_version: TLSVersion = TLSVersion.TLSv1_3
 
@@ -84,9 +85,9 @@ class TLSContext:
         self._npn_protocols: tuple[bytes, ...] = ()
         self._alps: dict[bytes, bytes] = {}
 
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # Cryptographic Parameters (The "Math")
-        # -------------------------------------------------------------------------
+        # ---------------------------------------------------------------------
         self._cipher_suites: tuple[CipherSuite, ...] = (
             CipherSuite.TLS_AES_128_GCM_SHA256,
             CipherSuite.TLS_AES_256_GCM_SHA384,
@@ -205,13 +206,14 @@ class TLSContext:
     def minimum_version(self, value: TLSVersion) -> None:
         try:
             value = TLSVersion(value)
-        except ValueError:
-            raise ValueError(f"Unsupported TLS version '{value}'")
+        except ValueError as exc:
+            raise ValueError(f"Unsupported TLS version '{value}'") from exc
         if value > self._maximum_version:
             raise ValueError(
                 f"Minimum version ({value}) cannot be greater than maximum "
                 f"({self._maximum_version})"
             )
+
         self._minimum_version = value
 
     @property
@@ -222,13 +224,14 @@ class TLSContext:
     def maximum_version(self, value: TLSVersion) -> None:
         try:
             value = TLSVersion(value)
-        except ValueError:
-            raise ValueError(f"Unsupported TLS version '{value}'")
+        except ValueError as exc:
+            raise ValueError(f"Unsupported TLS version '{value}'") from exc
         if value < self._minimum_version:
             raise ValueError(
                 f"Maximum version ({value}) cannot be lesser than minimum "
                 f"({self._minimum_version})"
             )
+
         self._maximum_version = value
 
     @property
@@ -239,8 +242,8 @@ class TLSContext:
     def verify_mode(self, value: TLSVerifyMode) -> None:
         try:
             self._verify_mode = TLSVerifyMode(value)
-        except ValueError:
-            raise ValueError(f"Unknown verify_mode '{value}'")
+        except ValueError as exc:
+            raise ValueError(f"Unknown verify_mode '{value}'") from exc
 
     @property
     def check_hostname(self) -> bool:

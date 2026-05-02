@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 import sys
-import typing
 from os import PathLike
-
-if sys.version_info < (3, 10):
-    from typing_extensions import TypeAlias
-else:
-    from typing import TypeAlias
+from typing import TypeAlias
 
 if sys.version_info < (3, 12):
     from typing_extensions import Buffer
@@ -17,6 +12,4 @@ else:
 
 ReadableBuffer: TypeAlias = Buffer
 WritableBuffer: TypeAlias = Buffer
-StrOrBytesPath: TypeAlias = typing.Union[
-    str, bytes, PathLike[str], PathLike[bytes]
-]
+StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]

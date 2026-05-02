@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -29,12 +30,11 @@ from cryptography.hazmat.primitives.kdf import hkdf
 
 from ..utils.math import strxor
 
-
 __all__ = [
     "PBKDF1",
     "PBKDF2HMAC",
-    "Scrypt",
     "Bcrypt",
+    "Scrypt",
     "hkdf_expand",
     "hkdf_extract",
 ]
@@ -70,6 +70,7 @@ class PBKDF1:
 
         Reference: https://datatracker.ietf.org/doc/html/rfc2898#section-5.1
         """
+
         # Apply the underlying hash function Hash for c iterations to the
         # concatenation of the password P and the salt S, then extract
         # the first dkLen octets to produce a derived key DK:
@@ -78,14 +79,16 @@ class PBKDF1:
         #   ...
         #   T_c = Hash (T_{c-1}) ,
         #   DK = Tc<0..dkLen-1>
+
         hashobj = hashes.Hash(self.algorithm)
-        T = password + self.salt
+        out = password + self.salt
+
         for _ in range(self.iterations):
             h = hashobj.copy()
-            h.update(T)
-            T = h.finalize()
+            h.update(out)
+            out = h.finalize()
 
-        return T[: self.length]
+        return out[: self.length]
 
 
 @dataclass(frozen=True)
@@ -162,7 +165,9 @@ class Bcrypt:
 
     except ImportError:
         try:
-            from Crypto.Cipher import _EKSBlowfish as _EKSBlowfish  # type: ignore
+            from Crypto.Cipher import (
+                _EKSBlowfish as _EKSBlowfish,  # type: ignore
+            )
 
         except ImportError:
 

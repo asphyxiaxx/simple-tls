@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -41,7 +42,6 @@ from ._alert import (
     AlertInternalError,
     AlertUnknownCA,
 )
-from ._types import ReadableBuffer
 from ._cipher import TLSCipher
 from ._common import get_algorithm, verify_signature
 from ._constant import (
@@ -80,6 +80,7 @@ from ._message import (
 )
 from ._session import TLSSession
 from ._transcript import KeyDeriver, KeySchedule, Transcript
+from ._types import ReadableBuffer
 from ._x509_validator import EKUValidator, SANValidator
 
 SessionTicketHandler = typing.Callable[[TLSSession], None]
@@ -126,7 +127,7 @@ class TLSHandshake:
         self._session: TLSSession | None = None
         """Session currently establishing from previous session"""
         self._established_session: TLSSession | None = None
-        """Session established by the conneciton, only available upon the 
+        """Session established by the conneciton, only available upon the
         handshake completed"""
         self._new_session: TLSSession | None = None
         """"""
@@ -146,11 +147,11 @@ class TLSHandshake:
         self._maximum_version: int = context.maximum_version
         """maximum_version is the maximum accepted protocol version"""
         self._client_version: int = TLSVersion.UNSPECIFIED
-        """client_version is the value sent or received in the ClientHello version."""
+        """the value sent or received in the ClientHello version."""
         self._session_id: bytes = b""
         """session ID in the ClientHello"""
         self._version: int = TLSVersion.UNSPECIFIED
-        """Negotiate protocol version, or zero if the version has not yet 
+        """Negotiate protocol version, or zero if the version has not yet
         been set"""
         self._is_early_version: bool = False
         """Predicted 0-RTT version"""
@@ -278,7 +279,7 @@ class TLSHandshake:
             try:
                 ret = f()
             except ParseError as exc:
-                raise AlertDecodeError(str(exc))
+                raise AlertDecodeError(str(exc)) from exc
             if ret != Status.OK:
                 break
         return ret
@@ -546,7 +547,7 @@ class TLSHandshake:
                 x509.load_der_x509_certificate(cert) for cert in cert_chain[1:]
             )
         except ValueError as exc:
-            raise AlertBadCertificate(str(exc))
+            raise AlertBadCertificate(str(exc)) from exc
 
         session.x509_peer = x509_peer
         session.x509_chain = x509_chain
@@ -574,11 +575,11 @@ class TLSHandshake:
             try:
                 certificate = c_certificate.to_certificate()
             except ValueError as exc:
-                raise AlertBadCertificate(str(exc))
+                raise AlertBadCertificate(str(exc)) from exc
             except UnsupportedCompression:
                 raise AlertInternalError(
-                    "certificate compression is unsupported"
-                )
+                    f"Certificate compression '{compression}' is unsupported"
+                ) from None
         else:
             certificate = message.get_handshake(CertificateTLS13)
 
@@ -596,7 +597,7 @@ class TLSHandshake:
                 for cert_entry in cert_entries[1:]
             )
         except ValueError as exc:
-            raise AlertBadCertificate(str(exc))
+            raise AlertBadCertificate(str(exc)) from exc
 
         cert_status = cert_entry.get_extension(CertStatusRequestExtension)
         if cert_status is not None:
@@ -621,7 +622,7 @@ class TLSHandshake:
     def _create_certificate_tls13(
         x509_certs: typing.Iterable[x509.Certificate],
         context: bytes = b"",
-        compression_algorithm: int | None = None,
+        compression: int | None = None,
     ) -> CompressedCertificate | CertificateTLS13:
         cert_entries = [
             CertificateEntry(certificate.public_bytes(Encoding.DER))
@@ -629,15 +630,15 @@ class TLSHandshake:
         ]
         certificate = CertificateTLS13(context, cert_entries)
 
-        if cert_entries and compression_algorithm is not None:
+        if cert_entries and compression is not None:
             try:
                 return CompressedCertificate.from_certificate(
-                    compression_algorithm, certificate
+                    compression, certificate
                 )
             except UnsupportedCompression:
                 raise AlertInternalError(
-                    "certificate compression is unsupported"
-                )
+                    f"Certificate compression '{compression}' is unsupported"
+                ) from None
 
         return certificate
 
@@ -884,11 +885,11 @@ class TLSHandshake:
                 session.x509_peer, session.x509_chain
             )
         except (x509.CertificateExpired, x509.CertificateNotYetValid) as exc:
-            raise AlertCertificateExpired(str(exc))
+            raise AlertCertificateExpired(str(exc)) from None
         except x509.UntrustedRoot as exc:
-            raise AlertUnknownCA(str(exc))
+            raise AlertUnknownCA(str(exc)) from None
         except x509.VerificationError as exc:
-            raise AlertBadCertificate(str(exc))
+            raise AlertBadCertificate(str(exc)) from None
 
         session.verified_x509_peer = verified_certs[0]
         session.verified_x509_chain = verified_certs[1:]
@@ -908,8 +909,10 @@ class TLSHandshake:
         x509_peer = session.x509_peer
         try:
             peer_public_key = x509_peer.public_key()
-        except ValueError:
-            raise AlertHandshakeFailure("Unsupported public key format")
+        except ValueError as exc:
+            raise AlertHandshakeFailure(
+                "Unsupported public key format"
+            ) from exc
 
         peer_public_key_oid = x509_peer.public_key_algorithm_oid
 
@@ -953,4 +956,6 @@ class TLSHandshake:
                 peer_public_key, cert_verify.signature, data, verify_alg
             )
         except InvalidSignature:
-            raise AlertDecryptError("Invalid signature in certificate verify")
+            raise AlertDecryptError(
+                "Invalid signature in certificate verify"
+            ) from None

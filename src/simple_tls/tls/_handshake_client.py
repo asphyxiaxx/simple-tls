@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -181,6 +182,7 @@ class TLSHandshakeClient(TLSHandshake):
         self.session_ticket_handler = session_ticket_handler
 
         ## Dispatch function
+        # ruff: disable[E501]
         self._handle_dispatch = {
             ClientState.START_CONNECT: self._do_start_connect,
             ClientState.ENTER_EARLY_DATA: self._do_enter_early_data,
@@ -219,6 +221,7 @@ class TLSHandshakeClient(TLSHandshake):
             ClientState.PROCESS_UPDATE_TRAFFIC: self._do_process_update_traffic,
             ClientState.COMPLETE_UPDATE_TRAFFIC: self._do_complete_update_traffic,
         }
+        # ruff: enable[E501]
 
         ## Configurations
         # Compression methods
@@ -298,7 +301,7 @@ class TLSHandshakeClient(TLSHandshake):
         # EC point formats
         ec_point_formats = tuple(context.ec_point_formats)
         if ECPointFormat.UNCOMPRESSED not in ec_point_formats:
-            ec_point_formats = (ECPointFormat.UNCOMPRESSED,) + ec_point_formats
+            ec_point_formats = (ECPointFormat.UNCOMPRESSED, *ec_point_formats)
         self._conf_ec_point_formats: tuple[int, ...] = ec_point_formats
 
         # TLSv1.3 above configs
@@ -329,7 +332,7 @@ class TLSHandshakeClient(TLSHandshake):
         ## Temporary State
         self._hs_state = ClientState.START_CONNECT
         self._extension_order: list[int] | None = None
-        """Extensions type that was recevied from server hello or encrpypted 
+        """Extensions type that was recevied from server hello or encrpypted
         extensions"""
         self._extensions_sent: set[int] = set()
         """Extensions type that was sent in client hello"""
@@ -350,13 +353,12 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Peer item
         self._peer_key: bytes | None = None
-        self._peer_cert_request: typing.Optional[
-            typing.Union[
-                CertificateRequest,
-                CertificateRequestTLS12,
-                CertificateRequestTLS13,
-            ]
-        ] = None
+        self._peer_cert_request: (
+            CertificateRequest
+            | CertificateRequestTLS12
+            | CertificateRequestTLS13
+            | None
+        ) = None
 
         # Identity
         self._private_key: CertificateIssuerPrivateKeyTypes | None = None
@@ -371,11 +373,9 @@ class TLSHandshakeClient(TLSHandshake):
             tuple[KeySchedule, PSKIdentity, bytes]
         ] = []
 
-        self._key_exchange: (
-            typing.Union[ECDHKeyExchange, FFDHKeyExchange] | None
-        ) = None
+        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
         self._key_exchanges: dict[
-            int, typing.Union[ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange]
+            int, ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
         ] = {}
 
         ## Negotiated variable
@@ -441,9 +441,7 @@ class TLSHandshakeClient(TLSHandshake):
                 if key_share_group not in self._conf_supported_groups:
                     continue
 
-                kex: typing.Union[
-                    ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
-                ]
+                kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
                 try:
                     if key_share_group in ECC_GROUPS:
                         kex = ECDHKeyExchange(key_share_group)
@@ -454,7 +452,7 @@ class TLSHandshakeClient(TLSHandshake):
                     else:
                         continue
                 except AlertException as exc:
-                    raise ValueError(str(exc))
+                    raise ValueError(str(exc)) from None
 
                 self._key_exchanges[key_share_group] = kex
 
@@ -632,7 +630,8 @@ class TLSHandshakeClient(TLSHandshake):
 
                 # Termintate early since TLSv1.2 cannot handle early data
                 raise AlertProtocolVersion(
-                    "Unable to negotiate TLSv1.2 or below since early data sent"
+                    "Unable to negotiate TLSv1.2 or below since early data "
+                    "has been sent"
                 )
 
         if self.protocol_version() >= TLSVersion.TLSv1_3:
@@ -671,8 +670,8 @@ class TLSHandshakeClient(TLSHandshake):
         # Cipher Suites
         try:
             cipher_suite = CipherSuite(server_hello.cipher_suite)
-        except ValueError:
-            raise AlertIllegalParameter("Invalid cipher suite")
+        except ValueError as exc:
+            raise AlertIllegalParameter("Invalid cipher suite") from exc
         if cipher_suite not in self._conf_cipher_suites:
             raise AlertIllegalParameter("Cipher suite mismatch")
         if not (
@@ -854,7 +853,7 @@ class TLSHandshakeClient(TLSHandshake):
                 parameters = parameters_numbers.parameters()
                 self._key_exchange = FFDHKeyExchange(parameters=parameters)
             except ValueError as exc:
-                raise AlertIllegalParameter(str(exc))
+                raise AlertIllegalParameter(str(exc)) from exc
 
             self._peer_key = dh_ys_bytes
 
@@ -868,8 +867,10 @@ class TLSHandshakeClient(TLSHandshake):
             x509_peer = new_session.x509_peer
             try:
                 peer_public_key = x509_peer.public_key()
-            except ValueError:
-                raise AlertHandshakeFailure("Unsupported public key format")
+            except ValueError as exc:
+                raise AlertHandshakeFailure(
+                    "Unsupported public key format"
+                ) from exc
 
             ske_data = parser.data_since_bookmark()
             peer_public_key_oid = x509_peer.public_key_algorithm_oid
@@ -902,11 +903,11 @@ class TLSHandshakeClient(TLSHandshake):
             try:
                 verify_signature(peer_public_key, signature, data, verify_alg)
             except ValueError as exc:
-                raise AlertIllegalParameter(str(exc))
+                raise AlertIllegalParameter(str(exc)) from exc
             except InvalidSignature:
                 raise AlertDecryptError(
                     "Server key exchange signature verify failed"
-                )
+                ) from None
 
         if parser.remaining():
             raise AlertDecodeError("Trailing data")
@@ -974,8 +975,10 @@ class TLSHandshakeClient(TLSHandshake):
             x509_leaf = x509_certs[0]
             try:
                 public_key = x509_leaf.public_key()
-            except ValueError:
-                raise AlertInternalError("Unsupported public key format")
+            except ValueError as exc:
+                raise AlertInternalError(
+                    "Unsupported public key format"
+                ) from exc
 
             public_key_oid = x509_leaf.public_key_algorithm_oid
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
@@ -1034,8 +1037,10 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertInternalError("Missing x509_peer in new_session")
             try:
                 peer_public_key = new_session.x509_peer.public_key()
-            except ValueError:
-                raise AlertHandshakeFailure("Unsupported public key format")
+            except ValueError as exc:
+                raise AlertHandshakeFailure(
+                    "Unsupported public key format"
+                ) from exc
 
             self._check_pubkey(version, peer_public_key, cipher_suite)
 
@@ -1263,8 +1268,8 @@ class TLSHandshakeClient(TLSHandshake):
         # Cipher Suites
         try:
             cipher_suite = CipherSuite(server_hello.cipher_suite)
-        except ValueError:
-            raise AlertIllegalParameter("Invalid cipher suite")
+        except ValueError as exc:
+            raise AlertIllegalParameter("Invalid cipher suite") from exc
         if cipher_suite not in self._conf_cipher_suites:
             raise AlertIllegalParameter("Cipher suite mismatch")
         if not (
@@ -1322,7 +1327,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         if cookie_ext is None and key_share_ext is None:
             raise AlertIllegalParameter(
-                "Received hello retry request did not cause update to client hello"
+                "Received hello retry request did not cause update to client "
+                "hello"
             )
 
         if cookie_ext is not None:
@@ -1343,7 +1349,7 @@ class TLSHandshakeClient(TLSHandshake):
                     "Unexpected group in key share extension"
                 )
 
-            kex: typing.Union[KEMKeyExchange, FFDHKeyExchange, ECDHKeyExchange]
+            kex: KEMKeyExchange | FFDHKeyExchange | ECDHKeyExchange
             if selected_group in KEM_GROUPS:
                 kex = KEMKeyExchange(selected_group)
             elif selected_group in FFDHE_GROUPS:
@@ -1484,7 +1490,10 @@ class TLSHandshakeClient(TLSHandshake):
             try:
                 key_schedule, _, _ = self._pre_shared_keys[sel_idx]
             except IndexError:
-                raise AlertIllegalParameter("Invalid pre shared key extension")
+                raise AlertIllegalParameter(
+                    f"Unexpected index '{sel_idx}' in Invalid pre shared key "
+                    f"extension"
+                ) from None
 
             self._key_schedule = key_schedule
             self._pre_shared_keys.clear()
@@ -1517,21 +1526,23 @@ class TLSHandshakeClient(TLSHandshake):
             if self._key_exchanges is None:
                 raise AlertInternalError()
 
-            keyshare = kex_ext.key_share
+            key_share = kex_ext.key_share
             try:
-                kex = self._key_exchanges[keyshare.group]
+                kex = self._key_exchanges[key_share.group]
             except KeyError:
                 raise AlertIllegalParameter(
-                    "Unexpected group in key share extension"
-                )
+                    f"Unexpected group '{key_share.group}' in key share "
+                    f"extension"
+                ) from None
+
             try:
                 shared_secret = kex.compute_shared_secret(
-                    keyshare.key_exchange
+                    key_share.key_exchange
                 )
             except ValueError as exc:
-                raise AlertIllegalParameter(str(exc))
+                raise AlertIllegalParameter(str(exc)) from None
 
-            new_session.group_id = keyshare.group
+            new_session.group_id = key_share.group
 
         elif (
             self._conf_psk_kex_modes is not None
@@ -1626,8 +1637,9 @@ class TLSHandshakeClient(TLSHandshake):
         cert_request = message.get_handshake(CertificateRequestTLS13)
 
         # RFC 8446 Section 4.3.2
-        # certificate_request_context field SHALL be zero length unless used for the
-        # post-handshake authentication exchanges described in Section 4.6.2
+        # certificate_request_context field SHALL be zero length unless used
+        # for the post-handshake authentication exchanges described in Section
+        # 4.6.2
         if cert_request.context:
             raise AlertIllegalParameter("Invalid certificate request context")
 
@@ -2295,9 +2307,9 @@ class TLSHandshakeClient(TLSHandshake):
                 )
 
             if hello_type == ClientHelloType.INNER:
-                # When offering the encrypted_client_hello extension in ClientHelloOuter,
-                # the client MUST also offer an empty encrypted_client_hello extension in
-                # the ClientHelloInner
+                # When offering the encrypted_client_hello extension in
+                # ClientHelloOuter,　the client MUST also offer an empty
+                # encrypted_client_hello extension in the ClientHelloInner
                 extensions.append(ClientECHExtension(ECHClientHelloType.INNER))
             elif self._ech_client_outer is not None:
                 extensions.append(self._ech_client_outer)
@@ -2480,7 +2492,10 @@ class TLSHandshakeClient(TLSHandshake):
                 try:
                     settings = self._conf_alps[self._alpn_selected]
                 except KeyError:
-                    raise AlertIllegalParameter("invalid ALPS extension")
+                    raise AlertIllegalParameter(
+                        f"Invalid ALPS extension with ALPN "
+                        f"'{self._alpn_selected!r}'"
+                    ) from None
 
                 self._new_session.has_alps = True
                 self._new_session.local_alps = settings
@@ -2504,7 +2519,8 @@ class TLSHandshakeClient(TLSHandshake):
                     raise AlertInternalError()
                 if self._hello_retry_request_used:
                     AlertIllegalParameter(
-                        "Unexpected early data extension after hello retry requested"
+                        "Unexpected early data extension after hello retry "
+                        "requested"
                     )
 
                 self._early_data_accepted = True
@@ -2626,8 +2642,10 @@ class TLSHandshakeClient(TLSHandshake):
             x509_leaf = x509_certs[0]
             try:
                 public_key = x509_leaf.public_key()
-            except ValueError:
-                raise AlertInternalError("Unsupported public key format")
+            except ValueError as exc:
+                raise AlertInternalError(
+                    "Unsupported public key format"
+                ) from exc
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=self.protocol_version(),

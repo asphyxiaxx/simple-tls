@@ -1,21 +1,22 @@
 # Copyright (c) 2026 The simple-tls Contributors
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the “Software”), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
 from __future__ import annotations
 
@@ -179,22 +180,25 @@ def load_der_x509_certificates(
         # An X.509 certificate is always an ASN.1 SEQUENCE.
         if data[offset] != 0x30:
             raise ValueError(
-                f"Invalid DER data at offset {offset}: Expected ASN.1 SEQUENCE tag "
-                f"(0x30), got {hex(data[offset])}."
+                f"Invalid DER data at offset {offset}: Expected ASN.1 SEQUENCE"
+                f" tag (0x30), got {hex(data[offset])}."
             )
 
         try:
             value_len, header_len = _decode_sequence_len(data, offset + 1)
         except IndexError:
-            raise ValueError(f"Truncated DER data at offset {offset}.")
+            raise ValueError(
+                f"Truncated DER data at offset {offset}."
+            ) from None
 
         total_cert_len = 1 + header_len + value_len
 
         if offset + total_cert_len > data_len:
+            remaining = data_len - offset
             raise ValueError(
-                f"Truncated DER data: Certificate at offset {offset} claims to be "
-                f"{total_cert_len} bytes long, but only {data_len - offset} "
-                f"bytes remain."
+                f"Truncated DER data: Certificate at offset {offset} claims to"
+                f" be {total_cert_len} bytes long, but only {remaining} bytes"
+                f" remain."
             )
 
         cert_bytes = data[offset : offset + total_cert_len]

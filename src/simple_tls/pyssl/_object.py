@@ -16,7 +16,7 @@ if typing.TYPE_CHECKING:
 
 
 class SSLObject(_ssl.SSLObject):
-    _context: "SSLContext"
+    _context: SSLContext
     _sslobj: tls.TLSConnection
     _session: SSLSession | None
 
@@ -28,7 +28,7 @@ class SSLObject(_ssl.SSLObject):
         server_side: bool = False,
         server_hostname: str | None = None,
         session: SSLSession | None = None,
-        context: "SSLContext" | None = None,
+        context: SSLContext | None = None,
     ) -> SSLObject:
         if context is None:
             raise ValueError("context not provided")
@@ -115,9 +115,9 @@ class SSLObject(_ssl.SSLObject):
         try:
             return self._sslobj.read(len, buffer)
         except tls.TLSWantReadError:
-            raise SSLWantReadError()
+            raise SSLWantReadError from None
         except tls.TLSEOFError:
-            raise SSLEOFError()
+            raise SSLEOFError from None
 
     def write(self, data: ReadableBuffer) -> int:  # type: ignore[override]
         """
@@ -186,8 +186,8 @@ class SSLObject(_ssl.SSLObject):
     def selected_alpn_protocol(self) -> str | None:
         """
         Return the currently selected ALPN protocol as a string, or ``None``
-        if a next protocol was not negotiated or if ALPN is not supported by one
-        of the peers."""
+        if a next protocol was not negotiated or if ALPN is not supported by
+        one of the peers."""
         return self._sslobj.selected_alpn_protocol()
 
     def cipher(self):
@@ -224,7 +224,7 @@ class SSLObject(_ssl.SSLObject):
         try:
             self._sslobj.do_handshake()
         except tls.TLSWantReadError:
-            raise SSLWantReadError()
+            raise SSLWantReadError from None
 
     def unwrap(self) -> None:
         """
