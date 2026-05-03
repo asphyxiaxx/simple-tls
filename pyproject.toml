@@ -69,7 +69,6 @@ lint.select = [
     "W",  # pycodestyle warnings
     "F",  # pyflakes
     "I",  # isort
-    "B",  # flake8-bugbear
     "N",
     "UP", # pyupgrade
     "RUF",
