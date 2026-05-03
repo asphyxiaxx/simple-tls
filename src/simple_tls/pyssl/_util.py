@@ -37,7 +37,11 @@ __all__ = [
 
 def _parse_name(name: x509.Name) -> tuple[tuple[tuple[str, str], ...], ...]:
     return tuple(
-        tuple((attribute.oid._name, attribute.value) for attribute in rdn)
+        tuple(
+            (attribute.oid._name, attribute.value)
+            for attribute in rdn
+            if isinstance(attribute.value, str)
+        )
         for rdn in name.rdns
     )
 
