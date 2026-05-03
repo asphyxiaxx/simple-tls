@@ -419,4 +419,4 @@ for __name in __all__:
     if not __name.startswith("__"):
         __obj = __locals[__name]
         if hasattr(__obj, "__module__"):
-            setattr(__obj, "__module__", "simple_tls.tls")  # noqa
+            setattr(__obj, "__module__", "simple_tls.tls")
