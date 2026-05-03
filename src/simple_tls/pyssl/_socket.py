@@ -340,6 +340,11 @@ class SSLSocket(_ssl.SSLSocket):
             raise ValueError("Write on closed or unwrapped SSL socket.")
         return self._drive_tls(self._sslobj.write, data)
 
+    def get_ech_retry_configs(self) -> bytes | None:
+        if self._sslobj is None:
+            return None
+        return self._sslobj.ech_retry_config(binary_form=True)
+
     @typing.overload  # type: ignore[override]
     def getpeercert(
         self, binary_form: typing.Literal[False] = False
