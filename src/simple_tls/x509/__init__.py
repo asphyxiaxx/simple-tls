@@ -25,6 +25,7 @@ import typing
 from cryptography.x509 import (
     AccessDescription,
     AuthorityInformationAccess,
+    AuthorityInformationAccessOID,
     AuthorityKeyIdentifier,
     BasicConstraints,
     Certificate,
@@ -87,6 +88,7 @@ from .verification import (
 __all__ = [
     "AccessDescription",
     "AuthorityInformationAccess",
+    "AuthorityInformationAccessOID",
     "AuthorityKeyIdentifier",
     "BasicConstraints",
     "CRLDistributionPoints",
