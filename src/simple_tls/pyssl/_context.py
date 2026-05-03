@@ -206,7 +206,7 @@ class SSLContext:
     def load_dh_params(self, path: str) -> None:
         return self._context.load_dh_params(path)
 
-    def set_ech_config(self, ech_config: bytes | None) -> None:
+    def set_ech_configs(self, ech_config: bytes | None) -> None:
         self._context.ech_configs = str_to_bytes(ech_config)
 
     def _load_windows_store_certs(
