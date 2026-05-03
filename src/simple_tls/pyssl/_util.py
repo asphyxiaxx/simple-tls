@@ -1,3 +1,4 @@
+import typing
 from ssl import (
     DER_cert_to_PEM_cert,
     PEM_cert_to_DER_cert,
@@ -7,6 +8,8 @@ from ssl import (
     get_server_certificate,
 )
 
+from simple_tls import x509
+
 from ._constant import (
     CERT_NONE,
     CERT_REQUIRED,
@@ -15,8 +18,11 @@ from ._constant import (
     ASN1Object,
     Purpose,
 )
-from ._context import SSLContext
 from ._types import ReadableBuffer, StrOrBytesPath
+
+if typing.TYPE_CHECKING:
+    from ._context import SSLContext
+
 
 __all__ = [
     "DER_cert_to_PEM_cert",
@@ -29,15 +35,126 @@ __all__ = [
 ]
 
 
+def _parse_name(name: x509.Name) -> tuple[tuple[tuple[str, str], ...], ...]:
+    return tuple(
+        tuple((attribute.oid._name, attribute.value) for attribute in rdn)
+        for rdn in name.rdns
+    )
+
+
+def _parse_general_names(
+    general_names: typing.Iterable[x509.GeneralName],
+) -> tuple[tuple[str, str], ...]:
+    out: list[tuple[str, str]] = []
+    value: typing.Any
+
+    for general_name in general_names:
+        if isinstance(general_name, x509.DNSName):
+            name = "DNS"
+            value = general_name.value
+
+        elif isinstance(general_name, x509.IPAddress):
+            name = "IP Address"
+            value = str(general_name.value)
+
+        elif isinstance(general_name, x509.RegisteredID):
+            name = "Registered ID"
+            value = general_name.value._name
+            if value == "Unknown OID":
+                value = general_name.value.dotted_string
+
+        elif isinstance(general_name, x509.OtherName):
+            continue
+
+        elif isinstance(general_name, x509.DirectoryName):
+            name = "DirName"
+            value = _parse_name(general_name.value)
+
+        elif isinstance(general_name, x509.UniformResourceIdentifier):
+            name = "URI"
+            value = general_name.value
+
+        elif isinstance(general_name, x509.RFC822Name):
+            name = "email"
+            value = general_name.value
+
+        else:
+            continue
+
+        out.append((name, value))
+
+    return tuple(out)
+
+
+def parse_certificate(certificate: x509.Certificate) -> dict[str, typing.Any]:
+    gmt_fmt = "%a, %d %b %Y %H:%M:%S GMT"
+    out = {
+        "subject": _parse_name(certificate.subject),
+        "issuer": _parse_name(certificate.issuer),
+        "version": certificate.version.value + 1,
+        "serialNumber": hex(certificate.serial_number).upper(),
+        "notBefore": certificate.not_valid_before_utc.strftime(gmt_fmt),
+        "notAfter": certificate.not_valid_after_utc.strftime(gmt_fmt),
+    }
+
+    exts = certificate.extensions
+
+    try:
+        san_ext = exts.get_extension_for_class(x509.SubjectAlternativeName)
+    except x509.ExtensionNotFound:
+        pass
+    else:
+        san = _parse_general_names(san_ext.value)
+        if san:
+            out["subjectAltName"] = san
+
+    try:
+        crl_ext = exts.get_extension_for_class(x509.CRLDistributionPoints)
+    except x509.ExtensionNotFound:
+        pass
+    else:
+        crls = tuple(
+            name.value
+            for x in crl_ext.value
+            if x.full_name is not None
+            for name in x.full_name
+            if isinstance(name, x509.UniformResourceIdentifier)
+        )
+        if crls:
+            out["crlDistributionPoints"] = crls
+
+    try:
+        aia_ext = exts.get_extension_for_class(x509.AuthorityInformationAccess)
+    except x509.ExtensionNotFound:
+        pass
+    else:
+        ocsp = tuple(
+            ad.access_location.value
+            for ad in aia_ext.value
+            if (
+                ad.access_method == x509.AuthorityInformationAccessOID.OCSP
+                and isinstance(
+                    ad.access_location, x509.UniformResourceIdentifier
+                )
+            )
+        )
+        if ocsp:
+            out["OCSP"] = ocsp
+
+    return out
+
+
 def create_default_context(
     purpose: Purpose = Purpose.SERVER_AUTH,
     *,
     cafile: StrOrBytesPath | None = None,
     capath: StrOrBytesPath | None = None,
     cadata: str | ReadableBuffer | None = None,
-) -> SSLContext:
+) -> "SSLContext":
     if not isinstance(purpose, ASN1Object):  # type: ignore[misc]
         raise TypeError(purpose)
+
+    from ._context import SSLContext
 
     if purpose == Purpose.SERVER_AUTH:
         context = SSLContext(PROTOCOL_TLS_CLIENT)

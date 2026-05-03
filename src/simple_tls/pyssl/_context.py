@@ -24,24 +24,16 @@ from ._constant import (
 from ._object import SSLObject
 from ._session import SSLSession
 from ._socket import SSLSocket
-from ._types import ReadableBuffer, StrOrBytesPath, TypeAlias
-
-_PSKClientCbType: TypeAlias = typing.Callable[
-    [str | None],
-    tuple[str | None, bytes],
-]
-_PSKServerCbType: TypeAlias = typing.Callable[
-    [str | None],
-    bytes,
-]
-_SrvnmeCbType: TypeAlias = typing.Callable[
-    [SSLSocket | SSLObject, str | None, SSLSocket],
-    int | None,
-]
-_ExtensionsCbType: TypeAlias = typing.Callable[
-    [list[int]],
-    list[int],
-]
+from ._types import (
+    ExtensionsCbType,
+    PeerCertRetDictType,
+    PSKClientCbType,
+    PSKServerCbType,
+    ReadableBuffer,
+    SrvnmeCbType,
+    StrOrBytesPath,
+)
+from ._util import parse_certificate
 
 
 class SSLContext:
@@ -153,7 +145,7 @@ class SSLContext:
 
         self._context.alpn_protocols = out
 
-    def set_servername_callback(self, callback: _SrvnmeCbType | None) -> None:
+    def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:
         if callback is None:
             self._context.sni_callback = None
         else:
@@ -166,19 +158,19 @@ class SSLContext:
             self._context.sni_callback = shim_cb
 
     def set_psk_client_callback(
-        self, callback: _PSKClientCbType | None
+        self, callback: PSKClientCbType | None
     ) -> None:
         raise NotImplementedError
 
     def set_psk_server_callback(
         self,
-        callback: _PSKServerCbType | None,
+        callback: PSKServerCbType | None,
         identity_hint: str | None = None,
     ) -> None:
         raise NotImplementedError
 
     def set_exts_order_callback(
-        self, callback: _ExtensionsCbType | None
+        self, callback: ExtensionsCbType | None
     ) -> None:
         if callback is not None and not callable(callback):
             raise TypeError("Not a callback object")
@@ -262,10 +254,25 @@ class SSLContext:
 
         return data
 
+    @typing.overload
+    def get_ca_certs(
+        self, binary_form: typing.Literal[False] = False
+    ) -> list[PeerCertRetDictType]: ...
+
+    @typing.overload
+    def get_ca_certs(
+        self, binary_form: typing.Literal[True]
+    ) -> list[bytes]: ...
+
+    @typing.overload
+    def get_ca_certs(
+        self, binary_form: bool = False
+    ) -> list[PeerCertRetDictType] | list[bytes]: ...
+
     def get_ca_certs(self, binary_form: bool = False) -> typing.Any:
         ca_certs = self._context.get_ca_certs()
-        if binary_form:
-            raise NotImplementedError
+        if not binary_form:
+            return [parse_certificate(c) for c in ca_certs]
         return [c.public_bytes(serialization.Encoding.DER) for c in ca_certs]
 
     def load_cert_chain(

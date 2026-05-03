@@ -9,7 +9,8 @@ from simple_tls.io import serialization
 from ._constant import Options
 from ._exception import SSLEOFError, SSLError, SSLWantReadError
 from ._session import SSLSession
-from ._types import ReadableBuffer
+from ._types import PeerCertRetDictType, ReadableBuffer
+from ._util import parse_certificate
 
 if typing.TYPE_CHECKING:
     from ._context import SSLContext
@@ -128,24 +129,19 @@ class SSLObject(_ssl.SSLObject):
         """
         return self._sslobj.write(data)  # type: ignore
 
-    @typing.overload
+    @typing.overload  # type: ignore[override]
     def getpeercert(
-        self, binary_form: typing.Literal[False] = ...
-    ) -> dict[str, typing.Any] | None: ...
+        self, binary_form: typing.Literal[False] = False
+    ) -> PeerCertRetDictType | None: ...
 
-    @typing.overload
+    @typing.overload  # type: ignore[override]
     def getpeercert(
-        self, binary_form: typing.Literal[True] = ...
+        self, binary_form: typing.Literal[True]
     ) -> bytes | None: ...
-
-    @typing.overload
-    def getpeercert(
-        self, binary_form: bool = ...
-    ) -> dict[str, typing.Any] | bytes | None: ...
 
     def getpeercert(
         self, binary_form: bool = False
-    ) -> dict[str, typing.Any] | bytes | None:
+    ) -> PeerCertRetDictType | bytes | None:
         """
         Returns a formatted version of the data in the certificate provided
         by the other end of the SSL channel.
@@ -153,12 +149,12 @@ class SSLObject(_ssl.SSLObject):
         Return None if no certificate was provided, {} if a certificate was
         provided, but not validated.
         """
-        cert = self._sslobj.getpeercert()
-        if cert is not None:
-            if binary_form:
-                return cert.public_bytes(serialization.Encoding.DER)
-            raise NotImplementedError
-        return None
+        peercert = self._sslobj.getpeercert()
+        if peercert is None:
+            return None
+        if binary_form:
+            return peercert.public_bytes(serialization.Encoding.DER)
+        return parse_certificate(peercert)
 
     def get_verified_chain(self):
         """

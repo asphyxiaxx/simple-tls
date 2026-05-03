@@ -17,7 +17,8 @@ from ._exception import (
     SSLWantWriteError,
 )
 from ._session import SSLSession
-from ._types import ReadableBuffer, WritableBuffer
+from ._types import PeerCertRetDictType, ReadableBuffer, WritableBuffer
+from ._util import parse_certificate
 
 if typing.TYPE_CHECKING:
     from socket import _Address
@@ -341,15 +342,17 @@ class SSLSocket(_ssl.SSLSocket):
 
     @typing.overload  # type: ignore[override]
     def getpeercert(
-        self, binary_form: typing.Literal[False] = ...
-    ) -> dict | None: ...
+        self, binary_form: typing.Literal[False] = False
+    ) -> PeerCertRetDictType | None: ...
 
     @typing.overload  # type: ignore[override]
     def getpeercert(
-        self, binary_form: typing.Literal[True] = ...
+        self, binary_form: typing.Literal[True]
     ) -> bytes | None: ...
 
-    def getpeercert(self, binary_form: bool = False) -> dict | bytes | None:
+    def getpeercert(
+        self, binary_form: bool = False
+    ) -> PeerCertRetDictType | bytes | None:
         self._checkClosed()
         self._check_connected()
 
@@ -361,7 +364,7 @@ class SSLSocket(_ssl.SSLSocket):
             return None
         if binary_form:
             return peercert.public_bytes(serialization.Encoding.DER)
-        raise NotImplementedError
+        return parse_certificate(peercert)
 
     def get_verified_chain(self) -> list[bytes]:
         if self._sslobj is None:
