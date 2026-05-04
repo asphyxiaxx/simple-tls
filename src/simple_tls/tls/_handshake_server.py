@@ -260,8 +260,6 @@ class TLSHandshakeServer(TLSHandshake):
         """True if expect npn protocol from client"""
         self._ticket_expected: bool = False
         """True if server sent session ticket extension in ServerHello"""
-        self._early_data_offered: bool = False
-        """True if found early data extension in client hello"""
         self._selected_psk: int | None = None
         """index of selected pre shared key from client hello"""
         self._selected_key_share_group: int | None = None

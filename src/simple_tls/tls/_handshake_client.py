@@ -346,8 +346,6 @@ class TLSHandshakeClient(TLSHandshake):
         """True if hello retry request received from server (TLSv1.3)"""
         self._ticket_expected: bool = False
         """True if server sent session ticket extension in ServerHello"""
-        self._early_data_offered: bool = False
-        """True if found early data extension in client hello"""
 
         # Peer item
         self._peer_key: bytes | None = None

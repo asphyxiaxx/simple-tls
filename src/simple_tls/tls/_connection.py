@@ -223,6 +223,9 @@ class TLSConnection:
     def early_data_accepted(self) -> bool:
         return self._handshake.early_data_accepted
 
+    def early_data_offered(self) -> bool:
+        return self._handshake.early_data_offered
+
     def version(self) -> str:
         lookup_map: dict[int, str] = {
             TLSVersion.TLSv1: "TLSv1",

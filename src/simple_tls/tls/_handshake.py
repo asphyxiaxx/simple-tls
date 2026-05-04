@@ -158,6 +158,8 @@ class TLSHandshake:
         """True while in early data state"""
         self._early_data_accepted: bool = False
         """True when early data accepted"""
+        self._early_data_offered: bool = False
+        """True when early data offered by client"""
 
         self._npn_selected: bytes | None = None
         """Selected NPN protocol"""
@@ -246,6 +248,10 @@ class TLSHandshake:
     @property
     def early_data_accepted(self) -> bool:
         return self._early_data_accepted
+
+    @property
+    def early_data_offered(self) -> bool:
+        return self._early_data_offered
 
     @property
     def session_reused(self) -> bool:
