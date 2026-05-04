@@ -215,8 +215,14 @@ class PrefixedIntListExtension(TLSExtension):
 
     @classmethod
     def from_bytes(cls: type[_PILE], data: bytes) -> _PILE:
-        if not (cls._min_length <= len(data) <= cls._max_length):
-            raise ParseError("data not within boundaries")
+        total_min = cls._min_length + cls._prefix_size
+        total_max = cls._max_length + cls._prefix_size
+
+        if not (total_min <= len(data) <= total_max):
+            raise ParseError(
+                f"data length {len(data)} not within boundaries "
+                f"({total_min}-{total_max})"
+            )
 
         parser = Parser(data)
         value = parser.read_prefixed_int_list(cls._item_size, cls._prefix_size)
@@ -233,8 +239,14 @@ class PrefixedIntListExtension(TLSExtension):
         )
         data = writer.tobytes()
 
-        if not (self._min_length <= len(data) <= self._max_length):
-            raise ParseError("data not within boundaries")
+        total_min = self._min_length + self._prefix_size
+        total_max = self._max_length + self._prefix_size
+
+        if not (total_min <= len(data) <= total_max):
+            raise ParseError(
+                f"serialized data length {len(data)} not within boundaries "
+                f"({total_min}-{total_max})"
+            )
 
         return data
 
