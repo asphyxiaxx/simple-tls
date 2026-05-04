@@ -104,7 +104,7 @@ class TLSHandshake:
         self.do_message_cb: typing.Callable[
             [typing.Literal["write", "read"], HandshakeMessage], None
         ] = lambda rw, m: None
-        self.do_sni_cb: typing.Callable[[bytes], None]
+        self.do_sni_cb: typing.Callable[[bytes], None] = lambda h: None
         self.setup_traffic_cb: typing.Callable[
             [Direction, Epoch, TLSCipher], None
         ] = lambda d, e, c: None

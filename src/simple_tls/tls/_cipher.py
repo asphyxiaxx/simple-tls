@@ -77,7 +77,7 @@ class _AEADCipher:
     cipher_type: type[_AEADCipherType]
 
     def create(self, key: bytes) -> _AEADCipherType:
-        if isinstance(self.cipher_type, aead.AESCCM):
+        if issubclass(self.cipher_type, aead.AESCCM):
             return aead.AESCCM(key, self.tag_length)
         else:
             assert self.tag_length == 16
@@ -278,6 +278,7 @@ class TLSCipher:
             if version >= TLSVersion.TLSv1_3:
                 raise ValueError("cipher suite is not supported for TLSv1.3")
             spec = cls._cipher_spec(cipher_suite)
+            iv_len = spec.iv_length
 
         return (spec.key_length, iv_len)
 
