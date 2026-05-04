@@ -1842,7 +1842,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
         if self._established_session is None:
-            raise AlertInternalError("key_schedule not set")
+            raise AlertInternalError("session not establish")
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
 
