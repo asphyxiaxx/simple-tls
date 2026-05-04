@@ -97,7 +97,7 @@ def parse_certificate(certificate: x509.Certificate) -> dict[str, typing.Any]:
         "subject": _parse_name(certificate.subject),
         "issuer": _parse_name(certificate.issuer),
         "version": certificate.version.value + 1,
-        "serialNumber": hex(certificate.serial_number).upper(),
+        "serialNumber": f"{certificate.serial_number:X}",
         "notBefore": certificate.not_valid_before_utc.strftime(gmt_fmt),
         "notAfter": certificate.not_valid_after_utc.strftime(gmt_fmt),
     }
