@@ -439,55 +439,51 @@ class Authentication(enum.IntEnum):
 
 class CipherSuite(TLSEnum):
     @property
-    def id(self):
+    def id(self) -> int:
         return self.value.id
 
     @property
-    def aead(self):
+    def aead(self) -> bool:
         return self.value.aead
 
     @property
-    def version(self):
+    def minimum_version(self) -> int:
         return self.value.minimum_version
 
     @property
-    def minimum_version(self):
-        return self.value.minimum_version
-
-    @property
-    def maximum_version(self):
+    def maximum_version(self) -> int:
         return self.value.maximum_version
 
     @property
-    def symmetric(self):
+    def symmetric(self) -> Symmetric:
         return self.value.symmetric
 
     @property
-    def digest(self):
+    def digest(self) -> HashAlgorithm | None:
         return self.value.record_mac
 
     @property
-    def prf_hash(self):
+    def prf_hash(self) -> HashAlgorithm:
         return self.value.prf_hash
 
     @property
-    def kea(self):
+    def kea(self) -> KeyExchange:
         return self.value.kea
 
     @property
-    def auth(self):
+    def auth(self) -> Authentication:
         return self.value.auth
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.value.name
 
-    def __eq__(self, other: object):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, CipherSuite):
             return self.id == other.id
         return self.id == other
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.id)
 
     def __repr__(self) -> str:

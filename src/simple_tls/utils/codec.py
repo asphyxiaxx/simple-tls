@@ -84,7 +84,7 @@ class Parser(typing.Generic[ReadableBuffer]):
         return [self.read_int(item_size) for _ in range(size)]
 
     @contextmanager
-    def assert_length(self, prefix_size: int):
+    def assert_length(self, prefix_size: int) -> typing.Generator[int]:
         length = self.read_int(prefix_size)
         start = self._index
         end = start + length

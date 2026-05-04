@@ -30,13 +30,13 @@ from cryptography.x509 import (
     Certificate,
     Extension,
     ExtensionNotFound,
-    ExtensionOID,
     ExtensionType,
     KeyUsage,
     Name,
     ObjectIdentifier,
     SubjectKeyIdentifier,
 )
+from cryptography.x509.oid import ExtensionOID
 
 from ..key.exceptions import InvalidSignature
 from ..utils.misc import utcnow

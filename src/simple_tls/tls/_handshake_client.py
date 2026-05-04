@@ -153,8 +153,6 @@ from ._message import (
 from ._session import TLSSession
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 
-T = typing.TypeVar("T")
-
 SessionTicketHandler = typing.Callable[[TLSSession], None]
 
 
@@ -2715,7 +2713,7 @@ class TLSHandshakeClient(TLSHandshake):
         return True
 
     @staticmethod
-    def _select_ech_config(ech_configs: bytes):
+    def _select_ech_config(ech_configs: bytes) -> ECHConfigContent | None:
         parser = Parser(ech_configs)
 
         length = parser.read_int(2)

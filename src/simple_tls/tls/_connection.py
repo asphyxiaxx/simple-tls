@@ -47,15 +47,15 @@ from ._exception import (
     TLSWantReadError,
 )
 from ._extension import ECHConfig
-from ._handshake import SessionTicketHandler, TLSHandshake
-from ._handshake_client import TLSHandshakeClient
+from ._handshake import TLSHandshake
+from ._handshake_client import SessionTicketHandler, TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
 from ._message import Alert, ChangeCipherSpec, HandshakeMessage
 from ._session import TLSSession
 from ._types import ReadableBuffer, WritableBuffer
 
-HEADER_LENGTH = 5
-MAX_EARLY_DATA_SKIPPED = 16384
+_HEADER_LENGTH = 5
+_MAX_EARLY_DATA_SKIPPED = 16384
 
 
 class SkipDataException(Exception):
@@ -102,6 +102,7 @@ class TLSConnection:
                 raise ValueError(
                     "session can only be specified in client mode"
                 )
+
             handshake = typing.cast(TLSHandshake, TLSHandshakeServer(context))
         else:
             handshake = typing.cast(
@@ -120,6 +121,7 @@ class TLSConnection:
         self._handshake.setup_traffic_cb = self._setup_traffic
         self._handshake.update_traffic_cb = self._update_traffic
         self._handshake.add_ccs_cb = self._add_ccs
+        self._handshake.do_sni_cb = self._sni_callback
 
         self._send_record_limit = 2**14
         """Send record limit"""
@@ -138,7 +140,7 @@ class TLSConnection:
         self._read_buf = memoryview(bytearray(self._recv_record_limit + 2048))
         """temporary buffer to store data decrypted"""
         self._write_buf = memoryview(
-            bytearray(self._send_record_limit + 2 * (HEADER_LENGTH + 2048))
+            bytearray(self._send_record_limit + 2 * (_HEADER_LENGTH + 2048))
         )
         """temporary buffer to store data encrypted"""
         self._temp_buf = memoryview(bytearray(self._send_record_limit + 2048))
@@ -164,7 +166,7 @@ class TLSConnection:
         }
 
     @property
-    def context(self):
+    def context(self) -> TLSContext:
         return self._handshake.context
 
     @context.setter
@@ -234,9 +236,9 @@ class TLSConnection:
                 return lookup_map[version]
             except KeyError:
                 pass
-        return "Unknown"
+        return "Unknown version"
 
-    def verify_client_post_handshake(self):
+    def verify_client_post_handshake(self) -> None:
         if not self.server_side:
             raise TLSError("Not server")
         raise NotImplementedError()
@@ -424,9 +426,15 @@ class TLSConnection:
             return None
         return establish_session.cipher_suite
 
-    def shared_ciphers(self) -> list[int] | None:
+    def shared_ciphers(self) -> list[CipherSuite] | None:
         if self._handshake.peer_cipher_suites is not None:
-            return list(self._handshake.peer_cipher_suites)
+            out: list[CipherSuite] = []
+            for cipher_suite in self._handshake.peer_cipher_suites:
+                try:
+                    out.append(CipherSuite(cipher_suite))
+                except ValueError:
+                    continue
+            return out
         return None
 
     def pending(self) -> int:
@@ -513,17 +521,37 @@ class TLSConnection:
             raise TLSLocalAlert(alert.description, reason)
         return None
 
-    def _do_hs_callback(
-        self, direction: str, message: HandshakeMessage
-    ) -> None:
-        cb = self.context.message_callback
-        if cb is None:
+    def _sni_callback(self, hostname: bytes) -> None:
+        callback = self.context.sni_callback
+        if callback is None:
             return
 
-        owner = self.context.owner
-        version = self._handshake.version
-        data = message.serialize()
-        cb(owner, direction, version, ContentType.HANDSHAKE, data)
+        sni = bytes_to_str(hostname)
+        arg = self.context.sni_callback_arg
+        result = callback(self, sni, arg)
+
+        if result is not None:
+            try:
+                description = AlertDescription(result)
+            except ValueError:
+                self._send_alert(
+                    AlertDescription.INTERNAL_ERROR,
+                    f"Unknown alert description '{description}'",
+                )
+            else:
+                self._send_alert(description)
+
+    def _do_hs_callback(
+        self,
+        direction: typing.Literal["write", "read"],
+        message: HandshakeMessage,
+    ) -> None:
+        cb = self.context.message_callback
+        if cb is not None:
+            version = self._handshake.version
+            data = message.serialize()
+            cb(self, direction, version, ContentType.HANDSHAKE, data)
+        return None
 
     # Record layer
     def _setup_traffic(
@@ -531,7 +559,7 @@ class TLSConnection:
     ) -> None:
         state = ConnectionState(epoch, cipher)
         version = self._handshake.protocol_version()
-        max_seal_overhead = HEADER_LENGTH
+        max_seal_overhead = _HEADER_LENGTH
         max_seal_overhead += cipher.max_overhead()
 
         if version < TLSVersion.TLSv1_1 and cipher.is_block_cipher():
@@ -655,7 +683,7 @@ class TLSConnection:
         epoch = self._current_write_epoch
         state = self._write_states[epoch]
 
-        data_buf = buf[HEADER_LENGTH:]
+        data_buf = buf[_HEADER_LENGTH:]
 
         if state.hide_content_type:
             pt_len = len(plaintext)
@@ -683,8 +711,8 @@ class TLSConnection:
 
         state.sequence_number += 1
 
-        buf[0:HEADER_LENGTH] = header
-        out_len = HEADER_LENGTH + ct_len
+        buf[0:_HEADER_LENGTH] = header
+        out_len = _HEADER_LENGTH + ct_len
 
         return out_len
 
@@ -706,12 +734,12 @@ class TLSConnection:
 
         # Parse header: ContentType (1), Version (2), Length (2)
         if self._header is None:
-            if inbio.pending < HEADER_LENGTH:
+            if inbio.pending < _HEADER_LENGTH:
                 raise TLSWantReadError()
-            self._header = inbio.read(HEADER_LENGTH)
+            self._header = inbio.read(_HEADER_LENGTH)
 
         header = self._header
-        assert len(header) == HEADER_LENGTH
+        assert len(header) == _HEADER_LENGTH
 
         content_type, record_version, length = struct.unpack("!BHH", header)
 
@@ -846,11 +874,12 @@ class TLSConnection:
 
     def _skip_early_data(self, ciphertext_length: int) -> None:
         self._early_data_ignored += ciphertext_length
-        if self._early_data_ignored >= MAX_EARLY_DATA_SKIPPED:
+        if self._early_data_ignored >= _MAX_EARLY_DATA_SKIPPED:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
 
     def _process_alert(self, data: ReadableBuffer) -> typing.NoReturn:
-        alert = Alert.from_bytes(data)
+        alert = Alert.from_bytes(data)  # type: ignore
+
         if alert.level == AlertLevel.WARNING:
             if alert.description == AlertDescription.CLOSE_NOTIFY:
                 self._read_shutdown = Shutdown.CLOSE_NOTIFY

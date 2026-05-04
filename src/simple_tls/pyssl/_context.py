@@ -99,8 +99,8 @@ class SSLContext:
 
     def wrap_bio(
         self,
-        incoming,
-        outgoing,
+        incoming: _ssl.MemoryBIO,
+        outgoing: _ssl.MemoryBIO,
         server_side: bool = False,
         server_hostname: str | None = None,
         session: SSLSession | None = None,
@@ -152,8 +152,12 @@ class SSLContext:
             if not callable(callback):
                 raise TypeError("not a callable object")
 
-            def shim_cb(servername, sslobj, _):
-                return callback(sslobj, servername, self)
+            def shim_cb(
+                _: tls.TLSConnection,
+                servername: str,
+                arg: typing.Any,
+            ) -> int | None:
+                return callback(arg, servername, self)
 
             self._context.sni_callback = shim_cb
 
@@ -416,7 +420,7 @@ class SSLContext:
         self._context.check_hostname = value
 
     @property
-    def hostname_checks_common_name(self):
+    def hostname_checks_common_name(self) -> bool:
         return True
 
     @property
@@ -429,27 +433,11 @@ class SSLContext:
 
     @property
     def _msg_callback(self) -> typing.Callable | None:
-        return self._context.message_callback
+        return None
 
     @_msg_callback.setter
     def _msg_callback(self, callback: typing.Callable | None) -> None:
-        if callback is None:
-            self._context.message_callback = None
-            return
-
-        if not callable(callback):
-            raise TypeError(f"{callback} is not callable.")
-
-        def inner(owner, direction, version, message):
-            content_type = _ssl._TLSContentType(message.content_type)
-            data = message.serialize()
-            if content_type == _ssl._TLSContentType.HANDSHAKE:
-                msg_type = _ssl._TLSMessageType(message.handshake_type)
-            else:
-                msg_type = None
-            callback(owner, direction, version, content_type, msg_type, data)
-
-        self._context.message_callback = inner
+        raise NotImplementedError
 
     @property
     def protocol(self) -> _ssl._SSLMethod:
@@ -464,9 +452,14 @@ class SSLContext:
         raise NotImplementedError
 
     @property
-    def verify_mode(self):
+    def verify_mode(self) -> VerifyMode:
         value = self._context.verify_mode
-        return VerifyMode(value)
+        if value == tls.TLSVerifyMode.CERT_NONE:
+            return VerifyMode.CERT_NONE
+        elif value == tls.TLSVerifyMode.CERT_OPTIONAL:
+            return VerifyMode.CERT_OPTIONAL
+        else:
+            return VerifyMode.CERT_REQUIRED
 
     @verify_mode.setter
     def verify_mode(self, value: VerifyMode) -> None:

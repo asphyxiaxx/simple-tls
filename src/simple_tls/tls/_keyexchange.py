@@ -373,15 +373,15 @@ class FFDHKeyExchange:
         self._public_key = private_key.public_key()
 
     @property
-    def y(self):
+    def y(self) -> int:
         return self._public_key.public_numbers().y
 
     @property
-    def p(self):
+    def p(self) -> int:
         return self._parameter_numbers.p
 
     @property
-    def g(self):
+    def g(self) -> int:
         return self._parameter_numbers.g
 
     def generate_key_share(self) -> bytes:

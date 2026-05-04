@@ -48,7 +48,7 @@ _HM = typing.TypeVar("_HM", bound="HandshakeMessage")
 class Message:
     content_type: typing.ClassVar[int]
 
-    def __init__(self):
+    def __init__(self) -> None:
         raise NotImplementedError
 
     @classmethod
@@ -159,7 +159,7 @@ class Handshake(Message):
         if self._cache is None or type(self._cache) is not handshake_cls:
             self._cache = handshake_cls.from_bytes(self.data)
 
-        return self._cache
+        return typing.cast(_HM, self._cache)
 
 
 class HandshakeMessage:

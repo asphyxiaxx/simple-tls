@@ -30,19 +30,29 @@ from ..key.types import (
     CertificatePublicKeyTypes,
 )
 from ._constant import HashAlgorithm, SignatureScheme
+from ._types import ReadableBuffer
+
+_SigningFunction = typing.Callable[
+    [CertificateIssuerPrivateKeyTypes, bytes, hashes.HashAlgorithm | None],
+    bytes,
+]
+_VerifyingFunction = typing.Callable[
+    [CertificatePublicKeyTypes, bytes, bytes, hashes.HashAlgorithm | None],
+    None,
+]
 
 
-class MD5SHA1(hashes.HashAlgorithm):
+class _MD5SHA1(hashes.HashAlgorithm):
     name = "md5-sha1"
     digest_size = 36
     block_size = 64
 
 
-class MD5SHA1Hash:
+class _MD5SHA1Hash:
     def __init__(self) -> None:
         self.__md5 = hashes.Hash(hashes.MD5())
         self.__sha1 = hashes.Hash(hashes.SHA1())
-        self.__algorithm = MD5SHA1()
+        self.__algorithm = _MD5SHA1()
 
     @property
     def algorithm(self) -> hashes.HashAlgorithm:
@@ -55,21 +65,11 @@ class MD5SHA1Hash:
     def finalize(self) -> bytes:
         return self.__md5.finalize() + self.__sha1.finalize()
 
-    def copy(self) -> MD5SHA1Hash:
-        new = MD5SHA1Hash()
+    def copy(self) -> _MD5SHA1Hash:
+        new = _MD5SHA1Hash()
         new.__md5 = self.__md5.copy()
         new.__sha1 = self.__sha1.copy()
         return new
-
-
-_HASH_ALGORITHMS: dict[int, hashes.HashAlgorithm] = {
-    HashAlgorithm.MD5: hashes.MD5(),
-    HashAlgorithm.SHA1: hashes.SHA1(),
-    HashAlgorithm.SHA224: hashes.SHA224(),
-    HashAlgorithm.SHA256: hashes.SHA256(),
-    HashAlgorithm.SHA384: hashes.SHA384(),
-    HashAlgorithm.SHA512: hashes.SHA512(),
-}
 
 
 def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
@@ -77,15 +77,16 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
 
 
 def get_hash(
-    hash_algorithm: HashAlgorithm, message: bytes = b""
+    hash_algorithm: HashAlgorithm,
+    message: ReadableBuffer = b"",
 ) -> hashes.Hash:
     if hash_algorithm == HashAlgorithm.MD5_SHA1:
-        hashobj = typing.cast(hashes.Hash, MD5SHA1Hash())
+        hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
     else:
         algorithm = get_algorithm(hash_algorithm)
         hashobj = hashes.Hash(algorithm)
 
-    hashobj.update(message)
+    hashobj.update(message)  # type: ignore
     return hashobj
 
 
@@ -167,46 +168,6 @@ def _sign_ed448(
     return key.sign(data)
 
 
-_CREATE_SIGNATURE_FUNC: dict[int, tuple[typing.Any, int]] = {
-    SignatureScheme.RSA_PSS_RSAE_SHA512: (_sign_rsa_pss, HashAlgorithm.SHA512),
-    SignatureScheme.RSA_PSS_PSS_SHA512: (_sign_rsa_pss, HashAlgorithm.SHA512),
-    SignatureScheme.RSA_PSS_RSAE_SHA384: (_sign_rsa_pss, HashAlgorithm.SHA384),
-    SignatureScheme.RSA_PSS_PSS_SHA384: (_sign_rsa_pss, HashAlgorithm.SHA384),
-    SignatureScheme.RSA_PSS_RSAE_SHA256: (_sign_rsa_pss, HashAlgorithm.SHA256),
-    SignatureScheme.RSA_PSS_PSS_SHA256: (_sign_rsa_pss, HashAlgorithm.SHA256),
-    SignatureScheme.DSA_SHA512: (_sign_dsa, HashAlgorithm.SHA512),
-    SignatureScheme.DSA_SHA384: (_sign_dsa, HashAlgorithm.SHA384),
-    SignatureScheme.DSA_SHA256: (_sign_dsa, HashAlgorithm.SHA256),
-    SignatureScheme.DSA_SHA224: (_sign_dsa, HashAlgorithm.SHA224),
-    SignatureScheme.DSA_SHA1: (_sign_dsa, HashAlgorithm.SHA1),
-    SignatureScheme.RSA_PKCS1_SHA512: (
-        _sign_rsa_pkcs115,
-        HashAlgorithm.SHA512,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA384: (
-        _sign_rsa_pkcs115,
-        HashAlgorithm.SHA384,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA256: (
-        _sign_rsa_pkcs115,
-        HashAlgorithm.SHA256,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA224: (
-        _sign_rsa_pkcs115,
-        HashAlgorithm.SHA224,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA1: (_sign_rsa_pkcs115, HashAlgorithm.SHA1),
-    SignatureScheme.ECDSA_SHA224: (_sign_ec, HashAlgorithm.SHA224),
-    SignatureScheme.ECDSA_SHA1: (_sign_ec, HashAlgorithm.SHA1),
-    SignatureScheme.ECDSA_SECP521R1_SHA512: (_sign_ec, HashAlgorithm.SHA512),
-    SignatureScheme.ECDSA_SECP384R1_SHA384: (_sign_ec, HashAlgorithm.SHA384),
-    SignatureScheme.ECDSA_SECP256R1_SHA256: (_sign_ec, HashAlgorithm.SHA256),
-    SignatureScheme.ED25519: (_sign_ed25519, HashAlgorithm.INTRINSIC),
-    SignatureScheme.ED448: (_sign_ed448, HashAlgorithm.INTRINSIC),
-    SignatureScheme.RSA_MD5_SHA1: (_sign_rsa_pkcs115, HashAlgorithm.MD5_SHA1),
-}
-
-
 def create_signature(
     private_key: CertificateIssuerPrivateKeyTypes,
     msg: bytes,
@@ -224,8 +185,8 @@ def create_signature(
         msg_hash = msg
     else:
         if hashalg == HashAlgorithm.MD5_SHA1:
-            algorithm = typing.cast(hashes.HashAlgorithm, MD5SHA1())
-            hashobj = typing.cast(hashes.Hash, MD5SHA1Hash())
+            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
+            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
@@ -320,67 +281,6 @@ def _verify_ed448(
     key.verify(signature, data)
 
 
-_VERIFY_SIGNATURE_FUNC: dict[int, tuple[typing.Any, int]] = {
-    SignatureScheme.RSA_PSS_RSAE_SHA512: (
-        _verify_rsa_pss,
-        HashAlgorithm.SHA512,
-    ),
-    SignatureScheme.RSA_PSS_PSS_SHA512: (
-        _verify_rsa_pss,
-        HashAlgorithm.SHA512,
-    ),
-    SignatureScheme.RSA_PSS_RSAE_SHA384: (
-        _verify_rsa_pss,
-        HashAlgorithm.SHA384,
-    ),
-    SignatureScheme.RSA_PSS_PSS_SHA384: (
-        _verify_rsa_pss,
-        HashAlgorithm.SHA384,
-    ),
-    SignatureScheme.RSA_PSS_RSAE_SHA256: (
-        _verify_rsa_pss,
-        HashAlgorithm.SHA256,
-    ),
-    SignatureScheme.RSA_PSS_PSS_SHA256: (
-        _verify_rsa_pss,
-        HashAlgorithm.SHA256,
-    ),
-    SignatureScheme.DSA_SHA512: (_verify_dsa, HashAlgorithm.SHA512),
-    SignatureScheme.DSA_SHA384: (_verify_dsa, HashAlgorithm.SHA384),
-    SignatureScheme.DSA_SHA256: (_verify_dsa, HashAlgorithm.SHA256),
-    SignatureScheme.DSA_SHA224: (_verify_dsa, HashAlgorithm.SHA224),
-    SignatureScheme.DSA_SHA1: (_verify_dsa, HashAlgorithm.SHA1),
-    SignatureScheme.RSA_PKCS1_SHA512: (
-        _verify_rsa_pkcs115,
-        HashAlgorithm.SHA512,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA384: (
-        _verify_rsa_pkcs115,
-        HashAlgorithm.SHA384,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA256: (
-        _verify_rsa_pkcs115,
-        HashAlgorithm.SHA256,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA224: (
-        _verify_rsa_pkcs115,
-        HashAlgorithm.SHA224,
-    ),
-    SignatureScheme.RSA_PKCS1_SHA1: (_verify_rsa_pkcs115, HashAlgorithm.SHA1),
-    SignatureScheme.ECDSA_SHA224: (_verify_ec, HashAlgorithm.SHA224),
-    SignatureScheme.ECDSA_SHA1: (_verify_ec, HashAlgorithm.SHA1),
-    SignatureScheme.ECDSA_SECP521R1_SHA512: (_verify_ec, HashAlgorithm.SHA512),
-    SignatureScheme.ECDSA_SECP384R1_SHA384: (_verify_ec, HashAlgorithm.SHA384),
-    SignatureScheme.ECDSA_SECP256R1_SHA256: (_verify_ec, HashAlgorithm.SHA256),
-    SignatureScheme.ED25519: (_verify_ed25519, HashAlgorithm.INTRINSIC),
-    SignatureScheme.ED448: (_verify_ed448, HashAlgorithm.INTRINSIC),
-    SignatureScheme.RSA_MD5_SHA1: (
-        _verify_rsa_pkcs115,
-        HashAlgorithm.MD5_SHA1,
-    ),
-}
-
-
 def verify_signature(
     public_key: CertificatePublicKeyTypes,
     signature: bytes,
@@ -399,8 +299,8 @@ def verify_signature(
         msg_hash = msg
     else:
         if hashalg == HashAlgorithm.MD5_SHA1:
-            algorithm = typing.cast(hashes.HashAlgorithm, MD5SHA1())
-            hashobj = typing.cast(hashes.Hash, MD5SHA1Hash())
+            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
+            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
@@ -409,3 +309,73 @@ def verify_signature(
         msg_hash = hashobj.finalize()
 
     verify_func(public_key, signature, msg_hash, algorithm)
+
+
+# fmt: off
+# ruff: disable[E501]
+
+_HASH_ALGORITHMS: dict[int, hashes.HashAlgorithm] = {
+    HashAlgorithm.MD5: hashes.MD5(),
+    HashAlgorithm.SHA1: hashes.SHA1(),
+    HashAlgorithm.SHA224: hashes.SHA224(),
+    HashAlgorithm.SHA256: hashes.SHA256(),
+    HashAlgorithm.SHA384: hashes.SHA384(),
+    HashAlgorithm.SHA512: hashes.SHA512(),
+}
+
+_CREATE_SIGNATURE_FUNC: dict[int, tuple[_SigningFunction, int]] = {
+    SignatureScheme.RSA_PSS_RSAE_SHA512: (_sign_rsa_pss, HashAlgorithm.SHA512),
+    SignatureScheme.RSA_PSS_RSAE_SHA384: (_sign_rsa_pss, HashAlgorithm.SHA384),
+    SignatureScheme.RSA_PSS_RSAE_SHA256: (_sign_rsa_pss, HashAlgorithm.SHA256),
+    SignatureScheme.RSA_PSS_PSS_SHA512: (_sign_rsa_pss, HashAlgorithm.SHA512),
+    SignatureScheme.RSA_PSS_PSS_SHA384: (_sign_rsa_pss, HashAlgorithm.SHA384),
+    SignatureScheme.RSA_PSS_PSS_SHA256: (_sign_rsa_pss, HashAlgorithm.SHA256),
+    SignatureScheme.DSA_SHA512: (_sign_dsa, HashAlgorithm.SHA512),
+    SignatureScheme.DSA_SHA384: (_sign_dsa, HashAlgorithm.SHA384),
+    SignatureScheme.DSA_SHA256: (_sign_dsa, HashAlgorithm.SHA256),
+    SignatureScheme.DSA_SHA224: (_sign_dsa, HashAlgorithm.SHA224),
+    SignatureScheme.DSA_SHA1: (_sign_dsa, HashAlgorithm.SHA1),
+    SignatureScheme.RSA_PKCS1_SHA512: (_sign_rsa_pkcs115, HashAlgorithm.SHA512),
+    SignatureScheme.RSA_PKCS1_SHA384: (_sign_rsa_pkcs115, HashAlgorithm.SHA384),
+    SignatureScheme.RSA_PKCS1_SHA256: (_sign_rsa_pkcs115, HashAlgorithm.SHA256),
+    SignatureScheme.RSA_PKCS1_SHA224: (_sign_rsa_pkcs115, HashAlgorithm.SHA224),
+    SignatureScheme.RSA_PKCS1_SHA1: (_sign_rsa_pkcs115, HashAlgorithm.SHA1),
+    SignatureScheme.ECDSA_SHA224: (_sign_ec, HashAlgorithm.SHA224),
+    SignatureScheme.ECDSA_SHA1: (_sign_ec, HashAlgorithm.SHA1),
+    SignatureScheme.ECDSA_SECP521R1_SHA512: (_sign_ec, HashAlgorithm.SHA512),
+    SignatureScheme.ECDSA_SECP384R1_SHA384: (_sign_ec, HashAlgorithm.SHA384),
+    SignatureScheme.ECDSA_SECP256R1_SHA256: (_sign_ec, HashAlgorithm.SHA256),
+    SignatureScheme.ED25519: (_sign_ed25519, HashAlgorithm.INTRINSIC),
+    SignatureScheme.ED448: (_sign_ed448, HashAlgorithm.INTRINSIC),
+    SignatureScheme.RSA_MD5_SHA1: (_sign_rsa_pkcs115, HashAlgorithm.MD5_SHA1),
+}
+
+_VERIFY_SIGNATURE_FUNC: dict[int, tuple[_VerifyingFunction, int]] = {
+    SignatureScheme.RSA_PSS_RSAE_SHA512: (_verify_rsa_pss, HashAlgorithm.SHA512),
+    SignatureScheme.RSA_PSS_RSAE_SHA384: (_verify_rsa_pss, HashAlgorithm.SHA384),
+    SignatureScheme.RSA_PSS_RSAE_SHA256: (_verify_rsa_pss, HashAlgorithm.SHA256),
+    SignatureScheme.RSA_PSS_PSS_SHA512: (_verify_rsa_pss, HashAlgorithm.SHA512),
+    SignatureScheme.RSA_PSS_PSS_SHA384: (_verify_rsa_pss, HashAlgorithm.SHA384),
+    SignatureScheme.RSA_PSS_PSS_SHA256: (_verify_rsa_pss, HashAlgorithm.SHA256),
+    SignatureScheme.DSA_SHA512: (_verify_dsa, HashAlgorithm.SHA512),
+    SignatureScheme.DSA_SHA384: (_verify_dsa, HashAlgorithm.SHA384),
+    SignatureScheme.DSA_SHA256: (_verify_dsa, HashAlgorithm.SHA256),
+    SignatureScheme.DSA_SHA224: (_verify_dsa, HashAlgorithm.SHA224),
+    SignatureScheme.DSA_SHA1: (_verify_dsa, HashAlgorithm.SHA1),
+    SignatureScheme.RSA_PKCS1_SHA512: (_verify_rsa_pkcs115, HashAlgorithm.SHA512),
+    SignatureScheme.RSA_PKCS1_SHA384: (_verify_rsa_pkcs115, HashAlgorithm.SHA384),
+    SignatureScheme.RSA_PKCS1_SHA256: (_verify_rsa_pkcs115, HashAlgorithm.SHA256),
+    SignatureScheme.RSA_PKCS1_SHA224: (_verify_rsa_pkcs115, HashAlgorithm.SHA224),
+    SignatureScheme.RSA_PKCS1_SHA1: (_verify_rsa_pkcs115, HashAlgorithm.SHA1),
+    SignatureScheme.ECDSA_SHA224: (_verify_ec, HashAlgorithm.SHA224),
+    SignatureScheme.ECDSA_SHA1: (_verify_ec, HashAlgorithm.SHA1),
+    SignatureScheme.ECDSA_SECP521R1_SHA512: (_verify_ec, HashAlgorithm.SHA512),
+    SignatureScheme.ECDSA_SECP384R1_SHA384: (_verify_ec, HashAlgorithm.SHA384),
+    SignatureScheme.ECDSA_SECP256R1_SHA256: (_verify_ec, HashAlgorithm.SHA256),
+    SignatureScheme.ED25519: (_verify_ed25519, HashAlgorithm.INTRINSIC),
+    SignatureScheme.ED448: (_verify_ed448, HashAlgorithm.INTRINSIC),
+    SignatureScheme.RSA_MD5_SHA1: (_verify_rsa_pkcs115, HashAlgorithm.MD5_SHA1),
+}
+
+# fmt: on
+# ruff: enable[E501]

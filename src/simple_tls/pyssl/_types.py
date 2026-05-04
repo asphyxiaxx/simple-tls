@@ -6,6 +6,7 @@ from os import PathLike
 from typing import TYPE_CHECKING, TypeAlias, Union
 
 if TYPE_CHECKING:
+    from ._context import SSLContext
     from ._object import SSLObject
     from ._socket import SSLSocket
 
@@ -26,6 +27,6 @@ PeerCertRetDictType: TypeAlias = dict[str, str | PCTRTTT | PCTRTT]
 PSKClientCbType: TypeAlias = Callable[[str | None], tuple[str | None, bytes]]
 PSKServerCbType: TypeAlias = Callable[[str | None], bytes]
 SrvnmeCbType: TypeAlias = Callable[
-    [Union["SSLSocket", "SSLObject"], str | None, "SSLSocket"], int | None
+    [Union["SSLSocket", "SSLObject"], str | None, "SSLContext"], int | None
 ]
 ExtensionsCbType: TypeAlias = Callable[[list[int]], list[int]]

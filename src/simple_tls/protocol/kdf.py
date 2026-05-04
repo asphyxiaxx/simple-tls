@@ -187,7 +187,7 @@ class Bcrypt:
 
                 password_hash = hashfunc(password)
 
-                def _bcrypt_hash(salt) -> bytes:
+                def _bcrypt_hash(salt: bytes) -> bytes:
                     cipher = self._EKSBlowfish.new(
                         password_hash,
                         mode=self._EKSBlowfish.MODE_ECB,
@@ -234,13 +234,14 @@ class Bcrypt:
         SUPPORTED = True
 
         def derive(self, password: bytes) -> bytes:
-            return self._bcrypt(
+            key = self._bcrypt(
                 password=password,
                 salt=self.salt,
                 desired_key_bytes=self.length,
                 rounds=self.iterations,
                 ignore_few_rounds=True,
             )
+            return typing.cast(bytes, key)
 
 
 def hkdf_expand(

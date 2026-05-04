@@ -369,7 +369,7 @@ class Context:
         self._seq_num = 0
 
     @property
-    def aead_overhead(self):
+    def aead_overhead(self) -> int:
         return self._aead.tag_length
 
     def export(self, exporter_context: bytes, length: int) -> bytes:

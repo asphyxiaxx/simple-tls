@@ -27,7 +27,7 @@ from ..key import padding, rsa
 from ..key.types import CertificateIssuerPrivateKeyTypes
 from ..utils.codec import Parser, Writer
 from ..utils.constant_time import compare_digest
-from ..utils.math import bytes_to_int, bytes_to_str, int_to_bytes
+from ..utils.math import bytes_to_int, int_to_bytes
 from ..utils.misc import negotiate
 from ..utils.random import get_random_bytes
 from ._alert import (
@@ -42,7 +42,6 @@ from ._alert import (
     AlertProtocolVersion,
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
-    CustomAlert,
 )
 from ._common import create_signature
 from ._constant import (
@@ -58,7 +57,6 @@ from ._constant import (
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
-    AlertDescription,
     Authentication,
     CipherSuite,
     ClientCertificateType,
@@ -74,7 +72,14 @@ from ._constant import (
     TLSVersion,
 )
 from ._context import TLSContext
-from ._enum import Direction, Epoch, ServerState, Status, TLSVerifyMode
+from ._enum import (
+    Direction,
+    Epoch,
+    ServerState,
+    Status,
+    TLSSessionType,
+    TLSVerifyMode,
+)
 from ._extension import (
     ClientALPNExtension,
     ClientKeyShareExtension,
@@ -128,10 +133,8 @@ from ._message import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from ._session import TLSSession, TLSSessionType
+from ._session import TLSSession
 from ._transcript import KeyDeriver, KeySchedule
-
-T = typing.TypeVar("T")
 
 
 class TLSHandshakeServer(TLSHandshake):
@@ -388,10 +391,9 @@ class TLSHandshakeServer(TLSHandshake):
         )
         if sni_ext is not None:
             self._hostname = sni_ext.hostname
+            self.do_sni_cb(self._hostname)
         else:
             self._hostname = None
-
-        self._do_sni_callback(self._hostname)
 
         priv_key = self.context.private_key
         x509_certs = self.context.x509_certs
@@ -634,7 +636,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_server_key_exchange(self) -> Status:
         cipher_suite = self.cipher()
 
-        if cipher_suite.kea == Authentication.RSA:
+        if cipher_suite.kea == KeyExchange.RSA:
             self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
             return Status.OK
 
@@ -1799,23 +1801,6 @@ class TLSHandshakeServer(TLSHandshake):
         total_binders_length = sum(1 + len(binder) for binder in binders)
         total_length = 2 + total_binders_length
         return message_data[:-total_length]
-
-    def _do_sni_callback(self, hostname: bytes | None) -> None:
-        sni = bytes_to_str(hostname)
-        cb = self.context.sni_callback
-        if cb is None or sni is None:
-            return
-
-        result = cb(self.context, sni, self.context.owner)
-        if result is not None:
-            try:
-                description = AlertDescription(result)
-            except ValueError:
-                raise AlertInternalError(
-                    f"Unknown alert description '{description}'"
-                ) from None
-            else:
-                raise CustomAlert(description)
 
     def _negotiate_cipher_suite(self) -> CipherSuite:
         if self._peer_cipher_suites is None:

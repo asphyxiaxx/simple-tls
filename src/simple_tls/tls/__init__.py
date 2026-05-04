@@ -45,8 +45,6 @@ from ._alert import (
 )
 from ._cipher import NullCipher, TLSCipher
 from ._common import (
-    MD5SHA1,
-    MD5SHA1Hash,
     create_signature,
     get_algorithm,
     get_hash,
@@ -230,7 +228,6 @@ __all__ = [
     "FFDHE_GROUPS",
     "GREASES",
     "KEM_GROUPS",
-    "MD5SHA1",
     "RSA_PKCS1_SIGNATURE_ALGORITHMS",
     "RSA_PSS_PSS_SIGNATURE_ALGORITHMS",
     "RSA_PSS_RSAE_SIGNATURE_ALGORITHMS",
@@ -349,7 +346,6 @@ __all__ = [
     "KeyShareEntry",
     "KeyUpdate",
     "KeyUpdateMessageType",
-    "MD5SHA1Hash",
     "Message",
     "NameType",
     "NamedGroup",

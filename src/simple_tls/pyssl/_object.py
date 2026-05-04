@@ -10,7 +10,7 @@ from ._constant import Options
 from ._exception import SSLEOFError, SSLError, SSLWantReadError
 from ._session import SSLSession
 from ._types import PeerCertRetDictType, ReadableBuffer
-from ._util import parse_certificate
+from ._util import parse_certificate, parse_cipher
 
 if typing.TYPE_CHECKING:
     from ._context import SSLContext
@@ -35,7 +35,7 @@ class SSLObject(_ssl.SSLObject):
             raise ValueError("context not provided")
 
         self = cls.__new__(cls)
-        context._context.owner = self
+        context._context.sni_callback_arg = self
 
         if not server_side:
             session_ticket_handler = self._session_ticket_handler
@@ -73,8 +73,8 @@ class SSLObject(_ssl.SSLObject):
             raise TypeError("Not SSLContext")
 
         self._context = value
-        value._context.owner = self
         self._sslobj.context = value._context
+        self._sslobj.context.sni_callback_arg = self
 
     @property
     def session(self) -> SSLSession | None:  # type: ignore[override]
@@ -161,7 +161,7 @@ class SSLObject(_ssl.SSLObject):
             return peercert.public_bytes(serialization.Encoding.DER)
         return parse_certificate(peercert)
 
-    def get_verified_chain(self):
+    def get_verified_chain(self) -> list[bytes]:
         """
         Returns verified certificate chain provided by the other
         end of the SSL channel as a list of DER-encoded bytes.
@@ -171,7 +171,7 @@ class SSLObject(_ssl.SSLObject):
         """
         return self._sslobj.get_verified_chain()
 
-    def get_unverified_chain(self):
+    def get_unverified_chain(self) -> list[bytes]:
         """Returns raw certificate chain provided by the other
         end of the SSL channel as a list of DER-encoded bytes.
         """
@@ -191,19 +191,25 @@ class SSLObject(_ssl.SSLObject):
         one of the peers."""
         return self._sslobj.selected_alpn_protocol()
 
-    def cipher(self):
+    def cipher(self) -> tuple[str, str, int] | None:
         """
         Return the currently selected cipher as a 3-tuple ``(name,
         ssl_version, secret_bits)``.
         """
-        return self._sslobj.cipher()
+        cipher = self._sslobj.cipher()
+        if cipher is not None:
+            return parse_cipher(cipher)
+        return None
 
-    def shared_ciphers(self):
+    def shared_ciphers(self) -> list[tuple[str, str, int]] | None:
         """
         Return a list of ciphers shared by the client during the handshake or
         None if this is not a valid server connection.
         """
-        return self._sslobj.shared_ciphers()
+        shared_ciphers = self._sslobj.shared_ciphers()
+        if shared_ciphers is not None:
+            return [parse_cipher(c) for c in shared_ciphers]
+        return None
 
     def compression(self) -> None:
         """
@@ -233,7 +239,7 @@ class SSLObject(_ssl.SSLObject):
         """
         self._sslobj.shutdown()
 
-    def get_channel_binding(self, cb_type="tls-unique") -> bytes | None:
+    def get_channel_binding(self, cb_type: str = "tls-unique") -> bytes | None:
         """
         Get channel binding data for current connection.  Raise ValueError
         if the requested `cb_type` is not supported.  Return bytes of the data
@@ -248,7 +254,7 @@ class SSLObject(_ssl.SSLObject):
         """
         return self._sslobj.version()
 
-    def verify_client_post_handshake(self):
+    def verify_client_post_handshake(self) -> None:
         if not self._sslobj.server_side:
             raise SSLError("Not server")
         return self._sslobj.verify_client_post_handshake()

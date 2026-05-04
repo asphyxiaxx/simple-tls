@@ -22,16 +22,13 @@ from __future__ import annotations
 
 import struct
 import typing
+from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hmac
-from cryptography.hazmat.primitives.ciphers import (
-    Cipher,
-    CipherContext,
-    aead,
-    algorithms,
-    modes,
-)
+from cryptography.hazmat.primitives.ciphers import Cipher, CipherContext, aead
+from cryptography.hazmat.primitives.ciphers.algorithms import AES
+from cryptography.hazmat.primitives.ciphers.modes import CBC
 
 from ..utils.constant_time import cbc_remove_pad_and_mac, compare_digest
 from ..utils.math import strxor
@@ -52,47 +49,39 @@ except ImportError:
         TripleDES,
     )
 
-AEADCipherType = aead.AESCCM | aead.AESGCM | aead.ChaCha20Poly1305
-CipherType = CipherContext
+__all__ = ["InvalidTag", "NullCipher", "TLSCipher"]
+
+_CipherType = CipherContext
+_AEADCipherType = typing.Union[aead.AESCCM, aead.AESGCM, aead.ChaCha20Poly1305]
 
 
-# key_length, iv_length, cipher_func
-_CIPHERS = {
-    Symmetric.AES_128_CBC: (
-        16,
-        16,
-        lambda key, iv: Cipher(algorithms.AES(key), modes.CBC(iv)),
-    ),
-    Symmetric.AES_256_CBC: (
-        32,
-        16,
-        lambda key, iv: Cipher(algorithms.AES(key), modes.CBC(iv)),
-    ),
-    Symmetric.RC4_128: (
-        16,
-        0,
-        lambda key, iv: Cipher(ARC4(key), None),
-    ),
-    Symmetric.TRIPLE_DES_EDE_CBC: (
-        24,
-        8,
-        lambda key, iv: Cipher(TripleDES(key), modes.CBC(iv)),
-    ),
-    Symmetric.NULL: (0, 0, lambda key, iv: None),
-}
+@dataclass(frozen=True)
+class _Cipher:
+    key_length: int
+    iv_length: int
+    cipher_factory: typing.Callable[
+        [bytes, bytes], Cipher[CBC] | Cipher[None] | None
+    ]
+
+    def create(
+        self, key: bytes, iv: bytes
+    ) -> Cipher[CBC] | Cipher[None] | None:
+        return self.cipher_factory(key, iv)
 
 
-# key_length, iv_length, tag_length, aead cipher class
-_AEAD_CIPHERS = {
-    Symmetric.AES_256_GCM: (32, 4, 16, aead.AESGCM),
-    Symmetric.AES_128_GCM: (16, 4, 16, aead.AESGCM),
-    Symmetric.AES_256_CCM_8: (32, 4, 8, aead.AESCCM),
-    Symmetric.AES_128_CCM_8: (16, 4, 8, aead.AESCCM),
-    Symmetric.AES_256_CCM: (32, 4, 16, aead.AESCCM),
-    Symmetric.AES_128_CCM: (16, 4, 16, aead.AESCCM),
-    Symmetric.CHACHA20_POLY1305: (32, 12, 16, aead.ChaCha20Poly1305),
-    Symmetric.CHACHA20_DRAFT_00: (32, 4, 16, aead.ChaCha20Poly1305),
-}
+@dataclass(frozen=True)
+class _AEADCipher:
+    key_length: int
+    iv_length: int
+    tag_length: int
+    cipher_type: type[_AEADCipherType]
+
+    def create(self, key: bytes) -> _AEADCipherType:
+        if isinstance(self.cipher_type, aead.AESCCM):
+            return aead.AESCCM(key, self.tag_length)
+        else:
+            assert self.tag_length == 16
+            return self.cipher_type(key)
 
 
 class TLSCipher:
@@ -101,21 +90,19 @@ class TLSCipher:
         direction: Direction,
         version: int,
         cipher_suite: CipherSuite,
-        enc_key: ReadableBuffer,
-        mac_key: ReadableBuffer,
-        fixed_iv: ReadableBuffer,
+        enc_key: bytes,
+        mac_key: bytes,
+        fixed_iv: bytes,
         encrypt_then_mac: bool = False,
     ) -> None:
         self.open: typing.Callable[
-            [int, int, ReadableBuffer, int, ReadableBuffer, WritableBuffer],
-            int,
+            [int, int, ReadableBuffer, int, bytes, WritableBuffer], int
         ]
         self.seal: typing.Callable[
-            [int, int, ReadableBuffer, int, ReadableBuffer, WritableBuffer],
-            int,
+            [int, int, ReadableBuffer, int, bytes, WritableBuffer], int
         ]
 
-        self._cipher: AEADCipherType | CipherType | None = None
+        self._cipher: _AEADCipherType | _CipherType | None = None
         self._mac: hmac.HMAC | None = None
         self._max_overhead: int = 0
         self._fixed_nonce: bytes = b""
@@ -134,13 +121,16 @@ class TLSCipher:
             if mac_key:
                 raise ValueError("mac_key must be empty for aead cipher suite")
 
-            key_len, iv_len, tag_len, cipher_cls = self._aead_cipher_params(
-                cipher_suite
-            )
+            aead_spec = self._aead_cipher_spec(cipher_suite)
+            key_len = aead_spec.key_length
+            tag_len = aead_spec.tag_length
             nonce_len = 12
 
             if version >= TLSVersion.TLSv1_3:
                 iv_len = nonce_len
+            else:
+                iv_len = aead_spec.iv_length
+
             if len(enc_key) != key_len:
                 raise ValueError("Incorrect enc_key length")
             if len(fixed_iv) != iv_len:
@@ -166,10 +156,7 @@ class TLSCipher:
             if version >= TLSVersion.TLSv1_3:
                 self._aad_is_header = True
 
-            if issubclass(cipher_cls, aead.AESCCM):
-                self._cipher = cipher_cls(enc_key, tag_len)
-            else:
-                self._cipher = cipher_cls(enc_key)
+            self._cipher = aead_spec.create(enc_key)
 
             if direction == Direction.ENCRYPT:
                 self.seal = self._encrypt_aead
@@ -182,7 +169,9 @@ class TLSCipher:
             if cipher_suite.digest is None:
                 raise ValueError("cipher suite is not supported")
 
-            key_len, iv_len, cipher_func = self._cipher_params(cipher_suite)
+            spec = self._cipher_spec(cipher_suite)
+            key_len = spec.key_length
+            iv_len = spec.iv_length
 
             if len(enc_key) != key_len:
                 raise ValueError("Incorrect enc_key length")
@@ -190,7 +179,7 @@ class TLSCipher:
                 raise ValueError("Incorrect fixed_iv length")
 
             algorithm = get_algorithm(cipher_suite.digest)
-            cipher = cipher_func(enc_key, fixed_iv)
+            cipher = spec.create(enc_key, fixed_iv)
             self._mac = hmac.HMAC(mac_key, algorithm)
 
             if version >= TLSVersion.TLSv1_1 and iv_len > 0:
@@ -275,18 +264,22 @@ class TLSCipher:
             return iv_len + padded_ciphertext_len
 
     @classmethod
-    def get_key_iv_size(
+    def get_key_iv_len(
         cls, version: int, cipher_suite: CipherSuite
     ) -> tuple[int, int]:
+        spec: _Cipher | _AEADCipher
         if cipher_suite.aead:
-            key_size, iv_size, _, _ = cls._aead_cipher_params(cipher_suite)
+            spec = cls._aead_cipher_spec(cipher_suite)
             if version >= TLSVersion.TLSv1_3:
-                iv_size = 12
+                iv_len = 12
+            else:
+                iv_len = spec.iv_length
         else:
             if version >= TLSVersion.TLSv1_3:
                 raise ValueError("cipher suite is not supported for TLSv1.3")
-            key_size, iv_size, _ = cls._cipher_params(cipher_suite)
-        return key_size, iv_size
+            spec = cls._cipher_spec(cipher_suite)
+
+        return (spec.key_length, iv_len)
 
     def max_overhead(self) -> int:
         return self._max_overhead
@@ -295,19 +288,11 @@ class TLSCipher:
         return self._block_size > 1
 
     @classmethod
-    def _cipher_params(
-        cls, cipher_suite: CipherSuite
-    ) -> tuple[
-        int,
-        int,
-        typing.Callable[[ReadableBuffer, ReadableBuffer], Cipher | None],
-    ]:
+    def _cipher_spec(cls, cipher_suite: CipherSuite) -> _Cipher:
         return _CIPHERS[cipher_suite.symmetric]
 
     @classmethod
-    def _aead_cipher_params(
-        cls, cipher_suite: CipherSuite
-    ) -> tuple[int, int, int, type[AEADCipherType]]:
+    def _aead_cipher_spec(cls, cipher_suite: CipherSuite) -> _AEADCipher:
         return _AEAD_CIPHERS[cipher_suite.symmetric]
 
     @staticmethod
@@ -337,7 +322,7 @@ class TLSCipher:
         record_version: int,
         plaintext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         if len(out) < len(plaintext) + self._max_overhead:
@@ -352,7 +337,7 @@ class TLSCipher:
         record_version: int,
         plaintext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         assert self._variable_nonce_len == 8
@@ -375,7 +360,7 @@ class TLSCipher:
         else:
             nonce = self._fixed_nonce + seq_bytes
 
-        cipher = typing.cast(AEADCipherType, self._cipher)
+        cipher = typing.cast(_AEADCipherType, self._cipher)
         ciphertext = cipher.encrypt(nonce, plaintext, aad)
 
         written = 0
@@ -395,7 +380,7 @@ class TLSCipher:
         record_version: int,
         plaintext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         mac = typing.cast(hmac.HMAC, self._mac)
@@ -435,7 +420,7 @@ class TLSCipher:
         record_version: int,
         plaintext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         mac = typing.cast(hmac.HMAC, self._mac)
@@ -473,7 +458,7 @@ class TLSCipher:
         record_version: int,
         plaintext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         mac = typing.cast(hmac.HMAC, self._mac)
@@ -511,7 +496,7 @@ class TLSCipher:
         record_version: int,
         ciphertext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         if len(out) < len(ciphertext):
@@ -526,7 +511,7 @@ class TLSCipher:
         record_version: int,
         ciphertext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         assert self._variable_nonce_len == 8
@@ -560,7 +545,7 @@ class TLSCipher:
         else:
             nonce = self._fixed_nonce + seq_bytes
 
-        cipher = typing.cast(AEADCipherType, self._cipher)
+        cipher = typing.cast(_AEADCipherType, self._cipher)
         plaintext = cipher.decrypt(nonce, ciphertext, aad)
         out[: len(plaintext)] = plaintext
 
@@ -572,11 +557,11 @@ class TLSCipher:
         record_version: int,
         ciphertext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(CipherType, self._cipher)
+        cipher = typing.cast(_CipherType, self._cipher)
         block_size = self._block_size
         mac_size = mac.algorithm.digest_size
         rand_iv_len = self._variable_nonce_len
@@ -628,11 +613,11 @@ class TLSCipher:
         record_version: int,
         ciphertext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(CipherType, self._cipher)
+        cipher = typing.cast(_CipherType, self._cipher)
         block_size = self._block_size
         mac_size = mac.algorithm.digest_size
         rand_iv_len = self._variable_nonce_len
@@ -678,11 +663,11 @@ class TLSCipher:
         record_version: int,
         ciphertext: ReadableBuffer,
         seq_num: int,
-        header: ReadableBuffer,
+        header: bytes,
         out: WritableBuffer,
     ) -> int:
         mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(CipherType | None, self._cipher)
+        cipher = typing.cast(_CipherType | None, self._cipher)
         block_size = 1
         mac_size = mac.algorithm.digest_size
 
@@ -729,3 +714,83 @@ class NullCipher(TLSCipher):
 
     def ciphertext_length(self, plaintext_len: int) -> int:
         return plaintext_len
+
+
+_CIPHERS = {
+    Symmetric.AES_128_CBC: _Cipher(
+        key_length=16,
+        iv_length=16,
+        cipher_factory=lambda key, iv: Cipher(AES(key), CBC(iv)),
+    ),
+    Symmetric.AES_256_CBC: _Cipher(
+        key_length=32,
+        iv_length=16,
+        cipher_factory=lambda key, iv: Cipher(AES(key), CBC(iv)),
+    ),
+    Symmetric.RC4_128: _Cipher(
+        key_length=16,
+        iv_length=0,
+        cipher_factory=lambda key, iv: Cipher(ARC4(key), None),
+    ),
+    Symmetric.TRIPLE_DES_EDE_CBC: _Cipher(
+        key_length=24,
+        iv_length=8,
+        cipher_factory=lambda key, iv: Cipher(TripleDES(key), CBC(iv)),
+    ),
+    Symmetric.NULL: _Cipher(
+        key_length=0,
+        iv_length=0,
+        cipher_factory=lambda key, iv: None,
+    ),
+}
+
+_AEAD_CIPHERS = {
+    Symmetric.AES_256_GCM: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESGCM,
+    ),
+    Symmetric.AES_128_GCM: _AEADCipher(
+        key_length=16,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESGCM,
+    ),
+    Symmetric.AES_256_CCM_8: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=8,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.AES_128_CCM_8: _AEADCipher(
+        key_length=16,
+        iv_length=4,
+        tag_length=8,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.AES_256_CCM: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.AES_128_CCM: _AEADCipher(
+        key_length=16,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.CHACHA20_POLY1305: _AEADCipher(
+        key_length=32,
+        iv_length=12,
+        tag_length=16,
+        cipher_type=aead.ChaCha20Poly1305,
+    ),
+    Symmetric.CHACHA20_DRAFT_00: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.ChaCha20Poly1305,
+    ),
+}

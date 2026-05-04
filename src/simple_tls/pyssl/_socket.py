@@ -18,10 +18,10 @@ from ._exception import (
 )
 from ._session import SSLSession
 from ._types import PeerCertRetDictType, ReadableBuffer, WritableBuffer
-from ._util import parse_certificate
+from ._util import parse_certificate, parse_cipher
 
 if typing.TYPE_CHECKING:
-    from socket import _Address
+    from socket import _Address, _RetAddress
 
     from ._context import SSLContext
 
@@ -137,8 +137,8 @@ class SSLSocket(_ssl.SSLSocket):
                     context._context.session_keys = None
                     context._context.session_storage = None
 
-                # Assign owner
-                context._context.owner = self
+                context._context.sni_callback_arg = self
+
                 # create the SSL object
                 self._sslobj = tls.TLSConnection(
                     context=self._context._context,
@@ -184,8 +184,8 @@ class SSLSocket(_ssl.SSLSocket):
             raise TypeError("set context on closed socket")
 
         self._context = value
-        value._context.owner = self
         self._sslobj.context = value._context
+        self._sslobj.context.sni_callback_arg = self
 
     @property
     def session(self) -> SSLSession | None:  # type: ignore[override]
@@ -372,38 +372,45 @@ class SSLSocket(_ssl.SSLSocket):
         return parse_certificate(peercert)
 
     def get_verified_chain(self) -> list[bytes]:
-        if self._sslobj is None:
-            return []
-        return self._sslobj.get_verified_chain()
+        if self._sslobj is not None:
+            return self._sslobj.get_verified_chain()
+        return []
 
     def get_unverified_chain(self) -> list[bytes]:
-        if self._sslobj is None:
-            return []
-        return self._sslobj.get_unverified_chain()
+        if self._sslobj is not None:
+            return self._sslobj.get_unverified_chain()
+        return []
 
     def selected_npn_protocol(self) -> str | None:
         self._checkClosed()
-        if self._sslobj is None:
-            return None
-        return self._sslobj.selected_npn_protocol()
+        if self._sslobj is not None:
+            return self._sslobj.selected_npn_protocol()
+        return None
 
     def selected_alpn_protocol(self) -> str | None:
         self._checkClosed()
-        if self._sslobj is None:
-            return None
-        return self._sslobj.selected_alpn_protocol()
 
-    def cipher(self):
-        self._checkClosed()
-        if self._sslobj is None:
-            return None
-        return self._sslobj.cipher()
+        if self._sslobj is not None:
+            return self._sslobj.selected_alpn_protocol()
+        return None
 
-    def shared_ciphers(self):
+    def cipher(self) -> tuple[str, str, int] | None:
         self._checkClosed()
-        if self._sslobj is None:
-            return None
-        return self._sslobj.shared_ciphers()
+
+        if self._sslobj is not None:
+            cipher = self._sslobj.cipher()
+            if cipher is not None:
+                return parse_cipher(cipher)
+        return None
+
+    def shared_ciphers(self) -> list[tuple[str, str, int]] | None:
+        self._checkClosed()
+
+        if self._sslobj is not None:
+            shared_ciphers = self._sslobj.shared_ciphers()
+            if shared_ciphers is not None:
+                return [parse_cipher(c) for c in shared_ciphers]
+        return None
 
     def compression(self) -> None:
         self._checkClosed()
@@ -501,7 +508,7 @@ class SSLSocket(_ssl.SSLSocket):
         else:
             raise ValueError("No SSL wrapper around " + str(self))
 
-    def verify_client_post_handshake(self):
+    def verify_client_post_handshake(self) -> None:
         if self._sslobj is not None:
             return self._sslobj.verify_client_post_handshake()
         else:
@@ -587,7 +594,7 @@ class SSLSocket(_ssl.SSLSocket):
         """
         return self._real_connect(addr, True)
 
-    def accept(self):
+    def accept(self) -> tuple[SSLSocket, _RetAddress]:
         """
         Accepts a new connection from a remote client, and returns
         a tuple containing that new connection wrapped with a server-side
@@ -602,7 +609,7 @@ class SSLSocket(_ssl.SSLSocket):
         )
         return newsock, addr
 
-    def get_channel_binding(self, cb_type: str = "tls-unique"):
+    def get_channel_binding(self, cb_type: str = "tls-unique") -> bytes | None:
         raise NotImplementedError
 
     def version(self) -> str | None:

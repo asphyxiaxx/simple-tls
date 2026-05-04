@@ -37,19 +37,17 @@ from ._constant import (
 )
 from ._enum import TLSVerifyMode
 from ._session import TLSSessionKeys, TLSSessionStorage
-from ._types import ReadableBuffer, StrOrBytesPath
+from ._types import StrOrBytesPath
 
-_ExtensionsOrderCallback = typing.Callable[
-    [list[int]],
-    list[int],
-]
+if typing.TYPE_CHECKING:
+    from ._connection import TLSConnection
+
+_ExtensionsOrderCallback = typing.Callable[[list[int]], list[int]]
 _SNICallback = typing.Callable[
-    ["TLSContext", str | None, object | None],
-    int | None,
+    ["TLSConnection", str, typing.Any | None], int | None
 ]
 _MessageCallback = typing.Callable[
-    [object | None, typing.Literal["write", "read"], int, bytes],
-    None,
+    ["TLSConnection", typing.Literal["write", "read"], int, int, bytes], None
 ]
 
 
@@ -176,8 +174,6 @@ class TLSContext:
         self._session_storage: TLSSessionStorage | None = TLSSessionStorage()
 
         # Message Callback
-        self.owner: object | None = None
-        """Owner of this object"""
         self.message_callback: _MessageCallback | None = None
         """
         Callback for Message Debugging/Tracing
@@ -195,7 +191,11 @@ class TLSContext:
         self.sni_callback: _SNICallback | None = None
         """
         Callback for SNI (Server Name Indication)
-        Signature: (ctx, hostname, owner) -> int_result
+        Signature: (ctx, connection, hostname) -> int_result
+        """
+        self.sni_callback_arg: typing.Any | None = None
+        """
+        An optional custom argument which will pass to sni_callback
         """
 
     @property
@@ -455,7 +455,7 @@ class TLSContext:
         self,
         cafile: StrOrBytesPath | None = None,
         capath: StrOrBytesPath | None = None,
-        cadata: str | ReadableBuffer | None = None,
+        cadata: str | bytes | None = None,
     ) -> None:
         if cafile:
             with open(cafile, "rb") as fp:

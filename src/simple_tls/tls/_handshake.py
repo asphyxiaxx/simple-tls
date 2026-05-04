@@ -83,8 +83,6 @@ from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._types import ReadableBuffer
 from ._x509_validator import EKUValidator, SANValidator
 
-SessionTicketHandler = typing.Callable[[TLSSession], None]
-
 
 @dataclass(frozen=True, slots=True)
 class ECHConfigContent:
@@ -103,9 +101,10 @@ class TLSHandshake:
     server_side: typing.ClassVar[bool]
 
     def __init__(self, context: TLSContext) -> None:
-        self.do_message_cb: typing.Callable[[str, HandshakeMessage], None] = (
-            lambda rw, m: None
-        )
+        self.do_message_cb: typing.Callable[
+            [typing.Literal["write", "read"], HandshakeMessage], None
+        ] = lambda rw, m: None
+        self.do_sni_cb: typing.Callable[[bytes], None]
         self.setup_traffic_cb: typing.Callable[
             [Direction, Epoch, TLSCipher], None
         ] = lambda d, e, c: None
@@ -199,7 +198,7 @@ class TLSHandshake:
         raise NotImplementedError()
 
     @property
-    def hs_state(self):
+    def hs_state(self) -> int:
         return self._hs_state
 
     @property
@@ -299,7 +298,9 @@ class TLSHandshake:
         return self._cipher_suite
 
     @staticmethod
-    def _update_hash(message: HandshakeMessage, transcript: Transcript):
+    def _update_hash(
+        message: HandshakeMessage, transcript: Transcript
+    ) -> None:
         handshake = Handshake(message.handshake_type, message.serialize())
         handshake_data = handshake.serialize()
         transcript.update_hash(handshake_data)
@@ -341,7 +342,7 @@ class TLSHandshake:
         if update_hash:
             self._transcript.update_hash(handshake_data)
 
-    def _next_message(self, update_hash: bool = True):
+    def _next_message(self, update_hash: bool = True) -> None:
         assert self._cache is not None
         if update_hash:
             self._transcript.update_hash(self._cache.serialize())
@@ -362,7 +363,7 @@ class TLSHandshake:
         master_secret = session.secret
         encrypt_then_mac = session.encrypt_then_mac
 
-        key_len, iv_len = TLSCipher.get_key_iv_size(version, cipher_suite)
+        key_len, iv_len = TLSCipher.get_key_iv_len(version, cipher_suite)
         if cipher_suite.aead:
             mac_size = 0
         else:
@@ -477,12 +478,12 @@ class TLSHandshake:
 
         version = session.protocol_version()
         cipher_suite = session.cipher_suite
-        key_size, iv_size = TLSCipher.get_key_iv_size(version, cipher_suite)
+        key_len, iv_len = TLSCipher.get_key_iv_len(version, cipher_suite)
         key = self._key_schedule.hkdf_expand_label(
-            secret, b"key", b"", key_size
+            secret, b"key", b"", key_len
         )
         fixed_nonce = self._key_schedule.hkdf_expand_label(
-            secret, b"iv", b"", iv_size
+            secret, b"iv", b"", iv_len
         )
         cipher = TLSCipher(
             direction=direction,

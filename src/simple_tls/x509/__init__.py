@@ -25,7 +25,6 @@ import typing
 from cryptography.x509 import (
     AccessDescription,
     AuthorityInformationAccess,
-    AuthorityInformationAccessOID,
     AuthorityKeyIdentifier,
     BasicConstraints,
     Certificate,
@@ -36,10 +35,8 @@ from cryptography.x509 import (
     DistributionPoint,
     DNSName,
     ExtendedKeyUsage,
-    ExtendedKeyUsageOID,
     Extension,
     ExtensionNotFound,
-    ExtensionOID,
     Extensions,
     ExtensionType,
     GeneralName,
@@ -70,6 +67,11 @@ from cryptography.x509 import (
     load_der_x509_certificate,
     load_pem_x509_certificate,
     load_pem_x509_certificates,
+)
+from cryptography.x509.oid import (
+    AuthorityInformationAccessOID,
+    ExtendedKeyUsageOID,
+    ExtensionOID,
 )
 
 from ..utils.math import bytes_to_int

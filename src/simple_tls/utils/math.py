@@ -24,13 +24,16 @@ import typing
 
 from .._crypto import utils  # type: ignore
 
+_SupportBytes = typing.Union[bytes, bytearray, memoryview]
+_StrOrBytes = typing.Union[_SupportBytes, str]
+
 
 def byte_length(value: int) -> int:
     return (value.bit_length() + 7) // 8
 
 
 def bytes_to_int(
-    data: bytes,
+    data: _SupportBytes,
     byteorder: typing.Literal["little", "big"] = "big",
     *,
     signed: bool = False,
@@ -54,8 +57,10 @@ def int_to_bytes(
 @typing.overload
 def str_to_bytes(value: None, encoding: str = ...) -> None: ...
 @typing.overload
-def str_to_bytes(value: typing.Any, encoding: str = ...) -> bytes: ...
-def str_to_bytes(value, encoding="latin-1"):
+def str_to_bytes(value: _StrOrBytes, encoding: str = ...) -> bytes: ...
+def str_to_bytes(
+    value: _StrOrBytes | None, encoding: str = "latin-1"
+) -> bytes | None:
     if isinstance(value, (bytearray, memoryview)):
         value = bytes(value)
     elif isinstance(value, str):
@@ -67,7 +72,9 @@ def str_to_bytes(value, encoding="latin-1"):
 def bytes_to_str(value: None, encoding: str = ...) -> None: ...
 @typing.overload
 def bytes_to_str(value: typing.Any, encoding: str = ...) -> str: ...
-def bytes_to_str(value, encoding="latin-1"):
+def bytes_to_str(
+    value: typing.Any | None, encoding: str = "latin-1"
+) -> str | None:
     if isinstance(value, (bytes, bytearray)):
         return value.decode(encoding)
     elif isinstance(value, str):

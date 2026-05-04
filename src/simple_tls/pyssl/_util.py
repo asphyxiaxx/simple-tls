@@ -8,7 +8,7 @@ from ssl import (
     get_server_certificate,
 )
 
-from simple_tls import x509
+from simple_tls import tls, x509
 
 from ._constant import (
     CERT_NONE,
@@ -17,6 +17,7 @@ from ._constant import (
     PROTOCOL_TLS_SERVER,
     ASN1Object,
     Purpose,
+    TLSVersion,
 )
 from ._types import ReadableBuffer, StrOrBytesPath
 
@@ -148,6 +149,13 @@ def parse_certificate(certificate: x509.Certificate) -> dict[str, typing.Any]:
     return out
 
 
+def parse_cipher(cipher: tls.CipherSuite) -> tuple[str, str, int]:
+    name = cipher.name
+    version = _VERSION_MAP.get(cipher.minimum_version, "Unknown version")
+    secret_bits = _SECRET_BIT_MAP.get(cipher.symmetric, 0)
+    return (name, version, secret_bits)
+
+
 def create_default_context(
     purpose: Purpose = Purpose.SERVER_AUTH,
     *,
@@ -178,3 +186,27 @@ def create_default_context(
         context.load_default_certs(purpose)
 
     return context
+
+
+_VERSION_MAP: dict[int, str] = {
+    TLSVersion.TLSv1: "TLSv1",
+    TLSVersion.TLSv1_1: "TLSv1.1",
+    TLSVersion.TLSv1_2: "TLSv1.2",
+    TLSVersion.TLSv1_3: "TLSv1.3",
+}
+
+_SECRET_BIT_MAP: dict[tls.Symmetric, int] = {
+    tls.Symmetric.AES_128_CBC: 128,
+    tls.Symmetric.AES_128_CCM: 128,
+    tls.Symmetric.AES_128_CCM_8: 128,
+    tls.Symmetric.AES_128_GCM: 128,
+    tls.Symmetric.AES_256_CBC: 256,
+    tls.Symmetric.AES_256_CCM: 256,
+    tls.Symmetric.AES_256_CCM_8: 256,
+    tls.Symmetric.AES_256_GCM: 256,
+    tls.Symmetric.CHACHA20_DRAFT_00: 256,
+    tls.Symmetric.CHACHA20_POLY1305: 256,
+    tls.Symmetric.TRIPLE_DES_EDE_CBC: 168,
+    tls.Symmetric.RC4_128: 128,
+    tls.Symmetric.NULL: 0,
+}

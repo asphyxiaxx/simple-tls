@@ -51,14 +51,14 @@ class Brotli(Compression):
         @classmethod
         def compress(cls, data: bytes) -> bytes:
             try:
-                return cls._brotli.compress(data)
+                return typing.cast(bytes, cls._brotli.compress(data))
             except cls._brotli.error as exc:
                 raise ValueError(f"Error compressing: {exc}") from None
 
         @classmethod
         def decompress(cls, data: bytes, length: int = 0) -> bytes:
             try:
-                return cls._brotli.decompress(data)
+                return typing.cast(bytes, cls._brotli.decompress(data))
             except cls._brotli.error as exc:
                 raise ValueError(f"Error decompressing: {exc}") from None
 
@@ -80,14 +80,14 @@ class ZSTD(Compression):
             @classmethod
             def compress(cls, data: bytes) -> bytes:
                 try:
-                    return cls._zstd.compress(data)
+                    return typing.cast(bytes, cls._zstd.compress(data))
                 except Exception as exc:
                     raise ValueError(f"Error compressing: {exc}") from None
 
             @classmethod
             def decompress(cls, data: bytes, length: int = 0) -> bytes:
                 try:
-                    return cls._zstd.decompress(data)
+                    return typing.cast(bytes, cls._zstd.decompress(data))
                 except Exception as exc:
                     raise ValueError(f"Error decompressing: {exc}") from None
 
