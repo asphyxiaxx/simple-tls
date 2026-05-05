@@ -173,7 +173,7 @@ class TLSHandshake:
         self._previous_server_finished: bytes | None = None
 
         # dispatch function handler
-        self._handle_dispatch: dict[int, typing.Callable] = {}
+        self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
 
         # Buffer
         self._hs_buf = bytearray()
