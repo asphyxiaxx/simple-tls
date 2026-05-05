@@ -191,7 +191,7 @@ class TLSContext:
         self.sni_callback: _SNICallback | None = None
         """
         Callback for SNI (Server Name Indication)
-        Signature: (ctx, connection, hostname) -> int_result
+        Signature: (connection, hostname, sni_callback_arg) -> int_result
         """
         self.sni_callback_arg: typing.Any | None = None
         """
