@@ -345,6 +345,11 @@ class SSLSocket(_ssl.SSLSocket):
             return None
         return self._sslobj.ech_retry_config(binary_form=True)
 
+    def ech_accepted(self) -> bool:
+        if self._sslobj is None:
+            return False
+        return self._sslobj.ech_accepted()
+
     @typing.overload  # type: ignore[override]
     def getpeercert(
         self, binary_form: typing.Literal[False] = False

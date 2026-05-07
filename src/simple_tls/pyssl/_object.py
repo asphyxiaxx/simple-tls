@@ -130,9 +130,10 @@ class SSLObject(_ssl.SSLObject):
         return self._sslobj.write(data)  # type: ignore
 
     def get_ech_retry_configs(self) -> bytes | None:
-        if self._sslobj is None:
-            return None
         return self._sslobj.ech_retry_config(binary_form=True)
+
+    def ech_accepted(self) -> bool:
+        return self._sslobj.ech_accepted()
 
     @typing.overload  # type: ignore[override]
     def getpeercert(
