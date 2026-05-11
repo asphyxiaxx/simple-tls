@@ -493,8 +493,8 @@ class TLSConnection:
     def _send_alert(
         self,
         description: AlertDescription,
-        reason: typing.Any | None,
-        fatal: typing.Literal[False],
+        reason: typing.Any | None = ...,
+        fatal: typing.Literal[False] = ...,
     ) -> None: ...
 
     @typing.overload

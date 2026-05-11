@@ -20,75 +20,18 @@
 
 from __future__ import annotations
 
-import typing
-
-from . import dh, dsa, ec, ed448, ed25519, mlkem, rsa, x448, x25519
+from cryptography.hazmat.primitives.asymmetric.types import (
+    CertificateIssuerPrivateKeyTypes,
+    CertificateIssuerPublicKeyTypes,
+    CertificatePublicKeyTypes,
+    PrivateKeyTypes,
+    PublicKeyTypes,
+)
 
 __all__ = [
     "CertificateIssuerPrivateKeyTypes",
+    "CertificateIssuerPublicKeyTypes",
     "CertificatePublicKeyTypes",
-    "ParameterTypes",
     "PrivateKeyTypes",
     "PublicKeyTypes",
-]
-
-
-ParameterTypes = typing.Union[dh.DHParameters, dsa.DSAParameters]
-
-
-PublicKeyTypes = typing.Union[
-    dh.DHPublicKey,
-    dsa.DSAPublicKey,
-    ec.EllipticCurvePublicKey,
-    ed25519.Ed25519PublicKey,
-    ed448.Ed448PublicKey,
-    mlkem.MLKEM768PublicKey,
-    mlkem.MLKEM1024PublicKey,
-    rsa.RSAPublicKey,
-    x25519.X25519PublicKey,
-    x448.X448PublicKey,
-]
-PrivateKeyTypes = typing.Union[
-    dh.DHPrivateKey,
-    dsa.DSAPrivateKey,
-    ec.EllipticCurvePrivateKey,
-    ed25519.Ed25519PrivateKey,
-    ed448.Ed448PrivateKey,
-    mlkem.MLKEM768PrivateKey,
-    mlkem.MLKEM1024PrivateKey,
-    rsa.RSAPrivateKey,
-    x25519.X25519PrivateKey,
-    x448.X448PrivateKey,
-]
-
-
-CertificateIssuerPrivateKeyTypes = typing.Union[
-    dsa.DSAPrivateKey,
-    ec.EllipticCurvePrivateKey,
-    ed25519.Ed25519PrivateKey,
-    ed448.Ed448PrivateKey,
-    rsa.RSAPrivateKey,
-]
-CertificatePublicKeyTypes = typing.Union[
-    dsa.DSAPublicKey,
-    rsa.RSAPublicKey,
-    ec.EllipticCurvePublicKey,
-    ed25519.Ed25519PublicKey,
-    ed448.Ed448PublicKey,
-    x25519.X25519PublicKey,
-    x448.X448PublicKey,
-]
-
-
-SSHPrivateKeyTypes = typing.Union[
-    rsa.RSAPrivateKey,
-    dsa.DSAPrivateKey,
-    ec.EllipticCurvePrivateKey,
-    ed25519.Ed25519PrivateKey,
-]
-SSHPublicKeyTypes = typing.Union[
-    rsa.RSAPublicKey,
-    dsa.DSAPublicKey,
-    ec.EllipticCurvePublicKey,
-    ed25519.Ed25519PublicKey,
 ]
