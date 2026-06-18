@@ -96,7 +96,8 @@ jobs:
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_COMMAND: pytest {project}/tests
           # cryptography doesnt have prebuild binary for 32-bit platforms
-          CIBW_TEST_SKIP: "*-{manylinux_i686,musllinux_i686,musllinux_1_1,win32}"
+          # newer cryptography doesnt have prebuild binary for intel mac
+          CIBW_TEST_SKIP: "*-{manylinux_i686,musllinux_i686,musllinux_1_1,win32,macosx_x86_64}"
 
       - name: Upload wheels as artifacts
         uses: actions/upload-artifact@v4
