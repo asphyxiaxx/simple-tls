@@ -521,7 +521,7 @@ class TLSConnection:
                 self._write_shutdown = Shutdown.ERROR
 
         if fatal:
-            raise TLSLocalAlert(alert.description, reason)
+            raise TLSLocalAlert(description, reason)
         return None
 
     def _sni_callback(self, hostname: bytes) -> None:
