@@ -32,6 +32,87 @@ from ..key.types import (
 from ._constant import HashAlgorithm, SignatureScheme
 from ._types import ReadableBuffer
 
+
+def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
+    return _HASH_ALGORITHMS[hash_algorithm]
+
+
+def get_hash(
+    hash_algorithm: HashAlgorithm,
+    message: ReadableBuffer = b"",
+) -> hashes.Hash:
+    if hash_algorithm == HashAlgorithm.MD5_SHA1:
+        hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
+    else:
+        algorithm = get_algorithm(hash_algorithm)
+        hashobj = hashes.Hash(algorithm)
+
+    hashobj.update(message)  # type: ignore
+    return hashobj
+
+
+def create_signature(
+    private_key: CertificateIssuerPrivateKeyTypes,
+    msg: bytes,
+    signature_algorithm: int,
+) -> bytes:
+    try:
+        sign_func, hashalg = _CREATE_SIGNATURE_FUNC[signature_algorithm]
+    except KeyError:
+        raise ValueError(
+            f"Invalid signature_algorithm '{signature_algorithm}'"
+        ) from None
+
+    if hashalg == HashAlgorithm.INTRINSIC:
+        algorithm = None
+        msg_hash = msg
+    else:
+        if hashalg == HashAlgorithm.MD5_SHA1:
+            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
+            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
+        else:
+            algorithm = get_algorithm(hashalg)
+            hashobj = hashes.Hash(algorithm)
+
+        hashobj.update(msg)
+        msg_hash = hashobj.finalize()
+
+    return sign_func(private_key, msg_hash, algorithm)
+
+
+def verify_signature(
+    public_key: CertificatePublicKeyTypes,
+    signature: bytes,
+    msg: bytes,
+    signature_algorithm: int,
+) -> None:
+    try:
+        verify_func, hashalg = _VERIFY_SIGNATURE_FUNC[signature_algorithm]
+    except KeyError:
+        raise ValueError(
+            f"Invalid signature_algorithm '{signature_algorithm}'"
+        ) from None
+
+    if hashalg == HashAlgorithm.INTRINSIC:
+        algorithm = None
+        msg_hash = msg
+    else:
+        if hashalg == HashAlgorithm.MD5_SHA1:
+            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
+            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
+        else:
+            algorithm = get_algorithm(hashalg)
+            hashobj = hashes.Hash(algorithm)
+
+        hashobj.update(msg)
+        msg_hash = hashobj.finalize()
+
+    verify_func(public_key, signature, msg_hash, algorithm)
+
+
+# Internal
+
+
 _SigningFunction = typing.Callable[
     [CertificateIssuerPrivateKeyTypes, bytes, hashes.HashAlgorithm | None],
     bytes,
@@ -72,22 +153,7 @@ class _MD5SHA1Hash:
         return new
 
 
-def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
-    return _HASH_ALGORITHMS[hash_algorithm]
-
-
-def get_hash(
-    hash_algorithm: HashAlgorithm,
-    message: ReadableBuffer = b"",
-) -> hashes.Hash:
-    if hash_algorithm == HashAlgorithm.MD5_SHA1:
-        hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
-    else:
-        algorithm = get_algorithm(hash_algorithm)
-        hashobj = hashes.Hash(algorithm)
-
-    hashobj.update(message)  # type: ignore
-    return hashobj
+# Signing functions
 
 
 def _sign_dsa(
@@ -168,33 +234,7 @@ def _sign_ed448(
     return key.sign(data)
 
 
-def create_signature(
-    private_key: CertificateIssuerPrivateKeyTypes,
-    msg: bytes,
-    signature_algorithm: int,
-) -> bytes:
-    try:
-        sign_func, hashalg = _CREATE_SIGNATURE_FUNC[signature_algorithm]
-    except KeyError:
-        raise ValueError(
-            f"Invalid signature_algorithm '{signature_algorithm}'"
-        ) from None
-
-    if hashalg == HashAlgorithm.INTRINSIC:
-        algorithm = None
-        msg_hash = msg
-    else:
-        if hashalg == HashAlgorithm.MD5_SHA1:
-            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
-            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
-        else:
-            algorithm = get_algorithm(hashalg)
-            hashobj = hashes.Hash(algorithm)
-
-        hashobj.update(msg)
-        msg_hash = hashobj.finalize()
-
-    return sign_func(private_key, msg_hash, algorithm)
+# Verifying functions
 
 
 def _verify_dsa(
@@ -279,36 +319,6 @@ def _verify_ed448(
     if algorithm is not None:
         raise ValueError("algorithm not None")
     key.verify(signature, data)
-
-
-def verify_signature(
-    public_key: CertificatePublicKeyTypes,
-    signature: bytes,
-    msg: bytes,
-    signature_algorithm: int,
-) -> None:
-    try:
-        verify_func, hashalg = _VERIFY_SIGNATURE_FUNC[signature_algorithm]
-    except KeyError:
-        raise ValueError(
-            f"Invalid signature_algorithm '{signature_algorithm}'"
-        ) from None
-
-    if hashalg == HashAlgorithm.INTRINSIC:
-        algorithm = None
-        msg_hash = msg
-    else:
-        if hashalg == HashAlgorithm.MD5_SHA1:
-            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
-            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
-        else:
-            algorithm = get_algorithm(hashalg)
-            hashobj = hashes.Hash(algorithm)
-
-        hashobj.update(msg)
-        msg_hash = hashobj.finalize()
-
-    verify_func(public_key, signature, msg_hash, algorithm)
 
 
 # fmt: off

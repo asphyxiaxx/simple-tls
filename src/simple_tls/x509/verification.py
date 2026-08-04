@@ -42,6 +42,12 @@ from ..key.exceptions import InvalidSignature
 from ..utils.misc import utcnow
 
 _T = typing.TypeVar("_T", contravariant=True, bound="ExtensionType")
+_MaybeExtCallback = typing.Callable[
+    ["Verifier", Certificate, Extension | None], None
+]
+_PresentExtCallback = typing.Callable[
+    ["Verifier", Certificate, Extension], None
+]
 
 
 class VerificationError(Exception): ...
@@ -105,30 +111,15 @@ class Store:
         return self._trust_map.copy()
 
 
-MaybeExtensionValidatorCallback = typing.Callable[
-    ["Verifier", Certificate, Extension | None],
-    None,
-]
-
-PresentExtensionValidatorCallback = typing.Callable[
-    ["Verifier", Certificate, Extension],
-    None,
-]
-
-
 class ExtensionPolicy:
     def __init__(
         self,
         *,
-        _may_be_present: dict[
-            ObjectIdentifier, MaybeExtensionValidatorCallback | None
-        ]
+        _may_be_present: dict[ObjectIdentifier, _MaybeExtCallback | None]
         | None = None,
-        _require_present: dict[
-            ObjectIdentifier, PresentExtensionValidatorCallback | None
-        ]
+        _require_present: dict[ObjectIdentifier, _PresentExtCallback | None]
         | None = None,
-    ):
+    ) -> None:
         self._may_be_present = (
             _may_be_present.copy() if _may_be_present else {}
         )
@@ -138,12 +129,11 @@ class ExtensionPolicy:
 
     @classmethod
     def defaults_ca(cls) -> ExtensionPolicy:
-        may_be_present: dict[
-            ObjectIdentifier, MaybeExtensionValidatorCallback | None
-        ] = {
-            ExtensionOID.KEY_USAGE: verify_ca_key_usage,
-        }
-        return ExtensionPolicy(_may_be_present=may_be_present)
+        return ExtensionPolicy(
+            _may_be_present={
+                ExtensionOID.KEY_USAGE: verify_ca_key_usage,
+            }
+        )
 
     @classmethod
     def defaults_ee(cls) -> ExtensionPolicy:
@@ -152,41 +142,43 @@ class ExtensionPolicy:
     def may_be_present(
         self,
         extension_oid: ObjectIdentifier,
-        validator: MaybeExtensionValidatorCallback | None = None,
+        validator: _MaybeExtCallback | None = None,
     ) -> ExtensionPolicy:
         if not isinstance(extension_oid, ObjectIdentifier):
             raise TypeError("extension_oid must be ObjectIdentifier object")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable")
 
-        new_may = self._may_be_present.copy()
-        new_may[extension_oid] = validator
+        may_be_present = self._may_be_present.copy()
+        may_be_present[extension_oid] = validator
 
-        new_require = self._require_present.copy()
-        new_require.pop(extension_oid, None)
+        require_present = self._require_present.copy()
+        require_present.pop(extension_oid, None)
 
         return ExtensionPolicy(
-            _may_be_present=new_may, _require_present=new_require
+            _may_be_present=may_be_present,
+            _require_present=require_present,
         )
 
     def require_present(
         self,
         extension_oid: ObjectIdentifier,
-        validator: PresentExtensionValidatorCallback | None = None,
+        validator: _PresentExtCallback | None = None,
     ) -> ExtensionPolicy:
         if not isinstance(extension_oid, ObjectIdentifier):
             raise TypeError("extension_oid must be ObjectIdentifier object")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable")
 
-        new_require = self._require_present.copy()
-        new_require[extension_oid] = validator
+        require_present = self._require_present.copy()
+        require_present[extension_oid] = validator
 
-        new_may = self._may_be_present.copy()
-        new_may.pop(extension_oid, None)
+        may_be_present = self._may_be_present.copy()
+        may_be_present.pop(extension_oid, None)
 
         return ExtensionPolicy(
-            _may_be_present=new_may, _require_present=new_require
+            _may_be_present=may_be_present,
+            _require_present=require_present,
         )
 
     def verify(self, verifier: Verifier, certificate: Certificate) -> None:
@@ -213,25 +205,6 @@ class ExtensionPolicy:
                 valitator(verifier, certificate, m_ext)
 
 
-# Default extension policy implementations
-
-
-def verify_ca_key_usage(
-    verifier: Verifier,
-    ca: Certificate,
-    extension: Extension[KeyUsage] | None,
-) -> None:
-    if extension is None:
-        return
-
-    key_usage = extension.value
-    if not key_usage.key_cert_sign:
-        raise PolicyViolationError(
-            f"issuer {ca} not allowed to sign certificates "
-            f"[key usage has no key cert sign set]"
-        )
-
-
 class Verifier:
     def __init__(
         self,
@@ -240,10 +213,9 @@ class Verifier:
         allow_partial_chain: bool = False,
         ee_policy: ExtensionPolicy | None = None,
         ca_policy: ExtensionPolicy | None = None,
-    ):
+    ) -> None:
         if ee_policy is None:
             ee_policy = ExtensionPolicy.defaults_ee()
-
         if ca_policy is None:
             ca_policy = ExtensionPolicy.defaults_ee()
 
@@ -264,6 +236,19 @@ class Verifier:
     @property
     def allow_partial_chain(self) -> bool:
         return self._allow_partial_chain
+
+    def verify(
+        self, leaf: Certificate, intermediates: typing.Sequence[Certificate]
+    ) -> tuple[Certificate, ...]:
+        chains = self._build_candidate_chains(leaf, intermediates)
+        if not chains:
+            raise UntrustedRoot("No trusted root found")
+
+        chain = chains[0]
+        self._verify_chain(chain)
+        return tuple(chain)
+
+    # Internal
 
     def _build_candidate_chains(
         self,
@@ -334,8 +319,6 @@ class Verifier:
         # still add chains that end in an intermediate
         # (if store contains that intermediate by subject)
         return chains
-
-    # Core verification (signature, basic constraints etc.)
 
     def _verify_chain(self, chain: typing.Sequence[Certificate]) -> None:
         """
@@ -484,13 +467,21 @@ class Verifier:
         else:
             return True  # if either missing, don't exclude
 
-    def verify(
-        self, leaf: Certificate, intermediates: typing.Sequence[Certificate]
-    ) -> tuple[Certificate, ...]:
-        chains = self._build_candidate_chains(leaf, intermediates)
-        if not chains:
-            raise UntrustedRoot("No trusted root found")
 
-        chain = chains[0]
-        self._verify_chain(chain)
-        return tuple(chain)
+# Default extension policy implementations
+
+
+def verify_ca_key_usage(
+    verifier: Verifier,
+    ca: Certificate,
+    extension: Extension[KeyUsage] | None,
+) -> None:
+    if extension is None:
+        return
+
+    key_usage = extension.value
+    if not key_usage.key_cert_sign:
+        raise PolicyViolationError(
+            f"issuer {ca} not allowed to sign certificates "
+            f"[key usage has no key cert sign set]"
+        )
