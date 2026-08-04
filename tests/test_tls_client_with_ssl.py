@@ -2,6 +2,7 @@ import ssl
 import warnings
 
 import pytest
+
 from simple_tls import tls
 
 from .utils import (

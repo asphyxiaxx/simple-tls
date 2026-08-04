@@ -50,6 +50,11 @@ dependencies = [
 "Homepage" = "https://github.com/asphyxiaxx/simple-tls"
 "Bug Tracker" = "https://github.com/asphyxiaxx/simple-tls/issues"
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
 [tool.setuptools]
 license-files = ["LICENSE", "vendor/mlkem_native/LICENSE.txt"]
 

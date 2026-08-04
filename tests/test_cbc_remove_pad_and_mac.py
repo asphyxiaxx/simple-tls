@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from simple_tls.utils.constant_time import cbc_remove_pad_and_mac
 
 from .utils import load
@@ -41,23 +42,25 @@ def test_cbc_remove_pad_and_mac_constant_time(vector):
     else:
         explicit_error = vector["explicit_error"]
         if explicit_error:
-            # This is the ONLY time the function is allowed to raise a ValueError.
-            # It is safe because an attacker cannot exploit data shorter than a MAC.
+            # This is the ONLY time the function is allowed to raise a
+            # ValueError. It is safe because an attacker cannot exploit
+            # data shorter than a MAC.
             with pytest.raises(ValueError):
                 cbc_remove_pad_and_mac(data, digest_size, block_size)
 
         else:
-            # The KAT file expects a ValueError here (because the padding is mathematically
-            # broken). However, a Constant-Time function MUST NOT crash. It must absorb the
-            # error and return dummy values to defeat Padding Oracle attacks.
+            # The KAT file expects a ValueError here (because the padding is
+            # mathematically broken). However, a Constant-Time function MUST
+            # NOT crash. It must absorb the error and return dummy values to
+            # defeat Padding Oracle attacks.
             try:
                 length, dummy_mac = cbc_remove_pad_and_mac(
                     data, digest_size, block_size
                 )
             except ValueError as e:
                 pytest.fail(
-                    f"Padding orable vulnerability."
-                    f"Function raised an error instead of returning dummy values: {e}"
+                    f"Padding orable vulnerability. Function raised an error "
+                    f"instead of returning dummy values: {e}"
                 )
 
             # Verify it returned safe dummy values

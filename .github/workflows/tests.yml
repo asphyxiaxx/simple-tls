@@ -46,7 +46,7 @@ jobs:
         with:
           name: cibw-sdist
           path: dist/*.tar.gz
-          
+
   build_wheels:
     name: Build on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
@@ -84,6 +84,10 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Fetch test vectors
+        timeout-minutes: 2
+        uses: ./.github/actions/fetch-vectors
+
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.0
         env:
@@ -91,8 +95,8 @@ jobs:
           CIBW_SKIP: "pp*"
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
           CIBW_PRERELEASE_PYTHONS: "1"
-          CIBW_TEST_REQUIRES: pytest
-          CIBW_TEST_COMMAND: pytest {project}/tests
+          CIBW_TEST_REQUIRES: ".[test]"
+          CIBW_TEST_COMMAND: pytest {project}/tests --wycheproof-dir {project}/wycheproof
           # cryptography doesnt have prebuild binary for 32-bit platforms
           # newer cryptography doesnt have prebuild binary for intel mac
           CIBW_TEST_SKIP: "*-{manylinux_i686,musllinux_i686,musllinux_1_1,win32,macosx_x86_64}"
@@ -102,3 +106,28 @@ jobs:
         with:
           name: cibw-wheels-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
+
+  publish:
+    name: Publish to PyPI
+    needs: [lint, build_sdist, build_wheels]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      id-token: write
+      contents: read
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/simple-tls
+
+    steps:
+      - name: Download all compiled wheels and source
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

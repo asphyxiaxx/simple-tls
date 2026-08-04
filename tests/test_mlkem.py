@@ -1,6 +1,7 @@
 from binascii import unhexlify
 
 import pytest
+
 from simple_tls._crypto import mlkem
 from simple_tls.key.mlkem import (
     MLKEM768PrivateKey,

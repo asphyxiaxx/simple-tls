@@ -1,4 +1,5 @@
 import pytest
+
 from simple_tls.utils.math import strxor
 
 

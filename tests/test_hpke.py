@@ -4,13 +4,8 @@ from binascii import unhexlify
 from unittest.mock import patch
 
 import pytest
-from simple_tls.protocol.hpke import (
-    _AEADS,
-    _KDFS,
-    _KEMS,
-    Mode,
-    create_suite,
-)
+
+from simple_tls.protocol.hpke import _AEADS, _KDFS, _KEMS, Mode, create_suite
 
 from .utils import load
 

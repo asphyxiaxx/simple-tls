@@ -1,14 +1,14 @@
 import pytest
+
 from simple_tls.tls import (
     DSA_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
     SIGNATURE_ALGORITHMS,
-    Authentication,
-    KeyExchange,
     AlertCertificateRequired,
     AlertDecryptError,
     AlertHandshakeFailure,
     AlertProtocolVersion,
+    Authentication,
     CipherSuite,
     ClientState,
     Epoch,
@@ -858,7 +858,7 @@ def test_server_unsupported_alpn(version):
 
     server_fail_hello(client, server)
 
-    with pytest.raises(AlertHandshakeFailure, match=".*?ALPN.*"):
+    with pytest.raises(AlertHandshakeFailure, match=r".*?ALPN.*"):
         server.do_handshake()
 
 
