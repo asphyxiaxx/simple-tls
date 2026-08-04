@@ -1,9 +1,11 @@
+# mypy: ignore-errors
+
+import argparse
 import json
+from pathlib import Path
 
-from utils import format_path
 
-
-def generate_kat_file():
+def generate_kat_file(outputpath: str | Path) -> None:
     test_vectors = []
 
     # Test Parameters
@@ -25,7 +27,7 @@ def generate_kat_file():
                 if is_stream:
                     data = pt + mac
                 else:
-                    # Calculate padding to perfectly align to the block size
+                    # Calculate padding to align to the block size
                     rem = (ptl + ds) % bs
                     pad_len = bs - 1 - rem
                     if pad_len < 0:
@@ -117,14 +119,32 @@ def generate_kat_file():
                         }
                     )
 
-    filepath = format_path("test_vectors", "cbc_mac_pad_kat.json")
+    # Ensure parent directories exist if a directory path is provided
+    filepath = Path(outputpath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
     with open(filepath, "w") as f:
         json.dump(test_vectors, f, indent=4)
 
     print(
-        f"Successfully generated {len(test_vectors)} test vectors in '{filepath}'"
+        f"Successfully generated {len(test_vectors)} test vectors in "
+        f"'{filepath}'"
     )
 
 
 if __name__ == "__main__":
-    generate_kat_file()
+    parser = argparse.ArgumentParser(
+        description="Generate KAT for cbc_remove_pad_and_mac."
+    )
+    parser.add_argument(
+        "-o",
+        "--output-path",
+        type=str,
+        help="Path to output file",
+        required=True,
+        metavar="",
+    )
+
+    args = parser.parse_args()
+
+    generate_kat_file(args.output_path)
