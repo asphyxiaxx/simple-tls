@@ -71,6 +71,10 @@ warn_unused_ignores = false
 module = "simple_tls.tls._cipher"
 disable_error_code = ["arg-type"]
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
 [tool.ruff]
 line-length = 79
 lint.ignore = ["N801", "N818", "UP007"]
