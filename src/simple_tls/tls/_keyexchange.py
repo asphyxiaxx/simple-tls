@@ -28,6 +28,17 @@ from ._constant import NamedGroup
 from ._supported import ECC_GROUPS
 
 
+class BaseKeyExchange:
+    def generate_key_share(self) -> bytes:
+        raise NotImplementedError
+
+    def compute_shared_secret(self, peer_public: bytes) -> bytes:
+        raise NotImplementedError
+
+    def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
+        raise NotImplementedError
+
+
 class _DHGroup:
     def __init__(
         self,
@@ -344,7 +355,7 @@ _RFC7919_FFDHE_GROUPS: dict[int, _DHGroup] = {
 }
 
 
-class FFDHKeyExchange:
+class FFDHKeyExchange(BaseKeyExchange):
     def __init__(
         self,
         group: int = NamedGroup.FFDHE2048,
@@ -411,7 +422,7 @@ _NAMEDGROUP_TO_CURVE: dict[int, ec.EllipticCurve] = {
 }
 
 
-class ECDHKeyExchange:
+class ECDHKeyExchange(BaseKeyExchange):
     def __init__(self, group: int) -> None:
         if group not in ECC_GROUPS:
             raise AlertInternalError(f"Invalid group for EC curve '{group}'")
@@ -500,7 +511,7 @@ _PQC_CIPHERTEXT_LEN: dict[int, int] = {
 }
 
 
-class KEMKeyExchange:
+class KEMKeyExchange(BaseKeyExchange):
     def __init__(self, group: int) -> None:
         pqc_private_key: mlkem.MLKEM768PrivateKey | mlkem.MLKEM1024PrivateKey
         if group == NamedGroup.X25519MLKEM768:

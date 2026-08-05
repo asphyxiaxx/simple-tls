@@ -168,6 +168,7 @@ from ._handshake import ECHConfigContent, TLSHandshake
 from ._handshake_client import TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
 from ._keyexchange import (
+    BaseKeyExchange,
     ECDHKeyExchange,
     FFDHKeyExchange,
     KEMKeyExchange,
@@ -268,6 +269,7 @@ __all__ = [
     "AlertUnsupportedExtension",
     "ApplicationData",
     "Authentication",
+    "BaseKeyExchange",
     "CertStatusRequestExtension",
     "Certificate",
     "CertificateCompressionAlgorithm",
