@@ -1530,9 +1530,6 @@ class TLSHandshakeClient(TLSHandshake):
                     "Unexpected PSK key exchange modes extension"
                 )
 
-            if self._key_exchanges is None:
-                raise AlertInternalError()
-
             key_share = kex_ext.key_share
             try:
                 kex = self._key_exchanges[key_share.group]
