@@ -45,15 +45,7 @@ from ._alert import (
 )
 from ._common import create_signature
 from ._constant import (
-    DSA_SIGNATURE_ALGORITHMS,
-    ECC_GROUPS,
-    ECDSA_SIGNATURE_ALGORITHMS,
-    EDDSA_SIGNATURE_ALGORITHMS,
-    FFDHE_GROUPS,
-    KEM_GROUPS,
-    RSA_SIGNATURE_ALGORITHMS,
     SERVER_CONTEXT_STRING,
-    SIGNATURE_ALGORITHMS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
@@ -134,6 +126,18 @@ from ._message import (
     ServerKeyExchange,
 )
 from ._session import TLSSession
+from ._supported import (
+    CERTIFICATE_COMPRESSIONS,
+    DSA_SIGNATURE_ALGORITHMS,
+    ECC_GROUPS,
+    ECDSA_SIGNATURE_ALGORITHMS,
+    EDDSA_SIGNATURE_ALGORITHMS,
+    FFDHE_GROUPS,
+    KEM_GROUPS,
+    RSA_SIGNATURE_ALGORITHMS,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
+)
 from ._transcript import KeyDeriver, KeySchedule
 
 
@@ -204,8 +208,13 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         # Supported groups
+        supported_groups = tuple(
+            supported_group
+            for supported_group in context.supported_groups
+            if supported_group in SUPPORTED_GROUPS
+        )
         self._conf_supported_groups: tuple[int, ...] = tuple(
-            context.supported_groups
+            supported_groups or SUPPORTED_GROUPS
         )
 
         # ALPN protocols
@@ -238,8 +247,13 @@ class TLSHandshakeServer(TLSHandshake):
         self._conf_post_handshake_auth: bool = context.post_handshake_auth
 
         # Certificate Compression Algorithm
+        certificate_compressions = tuple(
+            certificate_compression
+            for certificate_compression in context.certificate_compressions
+            if certificate_compression in CERTIFICATE_COMPRESSIONS
+        )
         self._conf_cert_comp_algs: tuple[int, ...] | None = (
-            tuple(context.certificate_compressions) or None
+            certificate_compressions or None
         )
 
         # PSK Key Exchange Mode

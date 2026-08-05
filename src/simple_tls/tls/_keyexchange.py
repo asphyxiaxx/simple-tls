@@ -23,12 +23,9 @@ from __future__ import annotations
 from ..io.serialization import Encoding, PublicFormat
 from ..key import dh, ec, mlkem, x448, x25519
 from ..utils.math import byte_length, bytes_to_int, int_to_bytes
-from ._alert import (
-    AlertDecodeError,
-    AlertIllegalParameter,
-    AlertInternalError,
-)
-from ._constant import ECC_GROUPS, NamedGroup
+from ._alert import AlertDecodeError, AlertIllegalParameter, AlertInternalError
+from ._constant import NamedGroup
+from ._supported import ECC_GROUPS
 
 
 class _DHGroup:

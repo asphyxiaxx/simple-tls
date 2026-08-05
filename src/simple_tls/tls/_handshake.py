@@ -46,11 +46,6 @@ from ._cipher import TLSCipher
 from ._common import get_algorithm, verify_signature
 from ._constant import (
     CLIENT_CONTEXT_STRING,
-    DSA_SIGNATURE_ALGORITHMS,
-    ECDSA_SIGNATURE_ALGORITHMS,
-    RSA_PKCS1_SIGNATURE_ALGORITHMS,
-    RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
-    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
     SERVER_CONTEXT_STRING,
     Authentication,
     CipherSuite,
@@ -79,6 +74,13 @@ from ._message import (
     KeyUpdate,
 )
 from ._session import TLSSession
+from ._supported import (
+    DSA_SIGNATURE_ALGORITHMS,
+    ECDSA_SIGNATURE_ALGORITHMS,
+    RSA_PKCS1_SIGNATURE_ALGORITHMS,
+    RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
+    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
+)
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._types import ReadableBuffer
 from ._x509_validator import EKUValidator, SANValidator

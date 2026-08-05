@@ -49,11 +49,7 @@ from ._alert import (
 from ._common import create_signature, verify_signature
 from ._constant import (
     CLIENT_CONTEXT_STRING,
-    ECC_GROUPS,
-    FFDHE_GROUPS,
     GREASES,
-    KEM_GROUPS,
-    SIGNATURE_ALGORITHMS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
@@ -151,6 +147,14 @@ from ._message import (
     ServerKeyExchange,
 )
 from ._session import TLSSession
+from ._supported import (
+    CERTIFICATE_COMPRESSIONS,
+    ECC_GROUPS,
+    FFDHE_GROUPS,
+    KEM_GROUPS,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
+)
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 
 SessionTicketHandler = typing.Callable[[TLSSession], None]
@@ -222,19 +226,6 @@ class TLSHandshakeClient(TLSHandshake):
         # ruff: enable[E501]
 
         ## Configurations
-        # Compression methods
-        self._conf_compresion_methods: tuple[int, ...] = (Compression.NULL,)
-
-        # Cipher Suites
-        self._conf_cipher_suites: tuple[CipherSuite, ...] = tuple(
-            cipher
-            for cipher in context.cipher_suites
-            if (
-                cipher.minimum_version <= self._maximum_version
-                and cipher.maximum_version >= self._minimum_version
-            )
-        )
-
         # Grease
         self._conf_grease = context.grease
         self._conf_grease_ech = context.grease_ech
@@ -253,6 +244,19 @@ class TLSHandshakeClient(TLSHandshake):
         # Client Hello Padding
         self._conf_client_hello_padding: bool = context.client_hello_padding
 
+        # Compression methods
+        self._conf_compresion_methods: tuple[int, ...] = (Compression.NULL,)
+
+        # Cipher Suites
+        self._conf_cipher_suites: tuple[CipherSuite, ...] = tuple(
+            cipher_suite
+            for cipher_suite in context.cipher_suites
+            if (
+                cipher_suite.minimum_version <= self._maximum_version
+                and cipher_suite.maximum_version >= self._minimum_version
+            )
+        )
+
         # Signature Algorithms
         signature_algorithms = tuple(
             signature_algorithm
@@ -263,23 +267,25 @@ class TLSHandshakeClient(TLSHandshake):
             signature_algorithms or None
         )
 
-        # ALPN Protocols
-        self._conf_alpn_protocols: tuple[bytes, ...] | None = (
-            tuple(context.alpn_protocols) or None
-        )
-
         # Supported groups
-        valid_groups: set[int] = set()
+        valid_groups: tuple[int, ...]
         if self._maximum_version >= TLSVersion.TLSv1_3:
-            valid_groups.update(ECC_GROUPS, FFDHE_GROUPS, KEM_GROUPS)
+            valid_groups = SUPPORTED_GROUPS
         elif any(c.kea == KeyExchange.ECDHE for c in self._conf_cipher_suites):
-            valid_groups.update(ECC_GROUPS)
+            valid_groups = ECC_GROUPS
+        else:
+            valid_groups = ()
 
         supported_groups = tuple(
             g for g in context.supported_groups if g in valid_groups
         )
         self._conf_supported_groups: tuple[int, ...] | None = (
             supported_groups or None
+        )
+
+        # ALPN Protocols
+        self._conf_alpn_protocols: tuple[bytes, ...] | None = (
+            tuple(context.alpn_protocols) or None
         )
 
         # TLSv1.2 below configs
@@ -303,6 +309,24 @@ class TLSHandshakeClient(TLSHandshake):
         self._conf_ec_point_formats: tuple[int, ...] = ec_point_formats
 
         # TLSv1.3 above configs
+        # Post Handshake Authentication
+        self._conf_post_handshake_auth: bool = context.post_handshake_auth
+
+        # Certificate Compression Algorithm
+        certificate_compressions = tuple(
+            certificate_compression
+            for certificate_compression in context.certificate_compressions
+            if certificate_compression in CERTIFICATE_COMPRESSIONS
+        )
+        self._conf_cert_comp_algs: tuple[int, ...] | None = (
+            certificate_compressions or None
+        )
+
+        # PSK Key Exchange Mode
+        self._conf_psk_kex_modes: tuple[int, ...] | None = (
+            PSKKeyExchangeMode.PSK_DHE_KE,
+        )
+
         # Application Settings
         self._conf_alps: dict[bytes, bytes]
         if self._conf_alpn_protocols is not None:
@@ -313,19 +337,6 @@ class TLSHandshakeClient(TLSHandshake):
             }
         else:
             self._conf_alps = {}
-
-        # Post Handshake Authentication
-        self._conf_post_handshake_auth: bool = context.post_handshake_auth
-
-        # PSK Key Exchange Mode
-        self._conf_psk_kex_modes: tuple[int, ...] | None = (
-            PSKKeyExchangeMode.PSK_DHE_KE,
-        )
-
-        # Certificate Compression Algorithm
-        self._conf_cert_comp_algs: tuple[int, ...] | None = (
-            tuple(context.certificate_compressions) or None
-        )
 
         ## Temporary State
         self._hs_state = ClientState.START_CONNECT
