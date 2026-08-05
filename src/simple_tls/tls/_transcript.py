@@ -26,23 +26,23 @@ from ..protocol.kdf import hkdf_expand, hkdf_extract
 from ..utils.codec import Writer
 from ..utils.math import strxor
 from ._common import get_algorithm, get_hash
-from ._constant import CipherSuite, HandshakeType, HashAlgorithm, TLSVersion
+from ._constant import UNSPECFICED, CipherSuite, HandshakeType, TLSVersion
 
 
 class Transcript:
     def __init__(self) -> None:
         self.__buffer = bytearray()
-        self.__hashes: dict[HashAlgorithm, hashes.Hash] = {}
+        self.__hashes: dict[int, hashes.Hash] = {}
 
     def update_hash(self, data: bytes) -> None:
         self.__buffer.extend(data)
         for h in self.__hashes.values():
             h.update(data)
 
-    def update_for_hello_retry_request(self, algorithm: HashAlgorithm) -> None:
+    def update_for_hello_retry_request(self, hash_algorithm: int) -> None:
         writer = Writer()
         writer.write_int(HandshakeType.MESSAGE_HASH, 1)
-        writer.write_prefixed_bytes(self.digest(algorithm), 3)
+        writer.write_prefixed_bytes(self.digest(hash_algorithm), 3)
         self.__buffer.clear()
         self.__hashes.clear()
         self.update_hash(writer.tobytes())
@@ -50,12 +50,12 @@ class Transcript:
     def get(self) -> bytes:
         return bytes(self.__buffer)
 
-    def digest(self, hashalg: HashAlgorithm) -> bytes:
+    def digest(self, hash_algorithm: int) -> bytes:
         try:
-            hashobj = self.__hashes[hashalg]
+            hashobj = self.__hashes[hash_algorithm]
         except KeyError:
-            hashobj = get_hash(hashalg, self.__buffer)
-            self.__hashes[hashalg] = hashobj
+            hashobj = get_hash(hash_algorithm, self.__buffer)
+            self.__hashes[hash_algorithm] = hashobj
 
         return hashobj.copy().finalize()
 
@@ -77,6 +77,7 @@ class KeyDeriver:
         client_random: bytes,
         server_random: bytes,
     ) -> None:
+        self.hash_algorithm: int
         self.algorithm: hashes.HashAlgorithm | None
         self.client_random = client_random
         self.server_random = server_random
@@ -87,7 +88,7 @@ class KeyDeriver:
             self.algorithm = get_algorithm(self.hash_algorithm)
         elif version in (TLSVersion.TLSv1, TLSVersion.TLSv1_1):
             self.prf = self._prf_tlsv1
-            self.hash_algorithm = HashAlgorithm.MD5_SHA1
+            self.hash_algorithm = UNSPECFICED
             self.algorithm = None
         else:
             raise ValueError("Unsupported version")
@@ -177,7 +178,7 @@ class KeyDeriver:
 
 
 class KeySchedule:
-    def __init__(self, hash_algorithm: HashAlgorithm) -> None:
+    def __init__(self, hash_algorithm: int) -> None:
         self.hash_algorithm = hash_algorithm
         self.algorithm = get_algorithm(self.hash_algorithm)
         self.digest_size = self.algorithm.digest_size

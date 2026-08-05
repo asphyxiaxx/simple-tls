@@ -29,7 +29,7 @@ from ..key.types import (
     CertificateIssuerPrivateKeyTypes,
     CertificatePublicKeyTypes,
 )
-from ._constant import HashAlgorithm, SignatureScheme
+from ._constant import UNSPECFICED, HashAlgorithm, SignatureScheme
 from ._types import ReadableBuffer
 
 
@@ -38,10 +38,10 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
 
 
 def get_hash(
-    hash_algorithm: HashAlgorithm,
+    hash_algorithm: int,
     message: ReadableBuffer = b"",
 ) -> hashes.Hash:
-    if hash_algorithm == HashAlgorithm.MD5_SHA1:
+    if hash_algorithm == UNSPECFICED:
         hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
     else:
         algorithm = get_algorithm(hash_algorithm)
@@ -67,7 +67,7 @@ def create_signature(
         algorithm = None
         msg_hash = msg
     else:
-        if hashalg == HashAlgorithm.MD5_SHA1:
+        if hashalg == UNSPECFICED:
             algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
             hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
         else:
@@ -97,7 +97,7 @@ def verify_signature(
         algorithm = None
         msg_hash = msg
     else:
-        if hashalg == HashAlgorithm.MD5_SHA1:
+        if hashalg == UNSPECFICED:
             algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
             hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
         else:
@@ -357,7 +357,7 @@ _CREATE_SIGNATURE_FUNC: dict[int, tuple[_SigningFunction, int]] = {
     SignatureScheme.ECDSA_SECP256R1_SHA256: (_sign_ec, HashAlgorithm.SHA256),
     SignatureScheme.ED25519: (_sign_ed25519, HashAlgorithm.INTRINSIC),
     SignatureScheme.ED448: (_sign_ed448, HashAlgorithm.INTRINSIC),
-    SignatureScheme.RSA_MD5_SHA1: (_sign_rsa_pkcs115, HashAlgorithm.MD5_SHA1),
+    UNSPECFICED: (_sign_rsa_pkcs115, UNSPECFICED),
 }
 
 _VERIFY_SIGNATURE_FUNC: dict[int, tuple[_VerifyingFunction, int]] = {
@@ -384,7 +384,7 @@ _VERIFY_SIGNATURE_FUNC: dict[int, tuple[_VerifyingFunction, int]] = {
     SignatureScheme.ECDSA_SECP256R1_SHA256: (_verify_ec, HashAlgorithm.SHA256),
     SignatureScheme.ED25519: (_verify_ed25519, HashAlgorithm.INTRINSIC),
     SignatureScheme.ED448: (_verify_ed448, HashAlgorithm.INTRINSIC),
-    SignatureScheme.RSA_MD5_SHA1: (_verify_rsa_pkcs115, HashAlgorithm.MD5_SHA1),
+    UNSPECFICED: (_verify_rsa_pkcs115, UNSPECFICED),
 }
 
 # fmt: on

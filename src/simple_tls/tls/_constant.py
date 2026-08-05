@@ -50,6 +50,8 @@ GREASES = (
     0xFAFA,
 )
 
+UNSPECFICED = -1
+
 
 def _sigscheme(hashalg: int, sigalg: int) -> int:
     return hashalg << 8 | sigalg
@@ -287,9 +289,6 @@ class HashAlgorithm(int, TLSEnum):
     # RFC 8422
     INTRINSIC = 8
 
-    #
-    MD5_SHA1 = -1
-
 
 class PSKKeyExchangeMode(int, TLSEnum):
     PSK_KE = 0
@@ -318,6 +317,7 @@ class SignatureAlgorithm(int, TLSEnum):
 
 class SignatureScheme(int, TLSEnum):
     # fmt: off
+
     RSA_MD5 = _sigscheme(HashAlgorithm.MD5, SignatureAlgorithm.RSA)
 
     RSA_PKCS1_SHA1 = _sigscheme(HashAlgorithm.SHA1, SignatureAlgorithm.RSA)
@@ -348,8 +348,6 @@ class SignatureScheme(int, TLSEnum):
     ED25519 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.ED25519)
     ED448 = _sigscheme(HashAlgorithm.INTRINSIC, SignatureAlgorithm.ED448)
 
-    #
-    RSA_MD5_SHA1 = _sigscheme(HashAlgorithm.MD5_SHA1, SignatureAlgorithm.RSA)
     # fmt: on
 
 

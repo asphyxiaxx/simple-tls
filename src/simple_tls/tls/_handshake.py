@@ -47,6 +47,7 @@ from ._common import get_algorithm, verify_signature
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     SERVER_CONTEXT_STRING,
+    UNSPECFICED,
     Authentication,
     CipherSuite,
     ClientCertificateType,
@@ -759,7 +760,7 @@ class TLSHandshake:
                     default_sigalg = SignatureScheme.RSA_PKCS1_SHA1
                     sigalgs.update(RSA_PSS_RSAE_SIGNATURE_ALGORITHMS)
                 else:
-                    default_sigalg = SignatureScheme.RSA_MD5_SHA1
+                    default_sigalg = UNSPECFICED
 
         elif public_key_oid == x509.PublicKeyAlgorithmOID.RSASSA_PSS:
             if not isinstance(public_key, rsa.RSAPublicKey):
