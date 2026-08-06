@@ -275,7 +275,7 @@ class TLSContext:
     def session_keys(self, value: TLSSessionKeys | None) -> None:
         if value is not None and not isinstance(value, TLSSessionKeys):
             raise TypeError(
-                "session_storage must be TLSSessionKeysManager instance"
+                "session_storage must be TLSSessionKeys object"
             )
         self._session_keys = value
 
@@ -287,7 +287,7 @@ class TLSContext:
     def session_storage(self, value: TLSSessionStorage | None) -> None:
         if value is not None and not isinstance(value, TLSSessionStorage):
             raise TypeError(
-                "session_storage must be TLSSessionStorage instance"
+                "session_storage must be TLSSessionStorage object"
             )
         self._session_storage = value
 
@@ -403,15 +403,15 @@ class TLSContext:
             raise TypeError("ca_policy must be x509.ExtensionPolicy instance")
         self._ca_policy = value
 
-    def load_dh_params(self, path: str) -> None:
+    def load_dh_params(self, path: StrOrBytesPath) -> None:
         with open(path, "rb") as fp:
             pem_data = fp.read()
         self._dh_params = load_pem_parameters(pem_data)
 
     def load_cert_chain(
         self,
-        certfile: str | bytes,
-        keyfile: str | bytes | None = None,
+        certfile: StrOrBytesPath,
+        keyfile: StrOrBytesPath | None = None,
         password: str | bytes | None = None,
     ) -> None:
         """
