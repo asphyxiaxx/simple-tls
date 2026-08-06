@@ -23,7 +23,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple-tls"
-version = "0.1.4"
+version = "0.1.5b1"
 description = "Custom implementation of TLS protocol (TLSv1.0 to TLSv1.3) with similar API to Python's 'ssl'"
 readme = "README.md"
 requires-python = ">=3.10"
