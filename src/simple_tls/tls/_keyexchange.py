@@ -371,7 +371,7 @@ class DHParameters:
         return self._parameters.generate_private_key()
 
     @property
-    def parameter_numbers(self):
+    def parameter_numbers(self) -> dh.DHParameterNumbers:
         return self._parameter_numbers
 
     @property
