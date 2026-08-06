@@ -20,62 +20,66 @@
 
 from __future__ import annotations
 
-import typing
-
-from cryptography.hazmat.primitives.serialization import Encoding
-from cryptography.x509 import (
+from ..io.oid import (
+    AlgorithmIdentifier,
+    AuthorityInformationAccessOID,
+    CRLEntryExtensionOID,
+    ExtendedKeyUsageOID,
+    ExtensionOID,
+    NameOID,
+    ObjectIdentifier,
+    PublicKeyAlgorithmOID,
+)
+from .base import (
+    Certificate,
+    Encoding,
+    InvalidVersion,
+    Version,
+    load_der_x509_certificate,
+    load_der_x509_certificates,
+    load_pem_x509_certificate,
+    load_pem_x509_certificates,
+)
+from .extensions import (
     AccessDescription,
     AuthorityInformationAccess,
     AuthorityKeyIdentifier,
     BasicConstraints,
-    Certificate,
     CertificatePolicies,
     CRLDistributionPoints,
     CRLNumber,
-    DirectoryName,
     DistributionPoint,
-    DNSName,
     ExtendedKeyUsage,
     Extension,
     ExtensionNotFound,
     Extensions,
     ExtensionType,
-    GeneralName,
-    GeneralNames,
-    InvalidVersion,
-    IPAddress,
+    IssuerAlternativeName,
     KeyUsage,
-    Name,
-    NameAttribute,
     NameConstraints,
-    NameOID,
     NoticeReference,
-    ObjectIdentifier,
-    OtherName,
     PolicyInformation,
-    PublicKeyAlgorithmOID,
     ReasonFlags,
-    RegisteredID,
-    RelativeDistinguishedName,
-    RFC822Name,
     SubjectAlternativeName,
     SubjectInformationAccess,
     SubjectKeyIdentifier,
-    UniformResourceIdentifier,
     UnrecognizedExtension,
     UserNotice,
-    Version,
-    load_der_x509_certificate,
-    load_pem_x509_certificate,
-    load_pem_x509_certificates,
 )
-from cryptography.x509.oid import (
-    AuthorityInformationAccessOID,
-    ExtendedKeyUsageOID,
-    ExtensionOID,
+from .name import (
+    DirectoryName,
+    DNSName,
+    GeneralName,
+    GeneralNames,
+    IPAddress,
+    Name,
+    NameAttribute,
+    OtherName,
+    RegisteredID,
+    RelativeDistinguishedName,
+    RFC822Name,
+    UniformResourceIdentifier,
 )
-
-from ..utils.math import bytes_to_int
 from .verification import (
     CertificateExpired,
     CertificateNotYetValid,
@@ -90,11 +94,13 @@ from .verification import (
 
 __all__ = [
     "AccessDescription",
+    "AlgorithmIdentifier",
     "AuthorityInformationAccess",
     "AuthorityInformationAccessOID",
     "AuthorityKeyIdentifier",
     "BasicConstraints",
     "CRLDistributionPoints",
+    "CRLEntryExtensionOID",
     "CRLNumber",
     "Certificate",
     "CertificateExpired",
@@ -116,6 +122,7 @@ __all__ = [
     "GeneralNames",
     "IPAddress",
     "InvalidVersion",
+    "IssuerAlternativeName",
     "KeyUsage",
     "Name",
     "NameAttribute",
@@ -123,6 +130,7 @@ __all__ = [
     "NameOID",
     "NoticeReference",
     "ObjectIdentifier",
+    "OtherName",
     "OtherName",
     "PolicyInformation",
     "PolicyViolationError",
@@ -148,69 +156,3 @@ __all__ = [
     "load_pem_x509_certificate",
     "load_pem_x509_certificates",
 ]
-
-
-def _decode_sequence_len(data: bytes, offset: int) -> tuple[int, int]:
-    if offset >= len(data):
-        raise ValueError("Truncated DER data while reading length header.")
-
-    length_byte = data[offset]
-
-    # Short form
-    if (length_byte & 0x80) == 0:
-        return length_byte, 1
-
-    # Long form
-    num_length_bytes = length_byte & 0x7F
-    if num_length_bytes == 0:
-        raise ValueError(
-            "Indefinite length ASN.1 encoding is not supported for DER."
-        )
-    if offset + 1 + num_length_bytes > len(data):
-        raise ValueError(
-            "Truncated DER data while reading long form length bytes."
-        )
-
-    length = bytes_to_int(data[offset + 1 : offset + 1 + num_length_bytes])
-    return length, 1 + num_length_bytes
-
-
-def load_der_x509_certificates(
-    data: bytes, backend: typing.Any | None = None
-) -> list[Certificate]:
-    certificates: list[Certificate] = []
-    offset = 0
-    data_len = len(data)
-
-    while offset < data_len:
-        # An X.509 certificate is always an ASN.1 SEQUENCE.
-        if data[offset] != 0x30:
-            raise ValueError(
-                f"Invalid DER data at offset {offset}: Expected ASN.1 SEQUENCE"
-                f" tag (0x30), got {hex(data[offset])}."
-            )
-
-        try:
-            value_len, header_len = _decode_sequence_len(data, offset + 1)
-        except IndexError:
-            raise ValueError(
-                f"Truncated DER data at offset {offset}."
-            ) from None
-
-        total_cert_len = 1 + header_len + value_len
-
-        if offset + total_cert_len > data_len:
-            remaining = data_len - offset
-            raise ValueError(
-                f"Truncated DER data: Certificate at offset {offset} claims to"
-                f" be {total_cert_len} bytes long, but only {remaining} bytes"
-                f" remain."
-            )
-
-        cert_bytes = data[offset : offset + total_cert_len]
-        cert = load_der_x509_certificate(cert_bytes, backend)
-        certificates.append(cert)
-
-        offset += total_cert_len
-
-    return certificates

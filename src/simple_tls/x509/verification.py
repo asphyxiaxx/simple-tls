@@ -25,21 +25,20 @@ from collections import deque
 from datetime import datetime, timedelta
 
 from cryptography.exceptions import InvalidSignature
-from cryptography.x509 import (
+
+from ..io.oid import ExtensionOID, ObjectIdentifier
+from ..utils.misc import utcnow
+from .base import Certificate
+from .extensions import (
     AuthorityKeyIdentifier,
     BasicConstraints,
-    Certificate,
     Extension,
     ExtensionNotFound,
     ExtensionType,
     KeyUsage,
-    Name,
-    ObjectIdentifier,
     SubjectKeyIdentifier,
 )
-from cryptography.x509.oid import ExtensionOID
-
-from ..utils.misc import utcnow
+from .name import Name
 
 _T = typing.TypeVar("_T", contravariant=True, bound="ExtensionType")
 _MaybeExtCallback = typing.Callable[
