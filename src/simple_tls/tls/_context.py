@@ -23,9 +23,6 @@ from __future__ import annotations
 import typing
 
 from .. import x509
-from ..io.serialization import load_pem_parameters, load_pem_private_key
-from ..key import dh
-from ..key.types import CertificateIssuerPrivateKeyTypes
 from ..utils.math import str_to_bytes
 from ._constant import (
     CertificateCompressionAlgorithm,
@@ -36,6 +33,8 @@ from ._constant import (
     TLSVersion,
 )
 from ._enum import TLSVerifyMode
+from ._key import BasePrivateKey, load_pem_private_key
+from ._keyexchange import DHParameters, load_pem_parameters
 from ._session import TLSSessionKeys, TLSSessionStorage
 from ._types import StrOrBytesPath
 
@@ -60,7 +59,7 @@ class TLSContext:
         # ---------------------------------------------------------------------
         # Identity & Credentials (The "Who am I?")
         # ---------------------------------------------------------------------
-        self._private_key: CertificateIssuerPrivateKeyTypes | None = None
+        self._private_key: BasePrivateKey | None = None
         self._x509_certs: tuple[x509.Certificate, ...] | None = None
 
         # Trust Store & Verification
@@ -105,7 +104,7 @@ class TLSContext:
         )
 
         # Key Exchange
-        self._dh_params: dh.DHParameters | None = None
+        self._dh_params: DHParameters | None = None
         """DH parameters for server side only"""
         self._supported_groups: tuple[int, ...] = (
             NamedGroup.X25519MLKEM768,
@@ -265,7 +264,7 @@ class TLSContext:
         return self._x509_certs
 
     @property
-    def private_key(self) -> CertificateIssuerPrivateKeyTypes | None:
+    def private_key(self) -> BasePrivateKey | None:
         return self._private_key
 
     @property
@@ -357,7 +356,7 @@ class TLSContext:
         self._ech_configs = value
 
     @property
-    def dh_params(self) -> dh.DHParameters | None:
+    def dh_params(self) -> DHParameters | None:
         return self._dh_params
 
     @property
@@ -446,7 +445,7 @@ class TLSContext:
 
         # Update State Atomically
         self._x509_certs = tuple(certs)
-        self._private_key = typing.cast(CertificateIssuerPrivateKeyTypes, key)
+        self._private_key = key
 
     def get_ca_certs(self) -> list[x509.Certificate]:
         return [c for c in self.castore]

@@ -24,8 +24,6 @@ import random
 import typing
 
 from .. import x509
-from ..key import InvalidSignature, dh, padding, rsa
-from ..key.types import CertificateIssuerPrivateKeyTypes
 from ..protocol.hpke import SenderContext, create_suite
 from ..utils.codec import ParseError, Parser, Writer
 from ..utils.constant_time import compare_digest
@@ -46,7 +44,6 @@ from ._alert import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from ._common import create_signature, verify_signature
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     GREASES,
@@ -124,7 +121,18 @@ from ._extension import (
     TLSExtension,
 )
 from ._handshake import ECHConfigContent, TLSHandshake
-from ._keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
+from ._key import (
+    BasePrivateKey,
+    InvalidSignature,
+    RSAPublicKey,
+    load_certificate_public_key,
+)
+from ._keyexchange import (
+    DHParameters,
+    ECDHKeyExchange,
+    FFDHKeyExchange,
+    KEMKeyExchange,
+)
 from ._message import (
     CertificateRequest,
     CertificateRequestTLS12,
@@ -368,7 +376,7 @@ class TLSHandshakeClient(TLSHandshake):
         ) = None
 
         # Identity
-        self._private_key: CertificateIssuerPrivateKeyTypes | None = None
+        self._private_key: BasePrivateKey | None = None
         self._x509_certs: tuple[x509.Certificate, ...] | None = None
 
         # Inner client hello variable, will replace actual when ech accepted
@@ -856,8 +864,7 @@ class TLSHandshakeClient(TLSHandshake):
                 )
 
             try:
-                parameters_numbers = dh.DHParameterNumbers(p=dh_p, g=dh_g)
-                parameters = parameters_numbers.parameters()
+                parameters = DHParameters(p=dh_p, g=dh_g)
                 self._key_exchange = FFDHKeyExchange(parameters=parameters)
             except ValueError as exc:
                 raise AlertIllegalParameter(str(exc)) from exc
@@ -873,11 +880,9 @@ class TLSHandshakeClient(TLSHandshake):
 
             x509_peer = new_session.x509_peer
             try:
-                peer_public_key = x509_peer.public_key()
+                peer_public_key = load_certificate_public_key(x509_peer)
             except ValueError as exc:
-                raise AlertHandshakeFailure(
-                    "Unsupported public key format"
-                ) from exc
+                raise AlertHandshakeFailure(str(exc)) from exc
 
             ske_data = parser.data_since_bookmark()
             peer_public_key_oid = x509_peer.public_key_algorithm_oid
@@ -908,7 +913,7 @@ class TLSHandshakeClient(TLSHandshake):
             data = self._client_random + self._server_random + ske_data
 
             try:
-                verify_signature(peer_public_key, signature, data, verify_alg)
+                peer_public_key.verify(signature, data, verify_alg)
             except ValueError as exc:
                 raise AlertIllegalParameter(str(exc)) from exc
             except InvalidSignature:
@@ -981,11 +986,9 @@ class TLSHandshakeClient(TLSHandshake):
         if priv_key is not None and x509_certs is not None:
             x509_leaf = x509_certs[0]
             try:
-                public_key = x509_leaf.public_key()
+                public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
-                raise AlertInternalError(
-                    "Unsupported public key format"
-                ) from exc
+                raise AlertInternalError(str(exc)) from exc
 
             public_key_oid = x509_leaf.public_key_algorithm_oid
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
@@ -1035,28 +1038,27 @@ class TLSHandshakeClient(TLSHandshake):
         version = self.protocol_version()
         cipher_suite = self.cipher()
         new_session = self._new_session
+
         writer = Writer()
 
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
 
-            if new_session.x509_peer is None:
+            x509_peer = new_session.x509_peer
+            if x509_peer is None:
                 raise AlertInternalError("Missing x509_peer in new_session")
+
             try:
-                peer_public_key = new_session.x509_peer.public_key()
+                peer_public_key = load_certificate_public_key(x509_peer)
             except ValueError as exc:
-                raise AlertHandshakeFailure(
-                    "Unsupported public key format"
-                ) from exc
+                raise AlertHandshakeFailure(str(exc)) from exc
 
             self._check_pubkey(version, peer_public_key, cipher_suite)
 
-            peer_public_key = typing.cast(rsa.RSAPublicKey, peer_public_key)
+            peer_public_key = typing.cast(RSAPublicKey, peer_public_key)
             premaster_secret = int_to_bytes(version, 2) + get_random_bytes(46)
-            encrypted_premaster_secret = peer_public_key.encrypt(
-                premaster_secret, padding.PKCS1v15()
-            )
-            writer.write_prefixed_bytes(encrypted_premaster_secret, 2)
+            enc_premaster_secret = peer_public_key.encrypt(premaster_secret)
+            writer.write_prefixed_bytes(enc_premaster_secret, 2)
         else:
             if self._key_exchange is None:
                 raise AlertInternalError("Missing key_exchange")
@@ -1115,7 +1117,7 @@ class TLSHandshakeClient(TLSHandshake):
         priv_key = self._private_key
         signature_algorithm = self._signature_algorithm
         transcript = self._transcript.get()
-        signature = create_signature(priv_key, transcript, signature_algorithm)
+        signature = priv_key.sign(transcript, signature_algorithm)
 
         cert_verify: CertificateVerifyTLS12 | CertificateVerify
         if self.protocol_version() == TLSVersion.TLSv1_2:
@@ -2645,11 +2647,9 @@ class TLSHandshakeClient(TLSHandshake):
 
             x509_leaf = x509_certs[0]
             try:
-                public_key = x509_leaf.public_key()
+                public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
-                raise AlertInternalError(
-                    "Unsupported public key format"
-                ) from exc
+                raise AlertInternalError(str(exc)) from exc
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=self.protocol_version(),
@@ -2677,17 +2677,14 @@ class TLSHandshakeClient(TLSHandshake):
 
         if signature_algorithm is None:
             return
-
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
 
-        private_key = typing.cast(
-            CertificateIssuerPrivateKeyTypes, private_key
-        )
+        private_key = typing.cast(BasePrivateKey, private_key)
         data = self._key_schedule.certificate_verify_data(
             CLIENT_CONTEXT_STRING, self._transcript
         )
-        signature = create_signature(private_key, data, signature_algorithm)
+        signature = private_key.sign(data, signature_algorithm)
 
         c_verify = CertificateVerifyTLS12(signature, signature_algorithm)
         self.do_message_cb("write", c_verify)

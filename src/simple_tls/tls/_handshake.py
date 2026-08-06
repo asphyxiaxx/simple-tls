@@ -25,8 +25,6 @@ from dataclasses import dataclass, field
 
 from .. import x509
 from ..io.serialization import Encoding
-from ..key import InvalidSignature, dsa, ec, ed448, ed25519, rsa
-from ..key.types import CertificatePublicKeyTypes
 from ..protocol.hpke import Context as HPKEContext
 from ..utils.codec import ParseError, Parser
 from ..utils.compression import UnsupportedCompression
@@ -43,7 +41,7 @@ from ._alert import (
     AlertUnknownCA,
 )
 from ._cipher import TLSCipher
-from ._common import get_algorithm, verify_signature
+from ._common import get_algorithm
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     SERVER_CONTEXT_STRING,
@@ -53,15 +51,22 @@ from ._constant import (
     ClientCertificateType,
     HandshakeType,
     KeyUpdateMessageType,
+    NamedGroup,
     SignatureScheme,
     TLSVersion,
 )
 from ._context import TLSContext
 from ._enum import Direction, ECHStatus, Epoch, Status
-from ._extension import (
-    CertStatusRequestExtension,
-    ECHConfig,
-    TLSExtension,
+from ._extension import CertStatusRequestExtension, ECHConfig, TLSExtension
+from ._key import (
+    BasePublicKey,
+    DSAPublicKey,
+    ECPublicKey,
+    Ed448PublicKey,
+    Ed25519PublicKey,
+    InvalidSignature,
+    RSAPublicKey,
+    load_certificate_public_key,
 )
 from ._message import (
     Certificate,
@@ -675,13 +680,13 @@ class TLSHandshake:
     @staticmethod
     def _check_pubkey(
         version: int,
-        public_key: CertificatePublicKeyTypes,
+        public_key: BasePublicKey,
         cipher_suite: CipherSuite | None = None,
     ) -> None:
         if version >= TLSVersion.TLSv1_3:
             cipher_suite = None
 
-        if isinstance(public_key, rsa.RSAPublicKey):
+        if isinstance(public_key, RSAPublicKey):
             if (
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.RSA
@@ -693,7 +698,7 @@ class TLSHandshake:
                     f"Peer public key too small '{public_key.key_size}'"
                 )
 
-        elif isinstance(public_key, dsa.DSAPublicKey):
+        elif isinstance(public_key, DSAPublicKey):
             if (
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.DSS
@@ -705,16 +710,14 @@ class TLSHandshake:
                     f"Peer public key too small '{public_key.key_size}'"
                 )
 
-        elif isinstance(public_key, ec.EllipticCurvePublicKey):
+        elif isinstance(public_key, ECPublicKey):
             if (
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.ECDSA
             ):
                 raise AlertIllegalParameter("Invalid key type")
 
-        elif isinstance(
-            public_key, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)
-        ):
+        elif isinstance(public_key, (Ed25519PublicKey, Ed448PublicKey)):
             if version <= TLSVersion.TLSv1_1:
                 raise AlertIllegalParameter(
                     "Unexpected EdDSA Key for older TLS version"
@@ -732,7 +735,7 @@ class TLSHandshake:
     @staticmethod
     def _sigalgs_for_pubkey(
         version: int,
-        public_key: CertificatePublicKeyTypes,
+        public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
         supported_sigalgs: typing.Sequence[int] | None = None,
     ) -> tuple[int | None, list[int]]:
@@ -745,7 +748,7 @@ class TLSHandshake:
         default_sigalg: int | None = None
 
         if public_key_oid == x509.PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5:
-            if not isinstance(public_key, rsa.RSAPublicKey):
+            if not isinstance(public_key, RSAPublicKey):
                 raise AlertInternalError("Not a RSA public key")
 
             # RFC 8446
@@ -763,42 +766,42 @@ class TLSHandshake:
                     default_sigalg = UNSPECFICED
 
         elif public_key_oid == x509.PublicKeyAlgorithmOID.RSASSA_PSS:
-            if not isinstance(public_key, rsa.RSAPublicKey):
+            if not isinstance(public_key, RSAPublicKey):
                 raise AlertInternalError("Not a RSA public key")
             if version >= TLSVersion.TLSv1_2:
                 sigalgs.update(RSA_PSS_PSS_SIGNATURE_ALGORITHMS)
 
         elif public_key_oid == x509.PublicKeyAlgorithmOID.DSA:
-            if not isinstance(public_key, dsa.DSAPublicKey):
+            if not isinstance(public_key, DSAPublicKey):
                 raise AlertInternalError("Not a DSA public key")
             if version <= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.DSA_SHA1
                 sigalgs.update(DSA_SIGNATURE_ALGORITHMS)
 
         elif public_key_oid == x509.PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
-            if not isinstance(public_key, ec.EllipticCurvePublicKey):
+            if not isinstance(public_key, ECPublicKey):
                 raise AlertInternalError("Not a EC public key")
             if version >= TLSVersion.TLSv1_3:
-                ec_curve = public_key.curve
-                if isinstance(ec_curve, ec.SECP256R1):
+                group_id = public_key.group_id
+                if group_id == NamedGroup.SECP256R1:
                     sigalgs.add(SignatureScheme.ECDSA_SECP256R1_SHA256)
-                elif isinstance(ec_curve, ec.SECP384R1):
+                elif group_id == NamedGroup.SECP384R1:
                     sigalgs.add(SignatureScheme.ECDSA_SECP384R1_SHA384)
-                elif isinstance(ec_curve, ec.SECP521R1):
+                elif group_id == NamedGroup.SECP521R1:
                     sigalgs.add(SignatureScheme.ECDSA_SECP521R1_SHA512)
             else:
                 default_sigalg = SignatureScheme.ECDSA_SHA1
                 sigalgs.update(ECDSA_SIGNATURE_ALGORITHMS)
 
         elif public_key_oid == x509.PublicKeyAlgorithmOID.ED25519:
-            if not isinstance(public_key, ed25519.Ed25519PublicKey):
+            if not isinstance(public_key, Ed25519PublicKey):
                 raise AlertInternalError("Not a Ed25519 public key")
             if version >= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.ED25519
                 sigalgs.add(SignatureScheme.ED25519)
 
         elif public_key_oid == x509.PublicKeyAlgorithmOID.ED448:
-            if not isinstance(public_key, ed448.Ed448PublicKey):
+            if not isinstance(public_key, Ed448PublicKey):
                 raise AlertInternalError("Not a Ed448 public key")
             if version >= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.ED448
@@ -815,14 +818,14 @@ class TLSHandshake:
     def _get_sigalg_tls1(
         cls,
         version: int,
-        public_key: CertificatePublicKeyTypes,
+        public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
     ) -> int:
         if version > TLSVersion.TLSv1_1:
             raise AlertInternalError("Unexpected call on higer version")
 
         default_verify_alg, _ = cls._sigalgs_for_pubkey(
-            version == version,
+            version=version,
             public_key=public_key,
             public_key_oid=public_key_oid,
         )
@@ -835,7 +838,7 @@ class TLSHandshake:
     def _verify_sigalg_tls12(
         cls,
         version: int,
-        public_key: CertificatePublicKeyTypes,
+        public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
         signature_algorihtm: int,
         supported_sigalgs: typing.Sequence[int] | None,
@@ -918,11 +921,9 @@ class TLSHandshake:
         version = self.protocol_version()
         x509_peer = session.x509_peer
         try:
-            peer_public_key = x509_peer.public_key()
+            peer_public_key = load_certificate_public_key(x509_peer)
         except ValueError as exc:
-            raise AlertHandshakeFailure(
-                "Unsupported public key format"
-            ) from exc
+            raise AlertHandshakeFailure(str(exc)) from exc
 
         peer_public_key_oid = x509_peer.public_key_algorithm_oid
 
@@ -962,9 +963,7 @@ class TLSHandshake:
             data = self._transcript.get()
 
         try:
-            verify_signature(
-                peer_public_key, cert_verify.signature, data, verify_alg
-            )
+            peer_public_key.verify(cert_verify.signature, data, verify_alg)
         except InvalidSignature:
             raise AlertDecryptError(
                 "Invalid signature in certificate verify"

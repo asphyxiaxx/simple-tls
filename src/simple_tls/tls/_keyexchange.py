@@ -20,9 +20,13 @@
 
 from __future__ import annotations
 
-from ..io.serialization import Encoding, PublicFormat
-from ..key import dh, ec, mlkem, x448, x25519
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import dh, ec, x448, x25519
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+from .._crypto import mlkem
 from ..utils.math import byte_length, bytes_to_int, int_to_bytes
+from ..utils.random import get_random_bytes
 from ._alert import AlertDecodeError, AlertIllegalParameter, AlertInternalError
 from ._constant import NamedGroup
 from ._supported import ECC_GROUPS
@@ -37,6 +41,9 @@ class BaseKeyExchange:
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
         raise NotImplementedError
+
+
+## Diffie-Hellman key exchange
 
 
 class _DHGroup:
@@ -355,34 +362,17 @@ _RFC7919_FFDHE_GROUPS: dict[int, _DHGroup] = {
 }
 
 
-class FFDHKeyExchange(BaseKeyExchange):
-    def __init__(
-        self,
-        group: int = NamedGroup.FFDHE2048,
-        parameters: dh.DHParameters | None = None,
-    ) -> None:
-        if parameters is None:
-            dh_group = _RFC7919_FFDHE_GROUPS.get(group, None)
-            if dh_group is None:
-                raise AlertInternalError(f"Unsupport dh group '{group}")
+class DHParameters:
+    def __init__(self, p: int, g: int, q: int | None = None):
+        self._parameter_numbers = dh.DHParameterNumbers(p=p, g=g, q=q)
+        self._parameters = self._parameter_numbers.parameters()
 
-            parameter_numbers = dh.DHParameterNumbers(
-                p=dh_group.p,
-                g=dh_group.g,
-                q=dh_group.q,
-            )
-            parameters = parameter_numbers.parameters()
-        else:
-            parameter_numbers = parameters.parameter_numbers()
-
-        private_key = parameters.generate_private_key()
-        self._parameter_numbers = parameter_numbers
-        self._private_key = private_key
-        self._public_key = private_key.public_key()
+    def generate_private_key(self) -> dh.DHPrivateKey:
+        return self._parameters.generate_private_key()
 
     @property
-    def y(self) -> int:
-        return self._public_key.public_numbers().y
+    def parameter_numbers(self):
+        return self._parameter_numbers
 
     @property
     def p(self) -> int:
@@ -392,6 +382,37 @@ class FFDHKeyExchange(BaseKeyExchange):
     def g(self) -> int:
         return self._parameter_numbers.g
 
+
+class FFDHKeyExchange(BaseKeyExchange):
+    def __init__(
+        self,
+        group: int = NamedGroup.FFDHE2048,
+        parameters: DHParameters | None = None,
+    ) -> None:
+        if parameters is None:
+            try:
+                dh_group = _RFC7919_FFDHE_GROUPS[group]
+            except KeyError:
+                raise AlertInternalError(f"Unsupport dh group '{group}")
+
+            parameters = DHParameters(p=dh_group.p, g=dh_group.g, q=dh_group.q)
+
+        self._parameters = parameters
+        self._private_key = parameters.generate_private_key()
+        self._public_key = self._private_key.public_key()
+
+    @property
+    def y(self) -> int:
+        return self._public_key.public_numbers().y
+
+    @property
+    def p(self) -> int:
+        return self._parameters.p
+
+    @property
+    def g(self) -> int:
+        return self._parameters.g
+
     def generate_key_share(self) -> bytes:
         p = self.p
         y = self.y
@@ -400,7 +421,8 @@ class FFDHKeyExchange(BaseKeyExchange):
     def compute_shared_secret(self, peer_public: bytes) -> bytes:
         y = bytes_to_int(peer_public, "big")
 
-        peer_public_numbers = dh.DHPublicNumbers(y, self._parameter_numbers)
+        parameter_numbers = self._parameters.parameter_numbers
+        peer_public_numbers = dh.DHPublicNumbers(y, parameter_numbers)
         peer_public_key = peer_public_numbers.public_key()
         try:
             return self._private_key.exchange(peer_public_key)
@@ -411,6 +433,19 @@ class FFDHKeyExchange(BaseKeyExchange):
         key_share = self.generate_key_share()
         shared_secret = self.compute_shared_secret(peer_public)
         return (key_share, shared_secret)
+
+
+def load_pem_parameters(data: bytes) -> DHParameters:
+    parameters = serialization.load_pem_parameters(data)
+    parameter_numbers = parameters.parameter_numbers()
+    return DHParameters(
+        p=parameter_numbers.p,
+        g=parameter_numbers.g,
+        q=parameter_numbers.q,
+    )
+
+
+## Elliptic Curve key exchange
 
 
 _NAMEDGROUP_TO_CURVE: dict[int, ec.EllipticCurve] = {
@@ -492,6 +527,9 @@ class ECDHKeyExchange(BaseKeyExchange):
         return (key_share, shared_secret)
 
 
+## ML-KEM key exchange
+
+
 _EC_KEY_LEN: dict[int, int] = {
     NamedGroup.X25519MLKEM768: 32,
     NamedGroup.SECP256R1MLKEM768: 65,
@@ -513,27 +551,27 @@ _PQC_CIPHERTEXT_LEN: dict[int, int] = {
 
 class KEMKeyExchange(BaseKeyExchange):
     def __init__(self, group: int) -> None:
-        pqc_private_key: mlkem.MLKEM768PrivateKey | mlkem.MLKEM1024PrivateKey
         if group == NamedGroup.X25519MLKEM768:
             curve = NamedGroup.X25519
-            pqc_private_key = mlkem.MLKEM768PrivateKey.generate()
+            level = 768
         elif group == NamedGroup.SECP256R1MLKEM768:
             curve = NamedGroup.SECP256R1
-            pqc_private_key = mlkem.MLKEM768PrivateKey.generate()
+            level = 768
         elif group == NamedGroup.SECP384R1MLKEM1024:
             curve = NamedGroup.SECP384R1
-            pqc_private_key = mlkem.MLKEM1024PrivateKey.generate()
+            level = 1024
         else:
             raise AlertInternalError(f"Unsupported KEM group '{group}'")
 
         self._group = group
         self._ec_kex = ECDHKeyExchange(curve)
 
-        self._private_key = pqc_private_key
-        self._public_key = pqc_private_key.public_key()
+        seed = get_random_bytes(64)
+        self._level = level
+        self._public_key, self._private_key = mlkem.keygen(level, seed)
 
     def generate_key_share(self) -> bytes:
-        pqc_pk = self._public_key.public_bytes_raw()
+        pqc_pk = self._public_key
         ec_pk = self._ec_kex.generate_key_share()
 
         if self._group == NamedGroup.X25519MLKEM768:
@@ -543,14 +581,12 @@ class KEMKeyExchange(BaseKeyExchange):
         return key_share
 
     def compute_shared_secret(self, peer_public: bytes) -> bytes:
-        expected_pqc_ct_len = _PQC_CIPHERTEXT_LEN[self._group]
-        peer_pqc_ct, peer_ec_pk = self._split_pk(
-            peer_public, expected_pqc_ct_len
-        )
+        exp_pqc_ct_len = _PQC_CIPHERTEXT_LEN[self._group]
+        peer_pqc_ct, peer_ec_pk = self._split_pk(peer_public, exp_pqc_ct_len)
 
         ec_ss = self._ec_kex.compute_shared_secret(peer_ec_pk)
         try:
-            pqc_ss = self._private_key.decapsulate(peer_pqc_ct)
+            pqc_ss = mlkem.decaps(self._level, peer_pqc_ct, self._private_key)
         except ValueError as exc:
             raise AlertDecodeError(str(exc)) from None
 
@@ -562,25 +598,14 @@ class KEMKeyExchange(BaseKeyExchange):
         return shared_secret
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
-        expected_pqc_pk_len = _PQC_KEY_LEN[self._group]
-        peer_pqc_pk, peer_ec_pk = self._split_pk(
-            peer_public, expected_pqc_pk_len
-        )
+        exp_pqc_pk_len = _PQC_KEY_LEN[self._group]
+        peer_pqc_pk, peer_ec_pk = self._split_pk(peer_public, exp_pqc_pk_len)
 
         ec_pk, ec_ss = self._ec_kex.generate_and_compute(peer_ec_pk)
 
-        peer_pqc_pubkey: mlkem.MLKEM768PublicKey | mlkem.MLKEM1024PublicKey
-        if self._group == NamedGroup.SECP384R1MLKEM1024:
-            peer_pqc_pubkey = mlkem.MLKEM1024PublicKey.from_public_bytes(
-                peer_pqc_pk
-            )
-        else:
-            peer_pqc_pubkey = mlkem.MLKEM768PublicKey.from_public_bytes(
-                peer_pqc_pk
-            )
-
+        seed = get_random_bytes(32)
         try:
-            pqc_ss, pqc_ct = peer_pqc_pubkey.encapsulate()
+            pqc_ct, pqc_ss = mlkem.encaps(self._level, peer_pqc_pk, seed)
         except ValueError as exc:
             raise AlertIllegalParameter(str(exc)) from None
 

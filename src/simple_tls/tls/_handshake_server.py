@@ -23,8 +23,6 @@ from __future__ import annotations
 import typing
 
 from .. import x509
-from ..key import padding, rsa
-from ..key.types import CertificateIssuerPrivateKeyTypes
 from ..utils.codec import Parser, Writer
 from ..utils.constant_time import compare_digest
 from ..utils.math import bytes_to_int, int_to_bytes
@@ -43,7 +41,6 @@ from ._alert import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from ._common import create_signature
 from ._constant import (
     SERVER_CONTEXT_STRING,
     TLS11_DOWNGRADE_SENTINEL,
@@ -104,6 +101,7 @@ from ._extension import (
     TLSExtension,
 )
 from ._handshake import TLSHandshake
+from ._key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
 from ._keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
 from ._message import (
     CertificateRequest,
@@ -302,7 +300,7 @@ class TLSHandshakeServer(TLSHandshake):
         """Certificate compression algorithm negotiated"""
 
         # Identity
-        self._private_key: CertificateIssuerPrivateKeyTypes | None = None
+        self._private_key: BasePrivateKey | None = None
         self._x509_certs: tuple[x509.Certificate, ...] | None = None
 
         # tuple of identity and binder key derived from client hello
@@ -461,11 +459,9 @@ class TLSHandshakeServer(TLSHandshake):
         if self._x509_certs is not None:
             x509_leaf = self._x509_certs[0]
             try:
-                public_key = x509_leaf.public_key()
+                public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
-                raise AlertInternalError(
-                    "Unsupported public key format"
-                ) from exc
+                raise AlertInternalError(str(exc)) from exc
 
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
@@ -690,9 +686,7 @@ class TLSHandshakeServer(TLSHandshake):
 
             ske_data = writer.tobytes()
             data = self._client_random + self._server_random + ske_data
-            signature = create_signature(
-                self._private_key, data, self._signature_algorithm
-            )
+            signature = self._private_key.sign(data, self._signature_algorithm)
 
             if version == TLSVersion.TLSv1_2:
                 writer.write_int(self._signature_algorithm, 2)
@@ -793,16 +787,11 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
 
-            if not isinstance(self._private_key, rsa.RSAPrivateKey):
+            if not isinstance(self._private_key, RSAPrivateKey):
                 raise AlertInternalError("Invalid key")
 
-            encrypted_premaster_secret = parser.read_prefixed_bytes(2)
-            try:
-                premaster_secret = self._private_key.decrypt(
-                    encrypted_premaster_secret, padding.PKCS1v15()
-                )
-            except ValueError:
-                premaster_secret = None
+            enc_premaster_secret = parser.read_prefixed_bytes(2)
+            premaster_secret = self._private_key.decrypt(enc_premaster_secret)
 
             if (
                 premaster_secret is None
@@ -1050,9 +1039,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         x509_leaf = self._x509_certs[0]
         try:
-            public_key = x509_leaf.public_key()
+            public_key = load_certificate_public_key(x509_leaf)
         except ValueError as exc:
-            raise AlertInternalError("Unsupported public key format") from exc
+            raise AlertInternalError(str(exc)) from exc
 
         _, supported_sigalgs = self._sigalgs_for_pubkey(
             version=self.protocol_version(),
@@ -1484,12 +1473,10 @@ class TLSHandshakeServer(TLSHandshake):
         self.do_message_cb("write", certificate)
         self._add_message(certificate)
 
-        cert_verify_data = self._key_schedule.certificate_verify_data(
+        data = self._key_schedule.certificate_verify_data(
             SERVER_CONTEXT_STRING, self._transcript
         )
-        signature = create_signature(
-            self._private_key, cert_verify_data, self._signature_algorithm
-        )
+        signature = self._private_key.sign(data, self._signature_algorithm)
 
         cert_verify = CertificateVerifyTLS12(
             signature, self._signature_algorithm
