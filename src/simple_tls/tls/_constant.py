@@ -50,7 +50,7 @@ GREASES = (
     0xFAFA,
 )
 
-UNSPECFICED = -1
+UNSPECIFIED = -1
 
 
 def _sigscheme(hashalg: int, sigalg: int) -> int:

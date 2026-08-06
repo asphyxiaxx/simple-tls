@@ -24,7 +24,7 @@ import typing
 
 from cryptography.hazmat.primitives import hashes
 
-from ._constant import UNSPECFICED, HashAlgorithm
+from ._constant import UNSPECIFIED, HashAlgorithm
 from ._types import ReadableBuffer
 
 
@@ -39,7 +39,7 @@ def get_hash(
     hash_algorithm: int,
     message: ReadableBuffer = b"",
 ) -> hashes.Hash:
-    if hash_algorithm == UNSPECFICED:
+    if hash_algorithm == UNSPECIFIED:
         hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
     else:
         algorithm = get_algorithm(hash_algorithm)

@@ -41,7 +41,7 @@ from cryptography.hazmat.primitives.asymmetric.types import (
 
 from .. import x509
 from ._common import _MD5SHA1, _MD5SHA1Hash, get_algorithm
-from ._constant import UNSPECFICED, HashAlgorithm, NamedGroup, SignatureScheme
+from ._constant import UNSPECIFIED, HashAlgorithm, NamedGroup, SignatureScheme
 from ._supported import DSA_SIGNATURE_ALGORITHMS, ECDSA_SIGNATURE_ALGORITHMS
 
 
@@ -73,7 +73,7 @@ class RSAPrivateKey(BasePrivateKey):
                 f"Invalid signature_algorithm '{signature_algorithm}'"
             ) from None
 
-        if hashalg == UNSPECFICED:
+        if hashalg == UNSPECIFIED:
             algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
             hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
         else:
@@ -130,7 +130,7 @@ class RSAPrivateKey(BasePrivateKey):
         SignatureScheme.RSA_PKCS1_SHA256: (_sign_rsa_pkcs115, HashAlgorithm.SHA256),
         SignatureScheme.RSA_PKCS1_SHA224: (_sign_rsa_pkcs115, HashAlgorithm.SHA224),
         SignatureScheme.RSA_PKCS1_SHA1: (_sign_rsa_pkcs115, HashAlgorithm.SHA1),
-        UNSPECFICED: (_sign_rsa_pkcs115, UNSPECFICED),
+        UNSPECIFIED: (_sign_rsa_pkcs115, UNSPECIFIED),
     }
     # fmt: on
     # ruff: enable[E501]
@@ -150,7 +150,7 @@ class RSAPublicKey(BasePublicKey):
                 f"Invalid signature_algorithm '{signature_algorithm}'"
             ) from None
 
-        if hashalg == UNSPECFICED:
+        if hashalg == UNSPECIFIED:
             algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
             hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
         else:
@@ -209,7 +209,7 @@ class RSAPublicKey(BasePublicKey):
         SignatureScheme.RSA_PKCS1_SHA256: (_verify_rsa_pkcs115, HashAlgorithm.SHA256),
         SignatureScheme.RSA_PKCS1_SHA224: (_verify_rsa_pkcs115, HashAlgorithm.SHA224),
         SignatureScheme.RSA_PKCS1_SHA1: (_verify_rsa_pkcs115, HashAlgorithm.SHA1),
-        UNSPECFICED: (_verify_rsa_pkcs115, UNSPECFICED),
+        UNSPECIFIED: (_verify_rsa_pkcs115, UNSPECIFIED),
     }
     # fmt: on
     # ruff: enable[E501]

@@ -26,7 +26,7 @@ from ..protocol.kdf import hkdf_expand, hkdf_extract
 from ..utils.codec import Writer
 from ..utils.math import strxor
 from ._common import get_algorithm, get_hash
-from ._constant import UNSPECFICED, CipherSuite, HandshakeType, TLSVersion
+from ._constant import UNSPECIFIED, CipherSuite, HandshakeType, TLSVersion
 
 
 class Transcript:
@@ -88,7 +88,7 @@ class KeyDeriver:
             self.algorithm = get_algorithm(self.hash_algorithm)
         elif version in (TLSVersion.TLSv1, TLSVersion.TLSv1_1):
             self.prf = self._prf_tlsv1
-            self.hash_algorithm = UNSPECFICED
+            self.hash_algorithm = UNSPECIFIED
             self.algorithm = None
         else:
             raise ValueError("Unsupported version")
