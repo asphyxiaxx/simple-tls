@@ -131,7 +131,6 @@ __all__ = [
     "NoticeReference",
     "ObjectIdentifier",
     "OtherName",
-    "OtherName",
     "PolicyInformation",
     "PolicyViolationError",
     "PublicKeyAlgorithmOID",
