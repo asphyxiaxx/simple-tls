@@ -1,5 +1,6 @@
 import certifi
 import httpx
+
 from simple_tls.pyssl import SSLContext, create_default_context
 
 URL = "https://tls.peet.ws/api/all"

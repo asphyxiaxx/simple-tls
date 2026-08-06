@@ -7,24 +7,26 @@ from functools import lru_cache
 
 import certifi
 import dns
+import dns.asyncresolver
 import dns.rdatatype
 import dns.rdtypes
 import dns.rdtypes.svcbbase
-import dns.resolver
 from cryptography import x509 as cryptography_x509
 from mitmproxy import connection, ctx, tls
 from mitmproxy.addons import tlsconfig
 from mitmproxy.net import tls as net_tls
 from OpenSSL import SSL
-from OpenSSL.crypto import X509 as OpenSSL_X509
+from OpenSSL.crypto import X509 as OpenSSL_X509  # noqa: N811
+
 from simple_tls import tls as stls
+from simple_tls import x509
 
 
-def resolve_ech(hostname: str) -> bytes | None:
-    resolver = dns.resolver.Resolver()
+async def resolve_ech(hostname: str) -> bytes | None:
+    resolver = dns.asyncresolver.Resolver()
     t = dns.rdatatype.HTTPS
     try:
-        resp = resolver.resolve(hostname, t, tcp=False)
+        resp = await resolver.resolve(hostname, t, tcp=False)
     except Exception:
         pass
     else:
@@ -56,8 +58,8 @@ def create_proxy_server_context(
         raise ValueError("Unsupport method")
 
     context = stls.TLSContext()
-    context.minimum_version = min_version.value or stls.TLSVersion.TLSv1
-    context.maximum_version = max_version.value or stls.TLSVersion.TLSv1_3
+    context.minimum_version = min_version.value or stls.TLSVersion.TLSv1  # type: ignore
+    context.maximum_version = max_version.value or stls.TLSVersion.TLSv1_3  # type: ignore
     context.check_hostname = False
     context.alps[b"h2"] = b""
 
@@ -139,7 +141,7 @@ class SSLConnection:
         try:
             return self._conn.bio_read(bufsiz)
         except stls.TLSWantReadError:
-            raise SSL.WantReadError()
+            raise SSL.WantReadError() from None
 
     def bio_write(self, buf: bytes) -> None:
         if self._conn is None:
@@ -159,7 +161,9 @@ class SSLConnection:
             try:
                 n += self._conn.write(view[n:])
             except stls.TLSWantReadError:
-                raise SSL.WantReadError
+                raise SSL.WantReadError() from None
+            except stls.TLSEOFError:
+                raise SSL.ZeroReturnError() from None
 
     def recv(self, bufsiz: int, flags: int | None = None) -> bytes:
         if self._conn is None:
@@ -167,9 +171,9 @@ class SSLConnection:
         try:
             data = self._conn.read(bufsiz)
         except stls.TLSWantReadError:
-            raise SSL.WantReadError()
+            raise SSL.WantReadError() from None
         except stls.TLSEOFError:
-            raise SSL.ZeroReturnError()
+            raise SSL.ZeroReturnError() from None
         return data
 
     def get_shutdown(self) -> int:
@@ -181,11 +185,11 @@ class SSLConnection:
         try:
             self._conn.do_handshake()
         except stls.TLSWantReadError:
-            raise SSL.WantReadError()
+            raise SSL.WantReadError() from None
         except stls.TLSRemoteAlert as exc:
-            raise SSL.Error(exc)
+            raise SSL.Error(exc) from exc
         except stls.TLSLocalAlert as exc:
-            raise SSL.Error(exc)
+            raise SSL.Error(exc) from exc
 
     def get_peer_certificate(self, as_cryptography: bool = False):
         if self._conn is None:
@@ -193,11 +197,13 @@ class SSLConnection:
 
         chain = self._conn.get_unverified_chain()
         if chain:
-            cert_data = chain[0]
+            cert_data = chain[0].public_bytes(x509.Encoding.DER)
             cert = cryptography_x509.load_der_x509_certificate(cert_data)
+
             if as_cryptography:
                 return cert
             return OpenSSL_X509.from_cryptography(cert)
+
         return None
 
     def get_peer_cert_chain(self, as_cryptography: bool = False):
@@ -205,7 +211,13 @@ class SSLConnection:
             raise TypeError("connection state not set")
 
         chain = self._conn.get_unverified_chain()
-        certs = [cryptography_x509.load_der_x509_certificate(d) for d in chain]
+        certs = [
+            cryptography_x509.load_der_x509_certificate(
+                c.public_bytes(x509.Encoding.DER)
+            )
+            for c in chain
+        ]
+
         if as_cryptography:
             return certs
         return [OpenSSL_X509.from_cryptography(c) for c in certs]
@@ -275,7 +287,7 @@ class CustomSSLContext:
     def __init__(self) -> None:
         self.ech_configs: dict[str, bytes | None] = {}
 
-    def tls_start_server(self, tls_start: tls.TlsData) -> None:
+    async def tls_start_server(self, tls_start: tls.TlsData) -> None:
         if tls_start.is_dtls:
             return
 
@@ -343,7 +355,7 @@ class CustomSSLContext:
                 try:
                     ech_config = self.ech_configs[server.sni]
                 except KeyError:
-                    ech_config = resolve_ech(server.sni)
+                    ech_config = await resolve_ech(server.sni)
                     self.ech_configs[server.sni] = ech_config
 
                 ssl_conn.set_ech_config(ech_config)
@@ -363,20 +375,18 @@ class CustomSSLContext:
         tls_start.ssl_conn = typing.cast(SSL.Connection, ssl_conn)
 
     def tls_failed_server(self, tls_data: tls.TlsData) -> None:
+        if not isinstance(tls_data.ssl_conn, SSLConnection):
+            return
+
         ssl_conn = typing.cast(SSLConnection, tls_data.ssl_conn)
         sni = tls_data.conn.sni
+
         if sni:
-            try:
-                ech_configs = ssl_conn.get_retry_config()
-            except AttributeError:
-                self.ech_configs.pop(sni, None)
-            else:
+            ech_configs = ssl_conn.get_retry_config()
+
+            if ech_configs is not None:
                 self.ech_configs[sni] = ech_configs
-                if ech_configs:
-                    closed_state = connection.ConnectionState.CLOSED
-                    # tls_data.conn.state = closed_state
-                    tls_data.context.client.state = closed_state
-                    # tls_data.context.server.state = closed_state
+                tls_data.context.server.error = None
 
 
 addons = [CustomSSLContext()]
@@ -385,7 +395,6 @@ addons = [CustomSSLContext()]
 if __name__ == "__main__":
     from mitmproxy.tools.main import mitmweb
 
-    option = 1
     args = [f"-s {__file__}"]
     try:
         mitmweb(args)
