@@ -24,7 +24,6 @@ import typing
 from dataclasses import dataclass, field
 
 from .. import x509
-from ..io.serialization import Encoding
 from ..protocol.hpke import Context as HPKEContext
 from ..utils.codec import ParseError, Parser
 from ..utils.compression import UnsupportedCompression
@@ -630,7 +629,7 @@ class TLSHandshake:
     def _create_certificate(
         x509_certs: typing.Iterable[x509.Certificate],
     ) -> Certificate:
-        certificates = [c.public_bytes(Encoding.DER) for c in x509_certs]
+        certificates = [c.public_bytes(x509.Encoding.DER) for c in x509_certs]
         return Certificate(certificates=certificates)
 
     @staticmethod
@@ -640,7 +639,7 @@ class TLSHandshake:
         compression: int | None = None,
     ) -> CompressedCertificate | CertificateTLS13:
         cert_entries = [
-            CertificateEntry(certificate.public_bytes(Encoding.DER))
+            CertificateEntry(certificate.public_bytes(x509.Encoding.DER))
             for certificate in x509_certs
         ]
         certificate = CertificateTLS13(context, cert_entries)

@@ -3,8 +3,7 @@ from __future__ import annotations
 import ssl as _ssl
 import typing
 
-from simple_tls import tls
-from simple_tls.io import serialization
+from simple_tls import tls, x509
 
 from ._constant import Options
 from ._exception import SSLEOFError, SSLError, SSLWantReadError
@@ -159,7 +158,7 @@ class SSLObject(_ssl.SSLObject):
         if peercert is None:
             return None
         if binary_form:
-            return peercert.public_bytes(serialization.Encoding.DER)
+            return peercert.public_bytes(x509.Encoding.DER)
         return parse_certificate(peercert)
 
     def get_verified_chain(self) -> list[bytes]:
@@ -170,13 +169,15 @@ class SSLObject(_ssl.SSLObject):
         If certificate verification was disabled method acts the same as
         ``SSLSocket.get_unverified_chain``.
         """
-        return self._sslobj.get_verified_chain()
+        chain = self._sslobj.get_verified_chain()
+        return [c.public_bytes(x509.Encoding.DER) for c in chain]
 
     def get_unverified_chain(self) -> list[bytes]:
         """Returns raw certificate chain provided by the other
         end of the SSL channel as a list of DER-encoded bytes.
         """
-        return self._sslobj.get_unverified_chain()
+        chain = self._sslobj.get_unverified_chain()
+        return [c.public_bytes(x509.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:
         """

@@ -5,8 +5,7 @@ import ssl as _ssl
 import typing
 from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
 
-from simple_tls import tls
-from simple_tls.io import serialization
+from simple_tls import tls, x509
 
 from ..utils.math import bytes_to_str
 from ._constant import Options
@@ -373,18 +372,22 @@ class SSLSocket(_ssl.SSLSocket):
         if peercert is None:
             return None
         if binary_form:
-            return peercert.public_bytes(serialization.Encoding.DER)
+            return peercert.public_bytes(x509.Encoding.DER)
         return parse_certificate(peercert)
 
     def get_verified_chain(self) -> list[bytes]:
-        if self._sslobj is not None:
-            return self._sslobj.get_verified_chain()
-        return []
+        if self._sslobj is None:
+            return []
+
+        chain = self._sslobj.get_verified_chain()
+        return [c.public_bytes(x509.Encoding.DER) for c in chain]
 
     def get_unverified_chain(self) -> list[bytes]:
-        if self._sslobj is not None:
-            return self._sslobj.get_unverified_chain()
-        return []
+        if self._sslobj is None:
+            return []
+
+        chain = self._sslobj.get_unverified_chain()
+        return [c.public_bytes(x509.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:
         self._checkClosed()

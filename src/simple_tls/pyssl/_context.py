@@ -7,7 +7,6 @@ import warnings
 from socket import socket
 
 from simple_tls import tls, x509
-from simple_tls.io import serialization
 from simple_tls.utils.math import str_to_bytes
 
 from ._cipher import parse_cipher_string
@@ -277,7 +276,7 @@ class SSLContext:
         ca_certs = self._context.get_ca_certs()
         if not binary_form:
             return [parse_certificate(c) for c in ca_certs]
-        return [c.public_bytes(serialization.Encoding.DER) for c in ca_certs]
+        return [c.public_bytes(x509.Encoding.DER) for c in ca_certs]
 
     def load_cert_chain(
         self,

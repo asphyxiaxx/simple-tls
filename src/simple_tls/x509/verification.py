@@ -24,6 +24,7 @@ import typing
 from collections import deque
 from datetime import datetime, timedelta
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.x509 import (
     AuthorityKeyIdentifier,
     BasicConstraints,
@@ -38,7 +39,6 @@ from cryptography.x509 import (
 )
 from cryptography.x509.oid import ExtensionOID
 
-from ..key.exceptions import InvalidSignature
 from ..utils.misc import utcnow
 
 _T = typing.TypeVar("_T", contravariant=True, bound="ExtensionType")

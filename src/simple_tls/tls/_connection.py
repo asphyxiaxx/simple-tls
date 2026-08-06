@@ -25,7 +25,6 @@ import typing
 from ssl import MemoryBIO
 
 from .. import x509
-from ..io.serialization import Encoding
 from ..utils.math import bytes_to_str, int_to_bytes, str_to_bytes
 from ._alert import AlertException
 from ._cipher import InvalidTag, NullCipher, TLSCipher
@@ -389,33 +388,29 @@ class TLSConnection:
             return session.verified_x509_peer
         return None
 
-    def get_verified_chain(self) -> list[bytes]:
+    def get_verified_chain(self) -> list[x509.Certificate]:
+        chain: list[x509.Certificate] = []
         session = self._handshake.established_session
-        if (
-            session is None
-            or session.verified_x509_peer is None
-            or session.verified_x509_chain is None
-        ):
-            return []
 
-        return [
-            c.public_bytes(Encoding.DER)
-            for c in [session.verified_x509_peer, *session.verified_x509_chain]
-        ]
+        if session is not None:
+            if session.verified_x509_peer is not None:
+                chain.append(session.verified_x509_peer)
+            if session.verified_x509_chain is not None:
+                chain.extend(session.verified_x509_chain)
 
-    def get_unverified_chain(self) -> list[bytes]:
+        return chain
+
+    def get_unverified_chain(self) -> list[x509.Certificate]:
+        chain: list[x509.Certificate] = []
         session = self._handshake.established_session
-        if (
-            session is None
-            or session.x509_peer is None
-            or session.x509_chain is None
-        ):
-            return []
 
-        return [
-            c.public_bytes(Encoding.DER)
-            for c in [session.x509_peer, *session.x509_chain]
-        ]
+        if session is not None:
+            if session.x509_peer is not None:
+                chain.append(session.x509_peer)
+            if session.x509_chain is not None:
+                chain.extend(session.x509_chain)
+
+        return chain
 
     def selected_npn_protocol(self) -> str | None:
         return bytes_to_str(self._handshake.npn_selected)

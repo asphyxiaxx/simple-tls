@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import typing
 
+from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509 import (
     AccessDescription,
     AuthorityInformationAccess,
@@ -102,6 +103,7 @@ __all__ = [
     "DNSName",
     "DirectoryName",
     "DistributionPoint",
+    "Encoding",
     "ExtendedKeyUsage",
     "ExtendedKeyUsageOID",
     "Extension",
