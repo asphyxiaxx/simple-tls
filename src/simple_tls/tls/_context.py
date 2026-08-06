@@ -274,9 +274,7 @@ class TLSContext:
     @session_keys.setter
     def session_keys(self, value: TLSSessionKeys | None) -> None:
         if value is not None and not isinstance(value, TLSSessionKeys):
-            raise TypeError(
-                "session_storage must be TLSSessionKeys object"
-            )
+            raise TypeError("session_storage must be TLSSessionKeys object")
         self._session_keys = value
 
     @property
@@ -286,9 +284,7 @@ class TLSContext:
     @session_storage.setter
     def session_storage(self, value: TLSSessionStorage | None) -> None:
         if value is not None and not isinstance(value, TLSSessionStorage):
-            raise TypeError(
-                "session_storage must be TLSSessionStorage object"
-            )
+            raise TypeError("session_storage must be TLSSessionStorage object")
         self._session_storage = value
 
     @property
