@@ -25,6 +25,8 @@ import re
 import typing
 
 from .. import x509
+from ..x509.oid import ExtensionOID
+from ..x509.verification import Verifier
 from ._alert import AlertBadCertificate
 
 
@@ -33,7 +35,7 @@ class Validator:
 
     def __call__(
         self,
-        verifier: x509.Verifier,
+        verifier: Verifier,
         ee: x509.Certificate,
         extension: typing.Any,
     ) -> None:
@@ -41,14 +43,14 @@ class Validator:
 
 
 class SANValidator(Validator):
-    oid = x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+    oid = ExtensionOID.SUBJECT_ALTERNATIVE_NAME
 
     def __init__(self, server_hostname: str) -> None:
         self._server_hostname = server_hostname
 
     def __call__(
         self,
-        verifier: x509.Verifier,
+        verifier: Verifier,
         ee: x509.Certificate,
         extension: x509.Extension[x509.SubjectAlternativeName],
     ) -> None:
@@ -138,14 +140,14 @@ class SANValidator(Validator):
 
 
 class EKUValidator(Validator):
-    oid = x509.ExtensionOID.EXTENDED_KEY_USAGE
+    oid = ExtensionOID.EXTENDED_KEY_USAGE
 
     def __init__(self, purpose: x509.ObjectIdentifier) -> None:
         self._purpose = purpose
 
     def __call__(
         self,
-        verifier: x509.Verifier,
+        verifier: Verifier,
         ee: x509.Certificate,
         extension: x509.Extension[x509.ExtendedKeyUsage],
     ) -> None:

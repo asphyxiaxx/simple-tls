@@ -26,10 +26,9 @@ from datetime import datetime, timedelta
 
 from cryptography.exceptions import InvalidSignature
 
-from ..io.oid import ExtensionOID, ObjectIdentifier
 from ..utils.misc import utcnow
-from .base import Certificate
-from .extensions import (
+from ._base import Certificate
+from ._extensions import (
     AuthorityKeyIdentifier,
     BasicConstraints,
     Extension,
@@ -38,9 +37,11 @@ from .extensions import (
     KeyUsage,
     SubjectKeyIdentifier,
 )
-from .name import Name
+from ._name import Name
+from .oid import ExtensionOID, ObjectIdentifier
 
 _T = typing.TypeVar("_T", contravariant=True, bound="ExtensionType")
+
 _MaybeExtCallback = typing.Callable[
     ["Verifier", Certificate, Extension | None], None
 ]
@@ -75,6 +76,7 @@ class Store:
         self._certs = certs
         # trust map: subject -> list of certs with that subject
         self._trust_map: dict[Name, list[Certificate]] = {}
+
         for c in self._certs:
             self._trust_map.setdefault(c.subject, []).append(c)
 

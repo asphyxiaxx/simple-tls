@@ -25,22 +25,38 @@ import enum
 import typing
 from typing import TypeAlias
 
-from ..io import asn1
-from ..io.oid import AlgorithmIdentifier, ObjectIdentifier
-from .base import Certificate
-from .extensions import Extensions
-from .name import _GeneralName
+from ..io import asn1, asn1_module
+from ._base import Certificate
+from ._extensions import Extensions
+from ._name import _GeneralName
+from .oid import ObjectIdentifier
+
+__all__ = [
+    "BasicOCSPResponse",
+    "CRLReason",
+    "CertID",
+    "OCSPRequest",
+    "OCSPResponse",
+    "Request",
+    "ResponseBytes",
+    "ResponseData",
+    "ResponseStatus",
+    "RevokedInfo",
+    "Signature",
+    "SingleResponse",
+    "TBSRequest",
+]
 
 
 @asn1.sequence(frozen=True)
 class CertID:
     # CertID ::= SEQUENCE {
-    #     hashAlgorithm       AlgorithmIdentifier,
+    #     hashAlgorithm       asn1_module.AlgorithmIdentifier,
     #     issuerNameHash      OCTET STRING,  -- Hash of issuer's DN
     #     issuerKeyHash       OCTET STRING,  -- Hash of issuer's public key
     #     serialNumber        CertificateSerialNumber
     # }
-    hash_algorithm: AlgorithmIdentifier
+    hash_algorithm: asn1_module.AlgorithmIdentifier
     issuer_name_hash: bytes
     issuer_key_hash: bytes
     serial_number: int
@@ -48,7 +64,7 @@ class CertID:
 
 @asn1.sequence(frozen=True)
 class Signature:
-    signature_algorithm: AlgorithmIdentifier
+    signature_algorithm: asn1_module.AlgorithmIdentifier
     signature: asn1.BitString
     certs: asn1.Annotated[list[Certificate], asn1.Explicit(0)] | None
 
@@ -210,12 +226,12 @@ class ResponseData:
 class BasicOCSPResponse:
     # BasicOCSPResponse ::= SEQUENCE {
     #    tbsResponseData      ResponseData,
-    #    signatureAlgorithm   AlgorithmIdentifier,
+    #    signatureAlgorithm   asn1_module.AlgorithmIdentifier,
     #    signature            BIT STRING,
     #    certs            [0] EXPLICIT SEQUENCE OF Certificate OPTIONAL
     # }
     tbs_response_data: ResponseData
-    signature_algorithm: AlgorithmIdentifier
+    signature_algorithm: asn1_module.AlgorithmIdentifier
     signature_value: asn1.BitString
     certs: asn1.Annotated[list[Certificate], asn1.Explicit(0)] | None
 

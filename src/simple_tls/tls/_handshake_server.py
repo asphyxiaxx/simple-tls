@@ -28,6 +28,7 @@ from ..utils.constant_time import compare_digest
 from ..utils.math import bytes_to_int, int_to_bytes
 from ..utils.misc import negotiate
 from ..utils.random import get_random_bytes
+from ..x509.oid import PublicKeyAlgorithmOID
 from ._alert import (
     AlertDecodeError,
     AlertDecryptError,
@@ -1812,20 +1813,19 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._x509_certs:
             x509_leaf = self._x509_certs[0]
-            if x509_leaf.public_key_algorithm_oid in (
-                x509.PublicKeyAlgorithmOID.RSASSA_PSS,
-                x509.PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
+            public_key_algorithm_oid = x509_leaf.public_key_algorithm_oid
+
+            if public_key_algorithm_oid in (
+                PublicKeyAlgorithmOID.RSASSA_PSS,
+                PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
             ):
                 auth = Authentication.RSA
-            elif (
-                x509_leaf.public_key_algorithm_oid
-                == x509.PublicKeyAlgorithmOID.DSA
-            ):
+            elif public_key_algorithm_oid == PublicKeyAlgorithmOID.DSA:
                 auth = Authentication.DSS
-            elif x509_leaf.public_key_algorithm_oid in (
-                x509.PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
-                x509.PublicKeyAlgorithmOID.ED25519,
-                x509.PublicKeyAlgorithmOID.ED448,
+            elif public_key_algorithm_oid in (
+                PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
+                PublicKeyAlgorithmOID.ED25519,
+                PublicKeyAlgorithmOID.ED448,
             ):
                 auth = Authentication.ECDSA
             else:

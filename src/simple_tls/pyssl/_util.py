@@ -9,6 +9,7 @@ from ssl import (
 )
 
 from simple_tls import tls, x509
+from simple_tls.x509.oid import AuthorityInformationAccessOID
 
 from ._constant import (
     CERT_NONE,
@@ -137,7 +138,7 @@ def parse_certificate(certificate: x509.Certificate) -> dict[str, typing.Any]:
             ad.access_location.value
             for ad in aia_ext.value
             if (
-                ad.access_method == x509.AuthorityInformationAccessOID.OCSP
+                ad.access_method == AuthorityInformationAccessOID.OCSP
                 and isinstance(
                     ad.access_location, x509.UniformResourceIdentifier
                 )

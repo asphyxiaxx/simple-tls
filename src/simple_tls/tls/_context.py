@@ -24,6 +24,7 @@ import typing
 
 from .. import x509
 from ..utils.math import str_to_bytes
+from ..x509.verification import ExtensionPolicy, Store
 from ._constant import (
     CertificateCompressionAlgorithm,
     CipherSuite,
@@ -63,13 +64,13 @@ class TLSContext:
         self._x509_certs: tuple[x509.Certificate, ...] | None = None
 
         # Trust Store & Verification
-        self._castore = x509.Store()
+        self._castore = Store()
         self._verify_mode = TLSVerifyMode.CERT_NONE
         self._check_hostname = False
 
         # Certificate Policies
-        self._ee_policy = x509.ExtensionPolicy.defaults_ee()
-        self._ca_policy = x509.ExtensionPolicy.defaults_ca()
+        self._ee_policy = ExtensionPolicy.defaults_ee()
+        self._ca_policy = ExtensionPolicy.defaults_ca()
 
         # ---------------------------------------------------------------------
         # Protocol & Version Control (The "How do we talk?")
@@ -255,7 +256,7 @@ class TLSContext:
         self._check_hostname = value
 
     @property
-    def castore(self) -> x509.Store:
+    def castore(self) -> Store:
         return self._castore
 
     @property
@@ -380,22 +381,22 @@ class TLSContext:
         self._npn_protocols = tuple(value)
 
     @property
-    def ee_policy(self) -> x509.ExtensionPolicy:
+    def ee_policy(self) -> ExtensionPolicy:
         return self._ee_policy
 
     @ee_policy.setter
-    def ee_policy(self, value: x509.ExtensionPolicy) -> None:
-        if not isinstance(value, x509.ExtensionPolicy):
+    def ee_policy(self, value: ExtensionPolicy) -> None:
+        if not isinstance(value, ExtensionPolicy):
             raise TypeError("ee_policy must be x509.ExtensionPolicy instance")
         self._ee_policy = value
 
     @property
-    def ca_policy(self) -> x509.ExtensionPolicy:
+    def ca_policy(self) -> ExtensionPolicy:
         return self._ca_policy
 
     @ca_policy.setter
-    def ca_policy(self, value: x509.ExtensionPolicy) -> None:
-        if not isinstance(value, x509.ExtensionPolicy):
+    def ca_policy(self, value: ExtensionPolicy) -> None:
+        if not isinstance(value, ExtensionPolicy):
             raise TypeError("ca_policy must be x509.ExtensionPolicy instance")
         self._ca_policy = value
 

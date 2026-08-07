@@ -25,7 +25,6 @@ import typing
 from typing import TypeAlias
 
 from ..io import asn1
-from ..io.oid import ObjectIdentifier
 
 _IPAddressTypes: TypeAlias = typing.Union[
     ipaddress.IPv4Address,
@@ -56,7 +55,9 @@ class NameAttribute:
     #     type     AttributeType,
     #     value    AttributeValue
     # }
-    oid: ObjectIdentifier
+    # AttributeType ::= OBJECT IDENTIFIER
+    # AttributeValue ::= ANY -- DEFINED BY AttributeType
+    oid: asn1.ObjectIdentifier
     attribute_value: _AttributeValue
 
     def rfc4514_string(self) -> str:
@@ -80,6 +81,9 @@ class NameAttribute:
 
 @asn1.mapped(base_type=asn1.SetOf[NameAttribute])
 class RelativeDistinguishedName:
+    # RelativeDistinguishedName ::=
+    #    SET SIZE (1..MAX) OF AttributeTypeAndValue
+
     def __init__(
         self,
         attributes: typing.Iterable[NameAttribute],
@@ -126,6 +130,11 @@ class RelativeDistinguishedName:
 
 @asn1.mapped(base_type=asn1.SequenceOf[RelativeDistinguishedName])
 class Name:
+    # Name ::= CHOICE {
+    #     rdnSequence  RDNSequence
+    # }
+    # RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
+
     def __init__(
         self,
         rdns: typing.Iterable[RelativeDistinguishedName],
@@ -145,7 +154,7 @@ class Name:
         self._rdns = rdns
 
     def get_attributes_for_oid(
-        self, oid: ObjectIdentifier
+        self, oid: asn1.ObjectIdentifier
     ) -> list[NameAttribute]:
         return [i for i in self if i.oid == oid]
 
@@ -294,9 +303,9 @@ class DirectoryName(GeneralName):
         return DirectoryName(data)
 
 
-@asn1.mapped(base_type=ObjectIdentifier)
+@asn1.mapped(base_type=asn1.ObjectIdentifier)
 class RegisteredID(GeneralName):
-    def __init__(self, value: ObjectIdentifier) -> None:
+    def __init__(self, value: asn1.ObjectIdentifier) -> None:
         self._value = value
 
     def __eq__(self, other: object) -> bool:
@@ -311,14 +320,14 @@ class RegisteredID(GeneralName):
         return f"RegisteredID({self.value})"
 
     @property
-    def value(self) -> ObjectIdentifier:
+    def value(self) -> asn1.ObjectIdentifier:
         return self._value
 
-    def to_encoder(self) -> ObjectIdentifier:
+    def to_encoder(self) -> asn1.ObjectIdentifier:
         return self._value
 
     @classmethod
-    def from_decoder(cls, data: ObjectIdentifier) -> RegisteredID:
+    def from_decoder(cls, data: asn1.ObjectIdentifier) -> RegisteredID:
         return RegisteredID(data)
 
 
@@ -393,10 +402,21 @@ class OtherName(GeneralName):
     #     type-id    OBJECT IDENTIFIER,
     #     value      [0] EXPLICIT ANY DEFINED BY type-id
     # }
-    type_id: ObjectIdentifier
+    type_id: asn1.ObjectIdentifier
     value: asn1.Any
 
 
+# GeneralName ::= CHOICE {
+#     otherName                       [0]     OtherName,
+#     rfc822Name                      [1]     IA5String,
+#     dNSName                         [2]     IA5String,
+#     x400Address                     [3]     ORAddress,
+#     directoryName                   [4]     Name,
+#     ediPartyName                    [5]     EDIPartyName,
+#     uniformResourceIdentifier       [6]     IA5String,
+#     iPAddress                       [7]     OCTET STRING,
+#     registeredID                    [8]     OBJECT IDENTIFIER
+# }
 _GeneralName: TypeAlias = typing.Union[
     asn1.Annotated[RFC822Name, asn1.Implicit(1)],
     asn1.Annotated[DNSName, asn1.Implicit(2)],
@@ -410,6 +430,8 @@ _GeneralName: TypeAlias = typing.Union[
 
 @asn1.mapped(asn1.SequenceOf[_GeneralName])
 class GeneralNames:
+    # GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
+
     def __init__(
         self,
         general_names: typing.Iterable[GeneralName],
@@ -436,7 +458,7 @@ class GeneralNames:
     def get_values_for_type(
         self,
         type: type[RegisteredID],
-    ) -> list[ObjectIdentifier]: ...
+    ) -> list[asn1.ObjectIdentifier]: ...
 
     @typing.overload
     def get_values_for_type(
@@ -464,7 +486,7 @@ class GeneralNames:
         | list[str]
         | list[OtherName]
         | list[Name]
-        | list[ObjectIdentifier]
+        | list[asn1.ObjectIdentifier]
     ):
         objs: typing.Generator[typing.Any] = (
             i for i in self if isinstance(i, type)

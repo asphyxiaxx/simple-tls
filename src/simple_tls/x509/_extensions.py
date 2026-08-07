@@ -26,14 +26,7 @@ import enum
 import typing
 
 from ..io import asn1
-from ..io.oid import CertificatePoliciesOID, ExtensionOID, ObjectIdentifier
-from .certificate_transparent import (
-    LogEntryType,
-    SignedCertificateTimestamp,
-    _parse_signed_certificate_timestamps,
-    _serialize_signed_certificate_timestamps,
-)
-from .name import (
+from ._name import (
     DirectoryName,
     DNSName,
     GeneralName,
@@ -48,6 +41,13 @@ from .name import (
     _GeneralName,
     _IPAddressTypes,
 )
+from .certificate_transparent import (
+    LogEntryType,
+    SignedCertificateTimestamp,
+    _parse_signed_certificate_timestamps,
+    _serialize_signed_certificate_timestamps,
+)
+from .oid import CertificatePoliciesOID, ExtensionOID, ObjectIdentifier
 
 _E = typing.TypeVar("_E", bound="ExtensionType", covariant=True)
 
@@ -195,6 +195,8 @@ class Extensions:
 class CRLNumber(ExtensionType):
     oid = ExtensionOID.CRL_NUMBER
 
+    # CRLNumber ::= INTEGER (0..MAX)
+
     def __init__(self, crl_number: int) -> None:
         self._crl_number = crl_number
 
@@ -242,6 +244,8 @@ class AuthorityKeyIdentifier(ExtensionType):
 @asn1.mapped(base_type=asn1.OctetString)
 class SubjectKeyIdentifier(ExtensionType):
     oid = ExtensionOID.SUBJECT_KEY_IDENTIFIER
+
+    # SubjectKeyIdentifier ::= OCTET STRING
 
     def __init__(self, key_identifier: bytes) -> None:
         self._key_identifier = key_identifier
@@ -520,6 +524,8 @@ class DistributionPoint:
 class CRLDistributionPoints(ExtensionType):
     oid = ExtensionOID.CRL_DISTRIBUTION_POINTS
 
+    # CRLDistributionPoints ::= SEQUENCE SIZE (1..MAX) OF DistributionPoint
+
     def __init__(
         self,
         distribution_point: typing.Iterable[DistributionPoint],
@@ -667,6 +673,18 @@ class NameConstraints(ExtensionType):
 @asn1.mapped(base_type=asn1.BitString)
 class KeyUsage(ExtensionType):
     oid = ExtensionOID.KEY_USAGE
+
+    # KeyUsage ::= BIT STRING {
+    #     digitalSignature        (0),
+    #     contentCommitment       (1),
+    #     keyEncipherment         (2),
+    #     dataEncipherment        (3),
+    #     keyAgreement            (4),
+    #     keyCertSign             (5),
+    #     cRLSign                 (6),
+    #     encipherOnly            (7),
+    #     decipherOnly            (8)
+    # }
 
     def __init__(
         self,
@@ -846,6 +864,8 @@ class ExtendedKeyUsage(ExtensionType):
 class SubjectAlternativeName(ExtensionType):
     oid = ExtensionOID.SUBJECT_ALTERNATIVE_NAME
 
+    # SubjectAltName ::= GeneralNames
+
     def __init__(
         self,
         general_names: typing.Iterable[GeneralName],
@@ -927,6 +947,8 @@ class SubjectAlternativeName(ExtensionType):
 class IssuerAlternativeName(ExtensionType):
     oid = ExtensionOID.ISSUER_ALTERNATIVE_NAME
 
+    # IssuerAltName ::= GeneralNames
+
     def __init__(
         self,
         general_names: typing.Iterable[GeneralName],
@@ -1004,6 +1026,12 @@ class IssuerAlternativeName(ExtensionType):
         return IssuerAlternativeName(value, _from_decoder=True)
 
 
+# DisplayText ::= CHOICE {
+#     ia5String        IA5String      (SIZE (1..200)),
+#     visibleString    VisibleString  (SIZE (1..200)),
+#     bmpString        BMPString      (SIZE (1..200)),
+#     utf8String       UTF8String     (SIZE (1..200))
+# }
 _DisplayText = typing.Union[
     asn1.Variant[typing.Literal["ia5_string"], asn1.IA5String],
     asn1.Variant[typing.Literal["visible_string"], asn1.VisibleString],
@@ -1067,6 +1095,8 @@ class PolicyInformation:
 class CertificatePolicies(ExtensionType):
     oid = ExtensionOID.CERTIFICATE_POLICIES
 
+    # certificatePolicies ::= SEQUENCE SIZE (1..MAX) OF PolicyInformation
+
     def __init__(
         self,
         policies: typing.Iterable[PolicyInformation],
@@ -1108,11 +1138,6 @@ class PrivateKeyUsagePeriod(ExtensionType):
     not_before: asn1.Annotated[asn1.GeneralizedTime, asn1.Implicit(0)] | None
     not_after: asn1.Annotated[asn1.GeneralizedTime, asn1.Implicit(1)] | None
 
-    def __post_init__(self) -> None:
-        return
-        if self.not_before is None and self.not_after is None:
-            raise ValueError()
-
 
 @asn1.sequence(frozen=True)
 class PolicyMapping:
@@ -1123,6 +1148,11 @@ class PolicyMapping:
 @asn1.mapped(base_type=asn1.SequenceOf[PolicyMapping])
 class PolicyMappings(ExtensionType):
     oid = ExtensionOID.POLICY_MAPPINGS
+
+    # PolicyMappings ::= SEQUENCE SIZE (1..MAX) OF SEQUENCE {
+    #     issuerDomainPolicy      CertPolicyId,
+    #     subjectDomainPolicy     CertPolicyId
+    # }
 
     def __init__(
         self,

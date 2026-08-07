@@ -28,6 +28,14 @@ from ..protocol.hpke import Context as HPKEContext
 from ..utils.codec import ParseError, Parser
 from ..utils.compression import UnsupportedCompression
 from ..utils.math import bytes_to_int, bytes_to_str
+from ..x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
+from ..x509.verification import (
+    CertificateExpired,
+    CertificateNotYetValid,
+    UntrustedRoot,
+    VerificationError,
+    Verifier,
+)
 from ._alert import (
     AlertBadCertificate,
     AlertCertificateExpired,
@@ -659,18 +667,21 @@ class TLSHandshake:
     @staticmethod
     def _certificate_type(public_key_oid: x509.ObjectIdentifier) -> int:
         if public_key_oid in (
-            x509.PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
-            x509.PublicKeyAlgorithmOID.RSASSA_PSS,
+            PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
+            PublicKeyAlgorithmOID.RSASSA_PSS,
         ):
             cert_type = ClientCertificateType.RSA_SIGN
-        elif public_key_oid == x509.PublicKeyAlgorithmOID.DSA:
+
+        elif public_key_oid == PublicKeyAlgorithmOID.DSA:
             cert_type = ClientCertificateType.DSS_SIGN
+
         elif public_key_oid in (
-            x509.PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
-            x509.PublicKeyAlgorithmOID.ED25519,
-            x509.PublicKeyAlgorithmOID.ED25519,
+            PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
+            PublicKeyAlgorithmOID.ED25519,
+            PublicKeyAlgorithmOID.ED25519,
         ):
             cert_type = ClientCertificateType.ECDSA_SIGN
+
         else:
             raise AlertInternalError("Unsupported certificate public key")
 
@@ -746,7 +757,7 @@ class TLSHandshake:
         sigalgs: set[int] = set()
         default_sigalg: int | None = None
 
-        if public_key_oid == x509.PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5:
+        if public_key_oid == PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5:
             if not isinstance(public_key, RSAPublicKey):
                 raise AlertInternalError("Not a RSA public key")
 
@@ -764,20 +775,20 @@ class TLSHandshake:
                 else:
                     default_sigalg = UNSPECIFIED
 
-        elif public_key_oid == x509.PublicKeyAlgorithmOID.RSASSA_PSS:
+        elif public_key_oid == PublicKeyAlgorithmOID.RSASSA_PSS:
             if not isinstance(public_key, RSAPublicKey):
                 raise AlertInternalError("Not a RSA public key")
             if version >= TLSVersion.TLSv1_2:
                 sigalgs.update(RSA_PSS_PSS_SIGNATURE_ALGORITHMS)
 
-        elif public_key_oid == x509.PublicKeyAlgorithmOID.DSA:
+        elif public_key_oid == PublicKeyAlgorithmOID.DSA:
             if not isinstance(public_key, DSAPublicKey):
                 raise AlertInternalError("Not a DSA public key")
             if version <= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.DSA_SHA1
                 sigalgs.update(DSA_SIGNATURE_ALGORITHMS)
 
-        elif public_key_oid == x509.PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
+        elif public_key_oid == PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
             if not isinstance(public_key, ECPublicKey):
                 raise AlertInternalError("Not a EC public key")
             if version >= TLSVersion.TLSv1_3:
@@ -792,14 +803,14 @@ class TLSHandshake:
                 default_sigalg = SignatureScheme.ECDSA_SHA1
                 sigalgs.update(ECDSA_SIGNATURE_ALGORITHMS)
 
-        elif public_key_oid == x509.PublicKeyAlgorithmOID.ED25519:
+        elif public_key_oid == PublicKeyAlgorithmOID.ED25519:
             if not isinstance(public_key, Ed25519PublicKey):
                 raise AlertInternalError("Not a Ed25519 public key")
             if version >= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.ED25519
                 sigalgs.add(SignatureScheme.ED25519)
 
-        elif public_key_oid == x509.PublicKeyAlgorithmOID.ED448:
+        elif public_key_oid == PublicKeyAlgorithmOID.ED448:
             if not isinstance(public_key, Ed448PublicKey):
                 raise AlertInternalError("Not a Ed448 public key")
             if version >= TLSVersion.TLSv1_2:
@@ -873,9 +884,9 @@ class TLSHandshake:
         ca_policy = context.ca_policy
 
         if cls.server_side:
-            purpose = x509.ExtendedKeyUsageOID.CLIENT_AUTH
+            purpose = ExtendedKeyUsageOID.CLIENT_AUTH
         else:
-            purpose = x509.ExtendedKeyUsageOID.SERVER_AUTH
+            purpose = ExtendedKeyUsageOID.SERVER_AUTH
 
             if hostname:
                 san_validator = SANValidator(bytes_to_str(hostname))
@@ -886,7 +897,7 @@ class TLSHandshake:
         eku_validator = EKUValidator(purpose)
         ee_policy = ee_policy.require_present(eku_validator.oid, eku_validator)
 
-        verifier = x509.Verifier(
+        verifier = Verifier(
             store=context.castore,
             allow_partial_chain=True,
             ee_policy=ee_policy,
@@ -896,11 +907,11 @@ class TLSHandshake:
             verified_certs = verifier.verify(
                 session.x509_peer, session.x509_chain
             )
-        except (x509.CertificateExpired, x509.CertificateNotYetValid) as exc:
+        except (CertificateExpired, CertificateNotYetValid) as exc:
             raise AlertCertificateExpired(str(exc)) from None
-        except x509.UntrustedRoot as exc:
+        except UntrustedRoot as exc:
             raise AlertUnknownCA(str(exc)) from None
-        except x509.VerificationError as exc:
+        except VerificationError as exc:
             raise AlertBadCertificate(str(exc)) from None
 
         session.verified_x509_peer = verified_certs[0]

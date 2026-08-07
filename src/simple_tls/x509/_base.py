@@ -20,7 +20,6 @@
 
 from __future__ import annotations
 
-import binascii
 import datetime
 import enum
 import typing
@@ -41,14 +40,9 @@ from cryptography.hazmat.primitives.asymmetric.types import (
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
 from ..io import asn1, asn1_module, pem
-from ..io.oid import (
-    AlgorithmIdentifier,
-    ObjectIdentifier,
-    PublicKeyAlgorithmOID,
-    SignatureAlgorithmOID,
-)
-from .extensions import Extensions
-from .name import Name
+from ._extensions import Extensions
+from ._name import Name
+from .oid import ObjectIdentifier, PublicKeyAlgorithmOID, SignatureAlgorithmOID
 
 
 class InvalidVersion(Exception):
@@ -61,7 +55,7 @@ class Version(enum.IntEnum):
     v3 = 2
 
 
-class Encoding(enum.Enum):
+class Encoding(enum.StrEnum):
     DER = "DER"
     PEM = "PEM"
 
@@ -124,7 +118,7 @@ class TBSCertificate:
     # }
     version: asn1.Annotated[asn1.Integer, asn1.Explicit(0)] = Version.v1
     serial_number: asn1.Integer
-    signature_algorithm: AlgorithmIdentifier
+    signature_algorithm: asn1_module.AlgorithmIdentifier
     issuer: Name
     validity: Validity
     subject: Name
@@ -195,14 +189,8 @@ class Certificate:
     #     signatureValue       BIT STRING
     # }
     tbs_certificate: TBSCertificate
-    signature_algorithm: AlgorithmIdentifier
+    signature_algorithm: asn1_module.AlgorithmIdentifier
     signature_value: asn1.BitString
-
-    def fingerprint(self, algorithm: hashes.HashAlgorithm) -> bytes:
-        binary_data = asn1.encode(self, Certificate)
-        msg_hash = hashes.Hash(algorithm)
-        msg_hash.update(binary_data)
-        return binascii.b2a_hex(msg_hash.finalize())
 
     def public_key(self) -> CertificatePublicKeyTypes:
         return self.tbs_certificate.public_key()

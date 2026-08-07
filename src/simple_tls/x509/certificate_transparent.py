@@ -27,6 +27,11 @@ from datetime import datetime, timezone
 
 from ..utils.codec import Parser, Writer
 
+__all__ = [
+    "LogEntryType",
+    "SignedCertificateTimestamp",
+]
+
 
 class LogEntryType(enum.IntEnum):
     X509_CERTIFICATE = 0
