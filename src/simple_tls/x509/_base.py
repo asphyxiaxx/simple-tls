@@ -55,7 +55,7 @@ class Version(enum.IntEnum):
     v3 = 2
 
 
-class Encoding(enum.StrEnum):
+class Encoding(enum.Enum):
     DER = "DER"
     PEM = "PEM"
 
