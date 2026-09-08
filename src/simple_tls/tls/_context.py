@@ -58,7 +58,7 @@ class TLSContext:
 
     def __init__(self) -> None:
         # ---------------------------------------------------------------------
-        # Identity & Credentials (The "Who am I?")
+        # Identity & Credentials
         # ---------------------------------------------------------------------
         self._private_key: BasePrivateKey | None = None
         self._x509_certs: tuple[x509.Certificate, ...] | None = None
@@ -73,7 +73,7 @@ class TLSContext:
         self._ca_policy = ExtensionPolicy.defaults_ca()
 
         # ---------------------------------------------------------------------
-        # Protocol & Version Control (The "How do we talk?")
+        # Protocol & Version
         # ---------------------------------------------------------------------
         self._minimum_version: TLSVersion = TLSVersion.TLSv1_2
         self._maximum_version: TLSVersion = TLSVersion.TLSv1_3
@@ -84,7 +84,7 @@ class TLSContext:
         self._alps: dict[bytes, bytes] = {}
 
         # ---------------------------------------------------------------------
-        # Cryptographic Parameters (The "Math")
+        # Cryptographic Parameters
         # ---------------------------------------------------------------------
         self._cipher_suites: tuple[CipherSuite, ...] = (
             CipherSuite.TLS_AES_128_GCM_SHA256,
@@ -162,7 +162,7 @@ class TLSContext:
         self.status_request: bool = True  # OCSP Stapling
         self.signed_certificate_timestamp: bool = True
 
-        # Advanced / TLS 1.3 features
+        # TLS 1.3 features
         self.early_data: bool = False
         self.max_early_data_size: int = 0xFFFF
         self.post_handshake_auth: bool = False
@@ -416,23 +416,16 @@ class TLSContext:
         """
         password = str_to_bytes(password)
 
-        # Load Certificates
         with open(certfile, "rb") as fp:
             pem_data = fp.read()
 
-        # load_pem_x509_certificates returns a LIST
         certs = x509.load_pem_x509_certificates(pem_data)
-
         if not certs:
             raise ValueError(f"No certificates found in {certfile!r}")
 
-        # Try to find key in the same file if not provided
-        key = None
         if b"PRIVATE KEY" in pem_data:
             key = load_pem_private_key(pem_data, password)
-
-        # Load Key from separate file if needed
-        if key is None:
+        else:
             if keyfile is None:
                 raise ValueError(
                     "No private key found in certfile, and no keyfile provided"
@@ -440,7 +433,6 @@ class TLSContext:
             with open(keyfile, "rb") as fp:
                 key = load_pem_private_key(fp.read(), password)
 
-        # Update State Atomically
         self._x509_certs = tuple(certs)
         self._private_key = key
 
@@ -458,11 +450,13 @@ class TLSContext:
                 pem_data = fp.read()
             certificates = x509.load_pem_x509_certificates(pem_data)
             self.castore.extend(certificates)
+
         if capath:
             with open(capath, "rb") as fp:
                 pem_data = fp.read()
             certificates = x509.load_pem_x509_certificates(pem_data)
             self.castore.extend(certificates)
+
         if cadata:
             if isinstance(cadata, str):
                 cadata = str_to_bytes(cadata)
