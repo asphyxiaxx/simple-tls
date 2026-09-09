@@ -33,7 +33,7 @@ from ._constant import (
     SignatureScheme,
     TLSVersion,
 )
-from ._enum import TLSVerifyMode
+from ._enum import VerifyMode
 from ._key import BasePrivateKey, load_pem_private_key
 from ._keyexchange import DHParameters, load_pem_parameters
 from ._session import TLSSessionKeys, TLSSessionStorage
@@ -65,7 +65,7 @@ class TLSContext:
 
         # Trust Store & Verification
         self._castore = Store()
-        self._verify_mode = TLSVerifyMode.CERT_NONE
+        self._verify_mode = VerifyMode.CERT_NONE
         self._check_hostname = False
 
         # Certificate Policies
@@ -235,13 +235,13 @@ class TLSContext:
         self._maximum_version = value
 
     @property
-    def verify_mode(self) -> TLSVerifyMode:
+    def verify_mode(self) -> VerifyMode:
         return self._verify_mode
 
     @verify_mode.setter
-    def verify_mode(self, value: TLSVerifyMode) -> None:
+    def verify_mode(self, value: VerifyMode) -> None:
         try:
-            self._verify_mode = TLSVerifyMode(value)
+            self._verify_mode = VerifyMode(value)
         except ValueError as exc:
             raise ValueError(f"Unknown verify_mode '{value}'") from exc
 
@@ -251,8 +251,8 @@ class TLSContext:
 
     @check_hostname.setter
     def check_hostname(self, value: bool) -> None:
-        if value and self.verify_mode == TLSVerifyMode.CERT_NONE:
-            self.verify_mode = TLSVerifyMode.CERT_REQUIRED
+        if value and self.verify_mode == VerifyMode.CERT_NONE:
+            self.verify_mode = VerifyMode.CERT_REQUIRED
         self._check_hostname = value
 
     @property

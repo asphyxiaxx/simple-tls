@@ -73,9 +73,9 @@ from ._enum import (
     Direction,
     ECHStatus,
     Epoch,
+    SessionType,
     Status,
-    TLSSessionType,
-    TLSVerifyMode,
+    VerifyMode,
 )
 from ._extension import (
     COMPRESSIBLE_EXTENSIONS,
@@ -494,18 +494,18 @@ class TLSHandshakeClient(TLSHandshake):
                     and self._selected_ech_config is not None
                 )
             ):
-                session_type = TLSSessionType.not_resumable
+                session_type = SessionType.not_resumable
             else:
                 session_type = session.session_type()
 
-            if session_type == TLSSessionType.session_id:
+            if session_type == SessionType.session_id:
                 self._session_id = session.session_id
-            elif session_type == TLSSessionType.session_ticket:
+            elif session_type == SessionType.session_ticket:
                 # Generate random session_id so it track
                 # the session is resumed
                 self._session_id = get_random_bytes(32)
                 self._session_ticket = session.ticket
-            elif session_type == TLSSessionType.pre_shared_key:
+            elif session_type == SessionType.pre_shared_key:
                 assert session.cipher_suite is not None
                 identity = PSKIdentity(
                     identity=session.ticket,
@@ -766,7 +766,7 @@ class TLSHandshakeClient(TLSHandshake):
         certificate = self._process_certificate(
             message, session, allow_anon=False
         )
-        if self.context.verify_mode != TLSVerifyMode.CERT_NONE:
+        if self.context.verify_mode != VerifyMode.CERT_NONE:
             if self.context.check_hostname:
                 hostname = self._hostname
             else:
@@ -1257,7 +1257,7 @@ class TLSHandshakeClient(TLSHandshake):
         if (
             has_new_session
             and self.session_ticket_handler is not None
-            and session.session_type() != TLSSessionType.not_resumable
+            and session.session_type() != SessionType.not_resumable
         ):
             self.session_ticket_handler(session)
 
@@ -1671,7 +1671,7 @@ class TLSHandshakeClient(TLSHandshake):
             supported_compressions=self._conf_cert_comp_algs,
             allow_anon=False,
         )
-        if self.context.verify_mode != TLSVerifyMode.CERT_NONE:
+        if self.context.verify_mode != VerifyMode.CERT_NONE:
             if not self.context.check_hostname:
                 hostname = None
             elif (

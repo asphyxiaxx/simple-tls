@@ -64,9 +64,9 @@ def create_proxy_server_context(
     context.alps[b"h2"] = b""
 
     if verify.value == SSL.VERIFY_PEER:
-        context.verify_mode = stls.TLSVerifyMode.CERT_REQUIRED
+        context.verify_mode = stls.VerifyMode.CERT_REQUIRED
     else:
-        context.verify_mode = stls.TLSVerifyMode.CERT_NONE
+        context.verify_mode = stls.VerifyMode.CERT_NONE
 
     if ecdh_curve is not None:
         try:
@@ -102,7 +102,7 @@ class SSLConnection:
         server_hostname = self._server_hostname
         if server_hostname is None:
             context.check_hostname = False
-        elif context.verify_mode != stls.TLSVerifyMode.CERT_NONE:
+        elif context.verify_mode != stls.VerifyMode.CERT_NONE:
             context.check_hostname = True
 
         self._conn = stls.TLSConnection(
@@ -117,7 +117,7 @@ class SSLConnection:
         server_hostname = self._server_hostname
         if server_hostname is None:
             context.check_hostname = False
-        elif context.verify_mode != stls.TLSVerifyMode.CERT_NONE:
+        elif context.verify_mode != stls.VerifyMode.CERT_NONE:
             context.check_hostname = True
 
         self._conn = stls.TLSConnection(
@@ -363,7 +363,7 @@ class CustomSSLContext:
                 host_name = server.sni.encode("idna")
                 ssl_conn.set_tlsext_host_name(host_name)
 
-        elif verify is not stls.TLSVerifyMode.CERT_NONE:
+        elif verify is not stls.VerifyMode.CERT_NONE:
             raise ValueError(
                 "Cannot validate certificate hostname without SNI"
             )

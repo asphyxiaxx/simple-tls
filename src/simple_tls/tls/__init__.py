@@ -83,10 +83,10 @@ from ._enum import (
     ECHStatus,
     Epoch,
     ServerState,
+    SessionType,
     Shutdown,
     Status,
-    TLSSessionType,
-    TLSVerifyMode,
+    VerifyMode,
 )
 from ._exception import (
     TLSAlert,
@@ -350,6 +350,7 @@ __all__ = [
     "ServerStatusRequestExtension",
     "ServerSupportedVersionExtension",
     "SessionTicketExtension",
+    "SessionType",
     "Shutdown",
     "SignatureAlgorithm",
     "SignatureAlgorithmsExtension",
@@ -370,12 +371,11 @@ __all__ = [
     "TLSLocalAlert",
     "TLSRemoteAlert",
     "TLSSession",
-    "TLSSessionType",
-    "TLSVerifyMode",
     "TLSVersion",
     "TLSWantReadError",
     "Transcript",
     "Validator",
+    "VerifyMode",
 ]
 
 

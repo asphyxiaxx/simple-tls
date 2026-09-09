@@ -10,7 +10,7 @@ from simple_tls.tls import (
     TLSContext,
     TLSHandshakeClient,
     TLSHandshakeServer,
-    TLSVerifyMode,
+    VerifyMode,
 )
 
 
@@ -138,7 +138,7 @@ def create_client(context=None, cafile=SERVER_CAFILE, **kwargs):
         context = TLSContext()
         context.load_verify_locations(cafile)
 
-    context.verify_mode = TLSVerifyMode.CERT_REQUIRED
+    context.verify_mode = VerifyMode.CERT_REQUIRED
     context.check_hostname = True
 
     for name, value in kwargs.items():

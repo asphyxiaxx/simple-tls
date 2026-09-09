@@ -453,9 +453,9 @@ class SSLContext:
     @property
     def verify_mode(self) -> VerifyMode:
         value = self._context.verify_mode
-        if value == tls.TLSVerifyMode.CERT_NONE:
+        if value == tls.VerifyMode.CERT_NONE:
             return VerifyMode.CERT_NONE
-        elif value == tls.TLSVerifyMode.CERT_OPTIONAL:
+        elif value == tls.VerifyMode.CERT_OPTIONAL:
             return VerifyMode.CERT_OPTIONAL
         else:
             return VerifyMode.CERT_REQUIRED
@@ -463,10 +463,10 @@ class SSLContext:
     @verify_mode.setter
     def verify_mode(self, value: VerifyMode) -> None:
         if value == VerifyMode.CERT_NONE:
-            self._context.verify_mode = tls.TLSVerifyMode.CERT_NONE
+            self._context.verify_mode = tls.VerifyMode.CERT_NONE
         elif value == VerifyMode.CERT_OPTIONAL:
-            self._context.verify_mode = tls.TLSVerifyMode.CERT_OPTIONAL
+            self._context.verify_mode = tls.VerifyMode.CERT_OPTIONAL
         elif value == VerifyMode.CERT_REQUIRED:
-            self._context.verify_mode = tls.TLSVerifyMode.CERT_REQUIRED
+            self._context.verify_mode = tls.VerifyMode.CERT_REQUIRED
         else:
             raise ValueError(f"Unsupported verify_mode '{value}'")

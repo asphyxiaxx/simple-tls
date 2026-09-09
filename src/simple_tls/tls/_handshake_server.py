@@ -66,9 +66,9 @@ from ._enum import (
     Direction,
     Epoch,
     ServerState,
+    SessionType,
     Status,
-    TLSSessionType,
-    TLSVerifyMode,
+    VerifyMode,
 )
 from ._extension import (
     ClientALPNExtension,
@@ -500,11 +500,11 @@ class TLSHandshakeServer(TLSHandshake):
         if ticket_supported:
             ticket_ext = typing.cast(SessionTicketExtension, ticket_ext)
             session = self._process_ticket(
-                TLSSessionType.session_ticket, ticket_ext.ticket
+                SessionType.session_ticket, ticket_ext.ticket
             )
         else:
             session = self._process_ticket(
-                TLSSessionType.session_id, client_hello.session_id
+                SessionType.session_id, client_hello.session_id
             )
 
         if session is not None:
@@ -567,7 +567,7 @@ class TLSHandshakeServer(TLSHandshake):
 
             self._new_session.cipher_suite = cipher_suite
             self._certificate_requested = (
-                self.context.verify_mode != TLSVerifyMode.CERT_NONE
+                self.context.verify_mode != VerifyMode.CERT_NONE
                 and cipher_suite.auth != Authentication.ANON
             )
         else:
@@ -752,7 +752,7 @@ class TLSHandshakeServer(TLSHandshake):
         if self._new_session is None:
             raise AlertInternalError("Missing new_session")
 
-        allow_anon = self.context.verify_mode != TLSVerifyMode.CERT_REQUIRED
+        allow_anon = self.context.verify_mode != VerifyMode.CERT_REQUIRED
         certificate = self._process_certificate(
             message=message,
             session=self._new_session,
@@ -1013,7 +1013,7 @@ class TLSHandshakeServer(TLSHandshake):
         if (
             has_new_session
             and self.context.session_storage is not None
-            and session.session_type() != TLSSessionType.not_resumable
+            and session.session_type() != SessionType.not_resumable
         ):
             self.context.session_storage.put(session.session_id, session)
 
@@ -1093,7 +1093,7 @@ class TLSHandshakeServer(TLSHandshake):
                 for index, psk_identity in enumerate(psk_ext.identities):
                     identity = psk_identity.identity
                     session = self._process_ticket(
-                        TLSSessionType.pre_shared_key, identity
+                        SessionType.pre_shared_key, identity
                     )
                     if session is None:
                         continue
@@ -1448,7 +1448,7 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.SEND_SERVER_FINISHED_TLS13)
             return Status.OK
 
-        if self.context.verify_mode != TLSVerifyMode.CERT_NONE:
+        if self.context.verify_mode != VerifyMode.CERT_NONE:
             cert_extensions: list[TLSExtension] = []
             cert_extensions.append(
                 SignatureAlgorithmsExtension(self._conf_signature_algorithms)
@@ -1598,7 +1598,7 @@ class TLSHandshakeServer(TLSHandshake):
         if self._new_session is None:
             raise AlertInternalError("Missing new_session")
 
-        if self.context.verify_mode == TLSVerifyMode.CERT_REQUIRED:
+        if self.context.verify_mode == VerifyMode.CERT_REQUIRED:
             allow_anon = False
         else:
             allow_anon = True
@@ -1611,7 +1611,7 @@ class TLSHandshakeServer(TLSHandshake):
         )
         if (
             self._new_session.x509_peer is not None
-            and self.context.verify_mode != TLSVerifyMode.CERT_NONE
+            and self.context.verify_mode != VerifyMode.CERT_NONE
         ):
             self._verify_x509(self.context, self._new_session)
 
@@ -1976,7 +1976,7 @@ class TLSHandshakeServer(TLSHandshake):
                 self._npn_expected = True
 
     def _process_ticket(
-        self, session_type: TLSSessionType, ticket: bytes
+        self, session_type: SessionType, ticket: bytes
     ) -> TLSSession | None:
         if not ticket:
             return None

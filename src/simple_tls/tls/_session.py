@@ -33,7 +33,7 @@ from ..utils.constant_time import compare_digest
 from ..utils.misc import utcnow
 from ..utils.random import get_random_bytes
 from ._constant import CipherSuite, TLSVersion
-from ._enum import TLSSessionType
+from ._enum import SessionType
 
 
 @dataclass
@@ -129,22 +129,22 @@ class TLSSession:
         assert self.version != TLSVersion.UNSPECIFIED
         return self.version
 
-    def session_type(self) -> TLSSessionType:
+    def session_type(self) -> SessionType:
         if self.not_resumable:
-            return TLSSessionType.not_resumable
+            return SessionType.not_resumable
 
         if self.protocol_version() >= TLSVersion.TLSv1_3:
             if self.server_side or self.ticket:
-                return TLSSessionType.pre_shared_key
-            return TLSSessionType.not_resumable
+                return SessionType.pre_shared_key
+            return SessionType.not_resumable
 
         if self.ticket:
-            return TLSSessionType.session_ticket
+            return SessionType.session_ticket
 
         if self.session_id:
-            return TLSSessionType.session_id
+            return SessionType.session_id
 
-        return TLSSessionType.not_resumable
+        return SessionType.not_resumable
 
     def copy(
         self, include_noauth: bool = False, include_ticket: bool = False

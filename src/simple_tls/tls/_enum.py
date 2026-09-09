@@ -23,13 +23,13 @@ from __future__ import annotations
 import enum
 
 
-class TLSVerifyMode(int, enum.Enum):
+class VerifyMode(int, enum.Enum):
     CERT_NONE = 0
     CERT_OPTIONAL = 1
     CERT_REQUIRED = 2
 
 
-class TLSSessionType(int, enum.Enum):
+class SessionType(int, enum.Enum):
     not_resumable = enum.auto()
     session_id = enum.auto()
     session_ticket = enum.auto()

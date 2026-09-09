@@ -17,8 +17,8 @@ from simple_tls.tls import (
     ServerState,
     SignatureScheme,
     TLSContext,
-    TLSVerifyMode,
     TLSVersion,
+    VerifyMode,
 )
 
 from .utils import (
@@ -371,7 +371,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         server = create_server(
             minimum_version=version,
             maximum_version=version,
-            verify_mode=TLSVerifyMode.CERT_OPTIONAL,
+            verify_mode=VerifyMode.CERT_OPTIONAL,
         )
 
         run_handshake(client, server)
@@ -393,7 +393,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         server = create_server(
             minimum_version=version,
             maximum_version=version,
-            verify_mode=TLSVerifyMode.CERT_REQUIRED,
+            verify_mode=VerifyMode.CERT_REQUIRED,
         )
 
         with pytest.raises(AlertCertificateRequired):
@@ -582,7 +582,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         server = create_server(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
-            verify_mode=TLSVerifyMode.CERT_OPTIONAL,
+            verify_mode=VerifyMode.CERT_OPTIONAL,
         )
 
         run_handshake(client, server)
@@ -604,7 +604,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         server = create_server(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
-            verify_mode=TLSVerifyMode.CERT_REQUIRED,
+            verify_mode=VerifyMode.CERT_REQUIRED,
         )
 
         with pytest.raises(AlertCertificateRequired):
@@ -637,7 +637,7 @@ def test_tls13_handshake_with_certificate_request_with_certificate():
         keyfile=SERVER_RSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        verify_mode=TLSVerifyMode.CERT_REQUIRED,
+        verify_mode=VerifyMode.CERT_REQUIRED,
     )
 
     run_handshake(client, server)
