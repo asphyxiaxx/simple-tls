@@ -72,6 +72,7 @@ from ._enum import (
 )
 from ._extension import (
     ClientALPNExtension,
+    ClientALPSExtension,
     ClientKeyShareExtension,
     ClientNPNExtension,
     ClientPHAExtension,
@@ -259,6 +260,17 @@ class TLSHandshakeServer(TLSHandshake):
         self._conf_psk_kex_modes: tuple[int, ...] = (
             PSKKeyExchangeMode.PSK_DHE_KE,
         )
+
+        # Application Settings
+        self._conf_alps: dict[bytes, bytes]
+        if self._conf_alpn_protocols is not None:
+            self._conf_alps = {
+                p: context.alps[p]
+                for p in self._conf_alpn_protocols
+                if p in context.alps
+            }
+        else:
+            self._conf_alps = {}
 
         # Cookie for HRR
         self._conf_cookie: bytes | None = None
@@ -1057,10 +1069,10 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         key_share_ext = client_hello.get_extension(ClientKeyShareExtension)
+        psk_ext = client_hello.get_extension(ClientPSKExtension)
         psk_kex_modes_ext = client_hello.get_extension(
             PSKKeyExchangeModesExtension
         )
-        psk_ext = client_hello.get_extension(ClientPSKExtension)
 
         cipher_suite = self.cipher()
         session = None
@@ -1129,6 +1141,10 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertInternalError("Missing new_session")
 
         hrr = False
+        new_session = self._new_session
+
+        if self._conf_cookie is not None:
+            hrr = True
 
         if psk_kex_mode != PSKKeyExchangeMode.PSK_KE:
             if self._peer_supported_groups is None:
@@ -1166,11 +1182,19 @@ class TLSHandshakeServer(TLSHandshake):
             else:
                 raise AlertHandshakeFailure("No supported key shares group")
 
-        self._new_session.cipher_suite = self._cipher_suite
-        self._new_session.early_alpn = self._alpn_selected
-        self._new_session.group_id = self._selected_key_share_group
+        new_session.cipher_suite = self._cipher_suite
+        new_session.early_alpn = self._alpn_selected
+        new_session.group_id = self._selected_key_share_group
 
-        # TODO: negotiate ALPS
+        alps_ext = client_hello.get_extension(ClientALPSExtension)
+        if (
+            alps_ext is not None
+            and self._alpn_selected is not None
+            and self._alpn_selected in self._conf_alps
+            and self._alpn_selected in alps_ext.protocols
+        ):
+            new_session.has_alps = True
+            new_session.local_alps = self._conf_alps[self._alpn_selected]
 
         # Early data key required update client hello hash
         self.do_message_cb("read", client_hello)
@@ -1188,16 +1212,24 @@ class TLSHandshakeServer(TLSHandshake):
                 and self._selected_psk == 0
                 and not hrr
                 and session is not None
-                and session.ticket_max_early_data != 0
+                and session.ticket_max_early_data > 0
+                and (
+                    self._alpn_selected == session.early_alpn
+                )  # ALPN mismtach
+                and (
+                    new_session.has_alps == session.has_alps
+                    and new_session.local_alps == session.local_alps
+                )  # APLS mismtach
             ):
                 self._early_data_accepted = True
 
-                if self._new_session.has_alps:
-                    self._new_session.peer_alps = session.peer_alps
+                if new_session.has_alps:
+                    assert session.peer_alps is not None
+                    new_session.peer_alps = session.peer_alps
 
                 # Install the 0-RTT decryption key
                 self._setup_traffic_key_tls13(
-                    session=self._new_session,
+                    session=new_session,
                     direction=Direction.DECRYPT,
                     epoch=Epoch.ZERO_RTT,
                     label=b"c e traffic",
@@ -1225,6 +1257,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Supported version extension
         extensions.append(ServerSupportedVersionExtension(version))
+
+        if self._conf_cookie is not None:
+            extensions.append(CookieExtension(self._conf_cookie))
 
         # Selected key share group extension
         if self._selected_key_share_group is not None:
@@ -1423,6 +1458,8 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
+        if self._new_session is None:
+            raise AlertInternalError("Missing new_session")
         if (
             self._signature_algorithm is None
             or self._x509_certs is None
@@ -1432,11 +1469,16 @@ class TLSHandshakeServer(TLSHandshake):
 
         enc_extensions: list[TLSExtension] = []
 
-        if self._alpn_selected:
-            enc_extensions.append(ServerALPNExtension(self._alpn_selected))
-
         if self._early_data_accepted:
             enc_extensions.append(ServerEarlyDataExtension())
+
+        if self._alpn_selected is not None:
+            enc_extensions.append(ServerALPNExtension(self._alpn_selected))
+
+        if self._new_session.has_alps and not self._early_data_accepted:
+            enc_extensions.append(
+                ServerALPSExtension(self._new_session.local_alps)
+            )
 
         enc_ext = EncryptedExtensions(
             self._serialize_extensions(enc_extensions)
@@ -1561,7 +1603,7 @@ class TLSHandshakeServer(TLSHandshake):
         if self._new_session is None:
             raise AlertInternalError("Missing new_session")
 
-        if not self._early_data_accepted and self._new_session.has_alps:
+        if self._new_session.has_alps and not self._early_data_accepted:
             message = self._get_message()
             if message is None:
                 return Status.READ_MESSAGE
