@@ -38,8 +38,6 @@ from ._enum import SessionType
 
 @dataclass
 class TLSSession:
-    context_id: int = 0
-    """"""
     server_side: bool = False
     """indicate this session was create by server side"""
     not_resumable: bool = False
