@@ -1947,7 +1947,7 @@ class TLSHandshakeClient(TLSHandshake):
     ) -> None:
         assert not client_hello.extensions
 
-        client_hello.extensions = self._construct_extensions(
+        client_hello.extensions = self._get_extensions(
             hello_type=ClientHelloType.UNENCRYPTED,
             header_len=len(client_hello.serialize()),
             is_hrr=is_hrr,
@@ -1998,7 +1998,7 @@ class TLSHandshakeClient(TLSHandshake):
         extensions_encoded: list[tuple[int, bytes]] = []
         psk_ext: tuple[int, bytes] | None = None
 
-        inner_extensions = self._construct_extensions(
+        inner_extensions = self._get_extensions(
             hello_type=ClientHelloType.INNER,
             header_len=0,
             is_hrr=is_hrr,
@@ -2092,7 +2092,7 @@ class TLSHandshakeClient(TLSHandshake):
                 bytes(payload_len),
             )
 
-        extensions_outer = self._construct_extensions(
+        extensions_outer = self._get_extensions(
             hello_type=ClientHelloType.OUTER,
             header_len=len(hello_outer.serialize()),
             is_hrr=is_hrr,
@@ -2118,15 +2118,15 @@ class TLSHandshakeClient(TLSHandshake):
         hello_outer.extensions[idx] = (ext_type, new_ext_data)
         return True
 
-    def _construct_extensions(
+    def _get_extensions(
         self,
         hello_type: ClientHelloType,
         header_len: int,
         is_hrr: bool,
     ) -> list[tuple[int, bytes]]:
-        extensions = self._get_extensions(hello_type, is_hrr)
+        extensions = self._get_extensions_internal(hello_type, is_hrr)
         if extensions:
-            last_was_empty = len(extensions[-1].serialize()) == 0
+            last_was_empty = len(extensions[-1][1]) == 0
         else:
             last_was_empty = True
 
@@ -2153,8 +2153,6 @@ class TLSHandshakeClient(TLSHandshake):
 
             psk_ext = ClientPSKExtension(identities, binders)
 
-        raw_extensions = self._serialize_extensions(extensions)
-
         if (
             self._conf_client_hello_padding
             and hello_type != ClientHelloType.INNER
@@ -2163,7 +2161,7 @@ class TLSHandshakeClient(TLSHandshake):
             padding_len = 0
             psk_ext_len = 0
 
-            header_len += sum(len(e) for _, e in raw_extensions)
+            header_len += sum(len(e) for _, e in extensions)
 
             if psk_ext is not None:
                 psk_ext_len = len(psk_ext.serialize())
@@ -2184,28 +2182,26 @@ class TLSHandshakeClient(TLSHandshake):
 
             if padding_len != 0:
                 padding_ext = ClientHelloPaddingExtension(padding_len)
-                raw_extensions.append(
+                extensions.append(
                     (padding_ext.extension_type, padding_ext.serialize())
                 )
 
         if psk_ext is not None:
-            raw_extensions.append(
-                (psk_ext.extension_type, psk_ext.serialize())
-            )
+            extensions.append((psk_ext.extension_type, psk_ext.serialize()))
 
-        extension_sent = set((t for t, _ in raw_extensions))
+        extension_sent = set((t for t, _ in extensions))
         if hello_type == ClientHelloType.INNER:
             self._inner_extensions_sent = extension_sent
         else:
             self._extensions_sent = extension_sent
 
-        return raw_extensions
+        return extensions
 
-    def _get_extensions(
+    def _get_extensions_internal(
         self,
         hello_type: ClientHelloType = ClientHelloType.UNENCRYPTED,
         is_hrr: bool = False,
-    ) -> list[TLSExtension]:
+    ) -> list[tuple[int, bytes]]:
         extensions: list[TLSExtension] = []
 
         # Server Name Indicator Extension
@@ -2363,7 +2359,7 @@ class TLSHandshakeClient(TLSHandshake):
             extensions.insert(0, GenericExtension(self._get_grease(1), b""))
             extensions.append(GenericExtension(self._get_grease(4), b"\x00"))
 
-        return extensions
+        return self._serialize_extensions(extensions)
 
     def _get_grease(self, index: int) -> int:
         return self._greases[index]
