@@ -50,7 +50,7 @@ class SSLObject(_ssl.SSLObject):
             context=context._context,
             inbio=incoming,
             outbio=outgoing,
-            server_side=server_side,
+            is_server=server_side,
             server_hostname=server_hostname,
             session=(session.session if session is not None else session),
             session_ticket_handler=session_ticket_handler,
@@ -87,7 +87,7 @@ class SSLObject(_ssl.SSLObject):
     @property
     def server_side(self) -> bool:
         """Whether this is a server-side socket."""
-        return self._sslobj.server_side
+        return self._sslobj.is_server
 
     @property
     def server_hostname(self) -> str | None:
@@ -257,7 +257,7 @@ class SSLObject(_ssl.SSLObject):
         return self._sslobj.version()
 
     def verify_client_post_handshake(self) -> None:
-        if not self._sslobj.server_side:
+        if not self._sslobj.is_server:
             raise SSLError("Not server")
         return self._sslobj.verify_client_post_handshake()
 

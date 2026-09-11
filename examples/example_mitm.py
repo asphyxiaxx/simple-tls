@@ -107,7 +107,7 @@ class SSLConnection:
 
         self._conn = stls.TLSConnection(
             context=context,
-            server_side=False,
+            is_server=False,
             server_hostname=server_hostname,
             session_ticket_handler=lambda s: None,
         )
@@ -122,7 +122,7 @@ class SSLConnection:
 
         self._conn = stls.TLSConnection(
             context=context,
-            server_side=True,
+            is_server=True,
             server_hostname=server_hostname,
         )
 

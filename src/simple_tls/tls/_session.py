@@ -38,7 +38,7 @@ from ._enum import SessionType
 
 @dataclass
 class TLSSession:
-    server_side: bool = False
+    is_server: bool = False
     """indicate this session was create by server side"""
     not_resumable: bool = False
     """"""
@@ -132,7 +132,7 @@ class TLSSession:
             return SessionType.not_resumable
 
         if self.protocol_version() >= TLSVersion.TLSv1_3:
-            if self.server_side or self.ticket:
+            if self.is_server or self.ticket:
                 return SessionType.pre_shared_key
             return SessionType.not_resumable
 
@@ -148,7 +148,7 @@ class TLSSession:
         self, include_noauth: bool = False, include_ticket: bool = False
     ) -> TLSSession:
         new = TLSSession(
-            server_side=self.server_side,
+            is_server=self.is_server,
             not_resumable=True,
             version=self.version,
             secret=self.secret,
@@ -181,7 +181,7 @@ class TLSSession:
     def from_bytes(cls, data: bytes) -> TLSSession:
         parser = Parser(data)
 
-        server_side = bool(parser.read_int(1))
+        is_server = bool(parser.read_int(1))
         version = parser.read_int(2)
         cipher_suite = CipherSuite(parser.read_int(2))
         secret = parser.read_prefixed_bytes(2)
@@ -202,7 +202,7 @@ class TLSSession:
         extended_master_secret = bool(parser.read_int(1))
 
         return TLSSession(
-            server_side=server_side,
+            is_server=is_server,
             not_resumable=False,
             version=version,
             cipher_suite=cipher_suite,
@@ -226,7 +226,7 @@ class TLSSession:
     def serialize(self) -> bytes:
         writer = Writer()
 
-        writer.write_int(int(self.server_side), 1)
+        writer.write_int(int(self.is_server), 1)
         writer.write_int(self.version, 2)
         writer.write_int(
             self.cipher_suite.id if self.cipher_suite is not None else 0, 2

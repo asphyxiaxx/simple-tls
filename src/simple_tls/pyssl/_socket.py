@@ -141,7 +141,7 @@ class SSLSocket(_ssl.SSLSocket):
                 # create the SSL object
                 self._sslobj = tls.TLSConnection(
                     context=self._context._context,
-                    server_side=self.server_side,
+                    is_server=self.server_side,
                     server_hostname=self.server_hostname,
                     session=(
                         session.session if session is not None else session
@@ -565,7 +565,7 @@ class SSLSocket(_ssl.SSLSocket):
 
         self._sslobj = tls.TLSConnection(
             context=self._context._context,
-            server_side=False,
+            is_server=False,
             server_hostname=self.server_hostname,
             session=session,
             session_ticket_handler=self._session_ticket_handler,

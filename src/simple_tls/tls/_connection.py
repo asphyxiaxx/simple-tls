@@ -84,7 +84,7 @@ class TLSConnection:
         context: TLSContext,
         inbio: MemoryBIO | None = None,
         outbio: MemoryBIO | None = None,
-        server_side: bool = False,
+        is_server: bool = False,
         server_hostname: bytes | str | None = None,
         session: TLSSession | None = None,
         session_ticket_handler: SessionTicketHandler | None = None,
@@ -92,7 +92,7 @@ class TLSConnection:
         if context.check_hostname and not server_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
-        if server_side:
+        if is_server:
             if server_hostname:
                 raise ValueError(
                     "server_hostname can only be specified in client mode"
@@ -175,8 +175,8 @@ class TLSConnection:
         self._handshake.context = value
 
     @property
-    def server_side(self) -> bool:
-        return self._handshake.server_side
+    def is_server(self) -> bool:
+        return self._handshake.is_server
 
     @property
     def server_hostname(self) -> str | None:
@@ -241,7 +241,7 @@ class TLSConnection:
         return "Unknown version"
 
     def verify_client_post_handshake(self) -> None:
-        if not self.server_side:
+        if not self.is_server:
             raise TLSError("Not server")
         raise NotImplementedError()
 
@@ -301,7 +301,7 @@ class TLSConnection:
                 continue
 
             is_early_data_read = (
-                self._handshake.server_side and self._handshake.in_early_data
+                self._handshake.is_server and self._handshake.in_early_data
             )
             if is_early_data_read:
                 self._early_data_processed += len(data)
@@ -346,7 +346,7 @@ class TLSConnection:
         hs = self._handshake
         max_send_frament = self._send_record_limit
         is_early_data_write = (
-            not self.server_side and hs.in_early_data and hs.can_early_write
+            not self.is_server and hs.in_early_data and hs.can_early_write
         )
         if is_early_data_write:
             early_session = hs.early_session

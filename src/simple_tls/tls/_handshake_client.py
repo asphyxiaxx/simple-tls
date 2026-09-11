@@ -169,7 +169,7 @@ SessionTicketHandler = typing.Callable[[TLSSession], None]
 
 
 class TLSHandshakeClient(TLSHandshake):
-    server_side = False
+    is_server = False
 
     def __init__(
         self,
@@ -486,7 +486,7 @@ class TLSHandshakeClient(TLSHandshake):
             session = self._session
             if (
                 not session.time_valid()
-                or session.server_side
+                or session.is_server
                 or session.protocol_version() > self._maximum_version
                 or session.protocol_version() < self._minimum_version
                 or (

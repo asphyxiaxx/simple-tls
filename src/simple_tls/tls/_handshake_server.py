@@ -142,7 +142,7 @@ from ._transcript import KeyDeriver, KeySchedule
 
 
 class TLSHandshakeServer(TLSHandshake):
-    server_side = True
+    is_server = True
 
     def __init__(self, context: TLSContext) -> None:
         ## Initialization
@@ -2032,7 +2032,7 @@ class TLSHandshakeServer(TLSHandshake):
         if (
             session is None
             or not session.time_valid()
-            or not session.server_side
+            or not session.is_server
             or session.protocol_version() != self.protocol_version()
             or session.cipher_suite != self._cipher_suite
             or session.session_type() != session_type

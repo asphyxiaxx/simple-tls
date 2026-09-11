@@ -113,7 +113,7 @@ class ECHConfigContent:
 
 
 class TLSHandshake:
-    server_side: typing.ClassVar[bool]
+    is_server: typing.ClassVar[bool]
 
     def __init__(self, context: TLSContext) -> None:
         self.do_message_cb: typing.Callable[
@@ -410,7 +410,7 @@ class TLSHandshake:
         # Map Client/Server keys to Read/Write keys
         # Server: Write = Server Key, Read = Client Key
         # Client: Write = Client Key, Read = Server Key
-        if self.server_side:
+        if self.is_server:
             read_mac, read_key, read_iv = cl_mac, cl_key, cl_iv
             write_mac, write_key, write_iv = sv_mac, sv_key, sv_iv
         else:
@@ -538,7 +538,7 @@ class TLSHandshake:
     def _get_new_session(self) -> TLSSession:
         version = self.protocol_version()
         session = TLSSession(
-            server_side=self.server_side,
+            is_server=self.is_server,
             version=version,
             not_resumable=True,
         )
@@ -883,7 +883,7 @@ class TLSHandshake:
         ee_policy = context.ee_policy
         ca_policy = context.ca_policy
 
-        if cls.server_side:
+        if cls.is_server:
             purpose = ExtendedKeyUsageOID.CLIENT_AUTH
         else:
             purpose = ExtendedKeyUsageOID.SERVER_AUTH
@@ -963,7 +963,7 @@ class TLSHandshake:
 
             context_string = (
                 CLIENT_CONTEXT_STRING
-                if self.server_side
+                if self.is_server
                 else SERVER_CONTEXT_STRING
             )
             data = self._key_schedule.certificate_verify_data(
