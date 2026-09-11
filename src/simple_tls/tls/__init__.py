@@ -82,6 +82,7 @@ from ._enum import (
     Direction,
     ECHStatus,
     Epoch,
+    Protocol,
     ServerState,
     SessionType,
     Shutdown,
@@ -199,6 +200,7 @@ from ._supported import (
     RSA_SIGNATURE_ALGORITHMS,
     SIGNATURE_ALGORITHMS,
     SUPPORTED_GROUPS,
+    TLS_VERSIONS,
 )
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._x509_validator import Validator
@@ -217,6 +219,7 @@ __all__ = [
     "RSA_SIGNATURE_ALGORITHMS",
     "SIGNATURE_ALGORITHMS",
     "SUPPORTED_GROUPS",
+    "TLS_VERSIONS",
     "Alert",
     "AlertBadCertificate",
     "AlertBadRecordMac",
@@ -333,6 +336,7 @@ __all__ = [
     "PSKKeyExchangeModesExtension",
     "PrefixedBytesExtension",
     "PrefixedIntListExtension",
+    "Protocol",
     "RenegotiationInfoExtension",
     "ServerALPNExtension",
     "ServerALPSExtension",

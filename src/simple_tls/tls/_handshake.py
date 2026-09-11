@@ -63,7 +63,7 @@ from ._constant import (
     TLSVersion,
 )
 from ._context import TLSContext
-from ._enum import Direction, ECHStatus, Epoch, Status
+from ._enum import Direction, ECHStatus, Epoch, Protocol, Status
 from ._extension import CertStatusRequestExtension, ECHConfig, TLSExtension
 from ._key import (
     BasePublicKey,
@@ -93,6 +93,7 @@ from ._supported import (
     RSA_PKCS1_SIGNATURE_ALGORITHMS,
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
+    TLS_VERSIONS,
 )
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._types import ReadableBuffer
@@ -154,11 +155,17 @@ class TLSHandshake:
         """hostname, on the server, is the value of the SNI extension"""
         self._session_reused: bool = False
         """"""
+        self._protocol: Protocol = context.protocol
+        """"""
         self._cipher_suite: CipherSuite | None = None
         """cipher suite being negotitaed in this handshake"""
-        self._minimum_version: int = context.minimum_version
-        """minimumversion is the minimum accepted protocol version"""
-        self._maximum_version: int = context.maximum_version
+        self._minimum_version: int = self._version_from_wire(
+            context.minimum_version
+        )
+        """minimum_version is the minimum accepted protocol version"""
+        self._maximum_version: int = self._version_from_wire(
+            context.maximum_version
+        )
         """maximum_version is the maximum accepted protocol version"""
         self._client_version: int = TLSVersion.UNSPECIFIED
         """the value sent or received in the ClientHello version."""
@@ -317,6 +324,18 @@ class TLSHandshake:
     def cipher(self) -> CipherSuite:
         assert self._cipher_suite is not None
         return self._cipher_suite
+
+    def _version_from_wire(self, version: int) -> int:
+        if self._protocol == Protocol.TLS:
+            if version in TLS_VERSIONS:
+                return version
+        raise ValueError(f"Unknown version {version}")
+
+    def _version_to_wire(self, version: int) -> int:
+        if self._protocol == Protocol.TLS:
+            if version in TLS_VERSIONS:
+                return version
+        raise ValueError(f"Unknown version {version}")
 
     @staticmethod
     def _update_hash(

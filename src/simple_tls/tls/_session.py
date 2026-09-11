@@ -23,7 +23,7 @@ from __future__ import annotations
 import dataclasses
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -33,11 +33,13 @@ from ..utils.constant_time import compare_digest
 from ..utils.misc import utcnow
 from ..utils.random import get_random_bytes
 from ._constant import CipherSuite, TLSVersion
-from ._enum import SessionType
+from ._enum import Protocol, SessionType
 
 
 @dataclass
 class TLSSession:
+    protocol: Protocol = Protocol.TLS
+    """"""
     is_server: bool = False
     """indicate this session was create by server side"""
     not_resumable: bool = False
@@ -95,12 +97,14 @@ class TLSSession:
         if self.time > now:
             self.time = now
             self.timeout = timedelta(seconds=0)
+            return
 
         delta = now - self.time
+        self.time = now
         if self.timeout < delta:
             self.timeout = timedelta(seconds=0)
         else:
-            self.timeout = self.timeout - delta
+            self.timeout -= delta
 
     def set_timeout(self, timeout: int) -> None:
         delta = timedelta(seconds=timeout)
@@ -148,6 +152,7 @@ class TLSSession:
         self, include_noauth: bool = False, include_ticket: bool = False
     ) -> TLSSession:
         new = TLSSession(
+            protocol=self.protocol,
             is_server=self.is_server,
             not_resumable=True,
             version=self.version,
@@ -181,16 +186,19 @@ class TLSSession:
     def from_bytes(cls, data: bytes) -> TLSSession:
         parser = Parser(data)
 
+        protocol = Protocol(parser.read_int(1))
         is_server = bool(parser.read_int(1))
         version = parser.read_int(2)
         cipher_suite = CipherSuite(parser.read_int(2))
         secret = parser.read_prefixed_bytes(2)
         session_id = parser.read_prefixed_bytes(2)
         ticket = parser.read_prefixed_bytes(2)
-        time = datetime.fromtimestamp(float(parser.read_int(8)))
+        time = datetime.fromtimestamp(
+            float(parser.read_int(8)), tz=timezone.utc
+        )
         timeout = timedelta(seconds=parser.read_int(8))
-        ticket_age_add = parser.read_int(8)
-        ticket_max_early_data = parser.read_int(8)
+        ticket_age_add = parser.read_int(4)
+        ticket_max_early_data = parser.read_int(4)
 
         group_id = parser.read_int(2) or None
         peer_signature_algorithm = parser.read_int(2) or None
@@ -202,6 +210,7 @@ class TLSSession:
         extended_master_secret = bool(parser.read_int(1))
 
         return TLSSession(
+            protocol=protocol,
             is_server=is_server,
             not_resumable=False,
             version=version,
@@ -226,6 +235,7 @@ class TLSSession:
     def serialize(self) -> bytes:
         writer = Writer()
 
+        writer.write_int(self.protocol.value, 1)
         writer.write_int(int(self.is_server), 1)
         writer.write_int(self.version, 2)
         writer.write_int(
@@ -236,7 +246,7 @@ class TLSSession:
         writer.write_prefixed_bytes(self.ticket, 2)
         writer.write_int(int(self.time.timestamp()), 8)
         writer.write_int(int(self.timeout.total_seconds()), 8)
-        writer.write_int(int(self.ticket_age_add), 8)
+        writer.write_int(int(self.ticket_age_add), 4)
         writer.write_int(int(self.ticket_max_early_data), 4)
 
         writer.write_int(self.group_id or 0, 2)

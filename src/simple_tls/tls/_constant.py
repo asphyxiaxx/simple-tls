@@ -357,6 +357,9 @@ class TLSVersion(int, TLSEnum):
     TLSv1_1 = 770
     TLSv1_2 = 771
     TLSv1_3 = 772
+    DTLSv1 = 0xFEFF
+    DTLSv1_2 = 0xFEFD
+    DTLSv1_3 = 0xFE37
 
 
 class _Cipher:

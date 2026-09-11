@@ -23,6 +23,12 @@ from __future__ import annotations
 import enum
 
 
+class Protocol(int, enum.Enum):
+    TLS = 0
+    DTLS = 1
+    QUIC = 2
+
+
 class VerifyMode(int, enum.Enum):
     CERT_NONE = 0
     CERT_OPTIONAL = 1

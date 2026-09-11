@@ -33,10 +33,11 @@ from ._constant import (
     SignatureScheme,
     TLSVersion,
 )
-from ._enum import VerifyMode
+from ._enum import Protocol, VerifyMode
 from ._key import BasePrivateKey, load_pem_private_key
 from ._keyexchange import DHParameters, load_pem_parameters
 from ._session import TLSSessionKeys, TLSSessionStorage
+from ._supported import TLS_VERSIONS
 from ._types import StrOrBytesPath
 
 if typing.TYPE_CHECKING:
@@ -56,7 +57,29 @@ class TLSContext:
     Configuration factory for TLS connections.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, protocol: Protocol = Protocol.TLS) -> None:
+        # ---------------------------------------------------------------------
+        # Protocol & Version
+        # ---------------------------------------------------------------------
+        self._protocol: Protocol = protocol
+        self._minimum_version: TLSVersion
+        self._maximum_version: TLSVersion
+
+        if protocol == Protocol.TLS:
+            self._minimum_version = TLSVersion.TLSv1_2
+            self._maximum_version = TLSVersion.TLSv1_3
+        elif protocol == Protocol.QUIC:
+            raise NotImplementedError("QUIC is not supported yet.")
+        elif self._protocol == Protocol.DTLS:
+            raise NotImplementedError("DTLS is not supported yet.")
+        else:
+            raise ValueError(f"Unknown protocol '{protocol}'")
+
+        # ALPN / NPN
+        self._alpn_protocols: tuple[bytes, ...] = ()
+        self._npn_protocols: tuple[bytes, ...] = ()
+        self._alps: dict[bytes, bytes] = {}
+
         # ---------------------------------------------------------------------
         # Identity & Credentials
         # ---------------------------------------------------------------------
@@ -71,17 +94,6 @@ class TLSContext:
         # Certificate Policies
         self._ee_policy = ExtensionPolicy.defaults_ee()
         self._ca_policy = ExtensionPolicy.defaults_ca()
-
-        # ---------------------------------------------------------------------
-        # Protocol & Version
-        # ---------------------------------------------------------------------
-        self._minimum_version: TLSVersion = TLSVersion.TLSv1_2
-        self._maximum_version: TLSVersion = TLSVersion.TLSv1_3
-
-        # ALPN / NPN (Next Protocol Negotiation)
-        self._alpn_protocols: tuple[bytes, ...] = ()
-        self._npn_protocols: tuple[bytes, ...] = ()
-        self._alps: dict[bytes, bytes] = {}
 
         # ---------------------------------------------------------------------
         # Cryptographic Parameters
@@ -199,22 +211,32 @@ class TLSContext:
         """
 
     @property
+    def protocol(self) -> Protocol:
+        return self._protocol
+
+    @property
     def minimum_version(self) -> TLSVersion:
         return self._minimum_version
 
     @minimum_version.setter
     def minimum_version(self, value: TLSVersion) -> None:
-        try:
-            value = TLSVersion(value)
-        except ValueError as exc:
-            raise ValueError(f"Unsupported TLS version '{value}'") from exc
-        if value > self._maximum_version:
+        version = self._verify_version(value)
+        err = False
+
+        if self._protocol == Protocol.DTLS:
+            if version < self._maximum_version:
+                err = True
+        else:
+            if version > self._maximum_version:
+                err = True
+
+        if err:
             raise ValueError(
                 f"Minimum version ({value}) cannot be greater than maximum "
                 f"({self._maximum_version})"
             )
 
-        self._minimum_version = value
+        self._minimum_version = version
 
     @property
     def maximum_version(self) -> TLSVersion:
@@ -222,17 +244,23 @@ class TLSContext:
 
     @maximum_version.setter
     def maximum_version(self, value: TLSVersion) -> None:
-        try:
-            value = TLSVersion(value)
-        except ValueError as exc:
-            raise ValueError(f"Unsupported TLS version '{value}'") from exc
-        if value < self._minimum_version:
+        version = self._verify_version(value)
+        err = False
+
+        if self._protocol == Protocol.DTLS:
+            if version > self._minimum_version:
+                err = True
+        else:
+            if version < self._minimum_version:
+                err = True
+
+        if err:
             raise ValueError(
                 f"Maximum version ({value}) cannot be lesser than minimum "
                 f"({self._minimum_version})"
             )
 
-        self._maximum_version = value
+        self._maximum_version = version
 
     @property
     def verify_mode(self) -> VerifyMode:
@@ -465,3 +493,20 @@ class TLSContext:
             else:
                 certificates = x509.load_der_x509_certificates(cadata)
                 self.castore.extend(certificates)
+
+    def _verify_version(self, version: int) -> TLSVersion:
+        supported_versions: tuple[int, ...]
+
+        if self._protocol == Protocol.TLS:
+            supported_versions = TLS_VERSIONS
+        elif self._protocol == Protocol.QUIC:
+            supported_versions = ()
+        elif self._protocol == Protocol.DTLS:
+            supported_versions = ()
+        else:
+            raise ValueError(f"Unknown protocol '{self._protocol}'")
+
+        if version not in supported_versions:
+            raise ValueError(f"Unsupported TLS version '{version}'")
+
+        return TLSVersion(version)
