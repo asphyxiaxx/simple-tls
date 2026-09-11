@@ -12,7 +12,7 @@ TLS_VERSIONS = (
     TLSVersion.TLSv1,
     TLSVersion.TLSv1_1,
     TLSVersion.TLSv1_2,
-    TLSVersion.TLSv1_3
+    TLSVersion.TLSv1_3,
 )
 
 ## Signature algorithms
