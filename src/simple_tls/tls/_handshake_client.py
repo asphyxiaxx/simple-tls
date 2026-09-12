@@ -1502,8 +1502,7 @@ class TLSHandshakeClient(TLSHandshake):
                 key_schedule, _, _ = self._pre_shared_keys[sel_idx]
             except IndexError:
                 raise AlertIllegalParameter(
-                    f"Unexpected index '{sel_idx}' in pre shared key "
-                    f"extension"
+                    f"Unexpected index '{sel_idx}' in pre shared key extension"
                 ) from None
 
             self._key_schedule = key_schedule
