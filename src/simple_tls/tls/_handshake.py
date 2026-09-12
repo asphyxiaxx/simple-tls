@@ -236,16 +236,8 @@ class TLSHandshake:
         self._context = value
 
     @property
-    def session(self) -> TLSSession | None:
-        return self._session
-
-    @property
     def early_session(self) -> TLSSession | None:
         return self._early_session
-
-    @property
-    def new_session(self) -> TLSSession | None:
-        return self._new_session
 
     @property
     def established_session(self) -> TLSSession | None:
