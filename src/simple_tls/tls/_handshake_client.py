@@ -540,7 +540,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         # If maximum version above TLSv1.3 try to build an EncryptedClientHello
         if self._maximum_version >= TLSVersion.TLSv1_3:
-            result = self._build_ech(client_hello)
+            result = self._build_encrypted_client_hello(client_hello)
 
         # Proceed to plain ClientHello if build_ech return False
         if not result:
@@ -1960,7 +1960,7 @@ class TLSHandshakeClient(TLSHandshake):
                 self._pre_shared_keys, transcript, client_hello
             )
 
-    def _build_ech(self, hello_outer: ClientHello) -> bool:
+    def _build_encrypted_client_hello(self, hello_outer: ClientHello) -> bool:
         if self._selected_ech_config is None:
             if self._conf_grease_ech:
                 self._ech_client_outer = ClientECHExtension(
