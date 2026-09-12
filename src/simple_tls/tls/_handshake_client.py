@@ -349,18 +349,18 @@ class TLSHandshakeClient(TLSHandshake):
         ## Temporary State
         self._hs_state = ClientState.START_CONNECT
         self._extension_order: list[int] | None = None
-        """Extensions type that was recevied from server hello or encrpypted
+        """extensions type that was recevied from server hello or encrpypted
         extensions"""
         self._extensions_sent: set[int] = set()
-        """Extensions type that was sent in client hello"""
+        """extensions type that was sent in client hello"""
         self._session_ticket: bytes | None = None
-        """Session ticket to be sent"""
+        """session ticket to be sent"""
         self._cookie: bytes | None = None
-        """Cookie from hello retry request"""
+        """cookie from hello retry request"""
         self._selected_ech_config: ECHConfigContent | None = None
-        """Selected ech config"""
+        """selected ech config"""
         self._ech_client_outer: ClientECHExtension | None = None
-        """Outer ECH to be sent in client hello extension"""
+        """outer ECH to be sent in client hello extension"""
         self._hello_retry_request_used: bool = False
         """True if hello retry request received from server (TLSv1.3)"""
         self._ticket_expected: bool = False
@@ -395,9 +395,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         ## Negotiated variable
         self._ech_retry_configs: list[ECHConfig] | None = None
-        """Retry configurations from encrypted extension"""
+        """retry configurations from encrypted extension"""
         self._ech_status: ECHStatus = ECHStatus.NONE
-        """Encrypted Client Hello status"""
+        """encrypted Client Hello status"""
         self._signature_algorithm: int | None = None
         """signature algorithm to be used with signing"""
         self._secure_renegotiation: bool = False

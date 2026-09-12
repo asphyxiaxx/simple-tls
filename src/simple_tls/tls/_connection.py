@@ -123,16 +123,16 @@ class TLSConnection:
         self._handshake.do_sni_cb = self._sni_callback
 
         self._send_record_limit = 2**14
-        """Send record limit"""
+        """send record limit"""
         self._recv_record_limit = 2**14
-        """Received record limit"""
+        """received record limit"""
         self._max_early_data_size = context.max_early_data_size
-        """Max early data size allowed"""
+        """max early data size allowed"""
 
         self._inbio = inbio or MemoryBIO()
-        """Incoming encrypted bytes"""
+        """incoming encrypted bytes"""
         self._outbio = outbio or MemoryBIO()
-        """Outgoing encrypted bytes (waiting to be send)"""
+        """outgoing encrypted bytes (waiting to be send)"""
 
         self._header: bytes | None = None
         """cached record header"""
@@ -148,7 +148,7 @@ class TLSConnection:
         self._pending_flight = bytearray()
         """pending encrypted handshake record to send"""
         self._pending_app_data = bytearray()
-        """Unconsumed decrypted application data"""
+        """unconsumed decrypted application data"""
 
         self._early_data_ignored = 0
         self._early_data_processed = 0

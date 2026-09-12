@@ -278,7 +278,7 @@ class TLSHandshakeServer(TLSHandshake):
         ## Temporary State
         self._hs_state = ServerState.START_ACCEPT
         self._extensions_recv: set[int] = set()
-        """Extensions type that was recevied from client hello"""
+        """extensions type that was recevied from client hello"""
         self._group_id: int | None = None
         """ECC group id negotiated"""
         self._npn_expected: bool = False
