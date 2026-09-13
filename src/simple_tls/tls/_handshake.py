@@ -497,7 +497,7 @@ class TLSHandshake:
         secret: bytes,
     ) -> None:
         if self._key_schedule is None:
-            raise AlertInternalError("Missing key_schedule")
+            raise AlertInternalError("key_schedule not set")
         if session.cipher_suite is None:
             raise AlertInternalError("Missing cipher_suite in session")
 
@@ -963,7 +963,7 @@ class TLSHandshake:
 
         if version >= TLSVersion.TLSv1_3:
             if self._key_schedule is None:
-                raise AlertInternalError("Missing key_schedule")
+                raise AlertInternalError("key_schedule not set")
 
             context_string = (
                 CLIENT_CONTEXT_STRING

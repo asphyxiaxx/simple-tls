@@ -640,7 +640,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.OK
 
         if self._x509_certs is None:
-            raise AlertInternalError("Missing x509_certs")
+            raise AlertInternalError("x509_certs not set")
 
         certificate = self._create_certificate(self._x509_certs)
         self.do_message_cb("write", certificate)
@@ -689,9 +689,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         if cipher_suite.auth != Authentication.ANON:
             if self._private_key is None:
-                raise AlertInternalError("Missing private key")
+                raise AlertInternalError("private_key not set")
             if self._signature_algorithm is None:
-                raise AlertInternalError("Missing signature algorithm")
+                raise AlertInternalError("signature_algorithm not set")
 
             ske_data = writer.tobytes()
             data = self._client_random + self._server_random + ske_data
@@ -725,9 +725,7 @@ class TLSHandshakeServer(TLSHandshake):
                 cert_types.append(ClientCertificateType.ECDSA_SIGN)
 
             if not cert_types:
-                raise AlertInternalError(
-                    "Missing supported signature algorithms"
-                )
+                raise AlertInternalError("No supported signature algorithms")
 
             if self.protocol_version() == TLSVersion.TLSv1_2:
                 cert_request = CertificateRequestTLS12(
@@ -758,13 +756,11 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_MESSAGE
 
         if self._session is None:
-            raise AlertInternalError("Missing new_session")
+            raise AlertInternalError("session not set")
 
         allow_anon = self.context.verify_mode != VerifyMode.CERT_REQUIRED
         certificate = self._process_certificate(
-            message=message,
-            session=self._session,
-            allow_anon=allow_anon,
+            message, self._session, allow_anon
         )
         self.do_message_cb("read", certificate)
         self._next_message()
@@ -813,7 +809,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         else:
             if self._key_exchange is None:
-                raise AlertInternalError("Missing key_exchange")
+                raise AlertInternalError("key_exchange not set")
             if cipher_suite.kea == KeyExchange.ECDHE:
                 peer_key = parser.read_prefixed_bytes(1)
             elif cipher_suite.kea == KeyExchange.DHE:
@@ -911,7 +907,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_MESSAGE
 
         if self._conf_npn_protocols is None:
-            raise AlertInternalError("Missing npn_protocols config")
+            raise AlertInternalError("npn_protocols config not set")
 
         next_proto = message.get_handshake(NextProtocol)
         if next_proto.next_protocol not in self._conf_npn_protocols:
@@ -1199,11 +1195,11 @@ class TLSHandshakeServer(TLSHandshake):
                 and not hrr
                 and session is not None
                 and session.ticket_max_early_data > 0
-                and (self._alpn_selected == session.early_alpn)  # ALPN match
+                and (self._alpn_selected == session.early_alpn)
                 and (
                     session.has_alps == new_session.has_alps
                     and session.local_alps == new_session.local_alps
-                )  # APLS match
+                )
             ):
                 self._early_data_accepted = True
 
@@ -1389,7 +1385,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._selected_key_share_group is not None:
             if self._peer_key is None:
-                raise AlertInternalError("Missing peer_key")
+                raise AlertInternalError("peer_key not set")
 
             kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
             ks_group = self._selected_key_share_group
@@ -1448,7 +1444,7 @@ class TLSHandshakeServer(TLSHandshake):
             or self._x509_certs is None
             or self._private_key is None
         ):
-            raise AlertInternalError("Missing authentications")
+            raise AlertInternalError("authentications not set")
 
         session = self._session
         enc_extensions: list[TLSExtension] = []

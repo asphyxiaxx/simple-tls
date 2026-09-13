@@ -187,8 +187,6 @@ class TLSHandshakeClient(TLSHandshake):
             self._hostname = hostname
 
         self._offered_session = session
-
-        ## Callback
         self.session_ticket_handler = session_ticket_handler
 
         ## Dispatch function
@@ -561,7 +559,7 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.OK
 
         if self._offered_session is None:
-            raise AlertInternalError("Missing offered session")
+            raise AlertInternalError("offered_session not set")
 
         offered_session = self._offered_session
         self._session = offered_session.copy()
@@ -639,7 +637,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             if offered_session is None:
                 self.can_early_write = False
-                raise AlertInternalError("Missing offered session")
+                raise AlertInternalError("offered_session not set")
 
             if self._version != offered_session.version:
                 if (
@@ -1072,9 +1070,9 @@ class TLSHandshakeClient(TLSHandshake):
             writer.write_prefixed_bytes(enc_premaster_secret, 2)
         else:
             if self._key_exchange is None:
-                raise AlertInternalError("Missing key_exchange")
+                raise AlertInternalError("key_exchange not set")
             if self._peer_key is None:
-                raise AlertInternalError("Missing peer_key")
+                raise AlertInternalError("peer_key not set")
 
             key_share, premaster_secret = (
                 self._key_exchange.generate_and_compute(self._peer_key)
@@ -1121,9 +1119,9 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.PACK_FLIGHT
 
         if self._private_key is None:
-            raise AlertInternalError("Missing private_key")
+            raise AlertInternalError("private_key not set")
         if self._signature_algorithm is None:
-            raise AlertInternalError("Missing signature_algorithm")
+            raise AlertInternalError("signature_algorithm not set")
 
         priv_key = self._private_key
         signature_algorithm = self._signature_algorithm
@@ -1305,7 +1303,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         if self._selected_ech_config is not None:
             if self._inner_transcript is None:
-                raise AlertInternalError("Missing inner_transcript")
+                raise AlertInternalError("inner_transcript not set")
 
             ext_map.pop(ExtensionType.ENCRYPTED_CLIENT_HELLO, None)
             self._inner_transcript.update_for_hello_retry_request(
@@ -1432,16 +1430,16 @@ class TLSHandshakeClient(TLSHandshake):
             and self._ech_status != ECHStatus.REJECTED
         ):
             if self._inner_transcript is None:
-                raise AlertInternalError("Missing inner_transcript")
+                raise AlertInternalError("inner_transcript not set")
 
             ech_accepted = self._check_ech_confirmation(
                 server_hello, self._inner_transcript.copy(), is_hrr=False
             )
             if ech_accepted:
                 if self._inner_client_random is None:
-                    raise AlertInternalError("Missing inner_client_random")
+                    raise AlertInternalError("inner_client_random not set")
                 if self._inner_extensions_sent is None:
-                    raise AlertInternalError("Missing inner_extensions_sent")
+                    raise AlertInternalError("inner_extensions_sent not set")
 
                 self._ech_status = ECHStatus.ACCEPTED
                 self._client_random = self._inner_client_random
@@ -1483,10 +1481,10 @@ class TLSHandshakeClient(TLSHandshake):
             ):
                 raise AlertUnsupportedExtension("Unexpected PSK extension")
             if offered_session is None:
-                raise AlertInternalError("Missing offered session")
+                raise AlertInternalError("offered_session not set")
             if offered_session.cipher_suite is None:
                 raise AlertInternalError(
-                    "Missing cipher_suite in offered session"
+                    "Missing cipher_suite in offered_session"
                 )
             if offered_session.version != self._version:
                 raise AlertIllegalParameter("version mismatch")
@@ -1602,14 +1600,14 @@ class TLSHandshakeClient(TLSHandshake):
         if self._early_data_accepted:
             offered_session = self._offered_session
 
+            if offered_session is None:
+                raise AlertInternalError("offered_session not set")
             if not self._session_reused:
                 raise AlertInternalError("Session not reused")
             if self._ech_status == ECHStatus.REJECTED:
                 raise AlertIllegalParameter(
                     "Early data accepted on rejected ECH"
                 )
-            if offered_session is None:
-                raise AlertInternalError("Missing early_session")
             if offered_session.cipher_suite != session.cipher_suite:
                 raise AlertIllegalParameter("Cipher suite mismatch")
             if offered_session.early_alpn != self._alpn_selected:
@@ -1881,6 +1879,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         if message.handshake_type == HandshakeType.NEWSESSION_TICKET:
             new_session_ticket = message.get_handshake(NewSessionTicketTLS13)
+
             if self.session_ticket_handler is not None:
                 early_data_ext = new_session_ticket.get_extension(
                     EarlyDataExtension
@@ -2400,9 +2399,9 @@ class TLSHandshakeClient(TLSHandshake):
         is_hrr: bool,
     ) -> bool:
         if self._key_schedule is None:
-            raise AlertInternalError("Missing key_schedule")
+            raise AlertInternalError("key_schedule not set")
         if self._inner_client_random is None:
-            raise AlertInternalError("Missing inner_client_random")
+            raise AlertInternalError("inner_client_random not set")
 
         if is_hrr:
             ext_type = ExtensionType.ENCRYPTED_CLIENT_HELLO
@@ -2483,7 +2482,7 @@ class TLSHandshakeClient(TLSHandshake):
         )
         if alpn_ext is not None:
             if self._conf_alpn_protocols is None:
-                raise AlertInternalError("Missing alpn protocols")
+                raise AlertInternalError("alpn_protocols config not set")
             if alpn_ext.protocol not in self._conf_alpn_protocols:
                 raise AlertIllegalParameter(
                     "Unexpected protocol in ALPN extension"
@@ -2637,7 +2636,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         elif private_key is not None and x509_certs is not None:
             if self._conf_signature_algorithms is None:
-                raise AlertInternalError("Missing signature algorithms")
+                raise AlertInternalError("signature_algorithms config not set")
 
             x509_leaf = x509_certs[0]
             try:
