@@ -348,20 +348,16 @@ class TLSConnection:
         is_early_data_write = (
             not self.is_server and hs.in_early_data and hs.can_early_write
         )
-        if is_early_data_write:
-            early_session = hs.early_session
-            assert early_session is not None
 
-            if (
-                self._early_data_processed
-                >= early_session.ticket_max_early_data
-            ):
+        if is_early_data_write:
+            assert hs.session is not None
+
+            if self._early_data_processed >= hs.session.ticket_max_early_data:
                 hs.can_early_write = False
 
             max_send_frament = min(
                 max_send_frament,
-                early_session.ticket_max_early_data
-                - self._early_data_processed,
+                hs.session.ticket_max_early_data - self._early_data_processed,
             )
 
         if len(data) > max_send_frament:
@@ -383,33 +379,29 @@ class TLSConnection:
         self._handshake.send_key_update(message_type)
 
     def getpeercert(self) -> x509.Certificate | None:
-        session = self._handshake.established_session
+        session = self._handshake.session
         if session is not None and session.verified_x509_peer is not None:
             return session.verified_x509_peer
         return None
 
     def get_verified_chain(self) -> list[x509.Certificate]:
+        session = self._handshake.session
         chain: list[x509.Certificate] = []
-        session = self._handshake.established_session
-
         if session is not None:
             if session.verified_x509_peer is not None:
                 chain.append(session.verified_x509_peer)
             if session.verified_x509_chain is not None:
                 chain.extend(session.verified_x509_chain)
-
         return chain
 
     def get_unverified_chain(self) -> list[x509.Certificate]:
+        session = self._handshake.session
         chain: list[x509.Certificate] = []
-        session = self._handshake.established_session
-
         if session is not None:
             if session.x509_peer is not None:
                 chain.append(session.x509_peer)
             if session.x509_chain is not None:
                 chain.extend(session.x509_chain)
-
         return chain
 
     def selected_npn_protocol(self) -> str | None:
@@ -419,10 +411,10 @@ class TLSConnection:
         return bytes_to_str(self._handshake.alpn_selected)
 
     def cipher(self) -> CipherSuite | None:
-        establish_session = self._handshake.established_session
-        if establish_session is None:
-            return None
-        return establish_session.cipher_suite
+        session = self._handshake.session
+        if session is not None:
+            return session.cipher_suite
+        return None
 
     def shared_ciphers(self) -> list[CipherSuite] | None:
         if self._handshake.peer_cipher_suites is not None:

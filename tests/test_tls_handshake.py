@@ -281,7 +281,7 @@ def test_handshake_with_session_ticket(subtests, version):
             maximum_version=version,
         )
 
-        client._session = session_ticket
+        client._offered_session = session_ticket
 
         run_handshake(client, server)
 
@@ -343,7 +343,7 @@ def test_handshake_with_session_id(subtests, version):
             maximum_version=version,
         )
 
-        client._session = session_ticket
+        client._offered_session = session_ticket
 
         run_handshake(client, server)
 
@@ -379,10 +379,10 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         assert client.version == version
         assert server.version == version
         assert client._peer_cert_request is not None
-        assert server.established_session is not None
+        assert server.session is not None
         assert (
-            server.established_session.x509_peer is None
-            and server.established_session.x509_chain is None
+            server.session.x509_peer is None
+            and server.session.x509_chain is None
         )
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
@@ -420,11 +420,8 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert client.established_session is not None
-    assert (
-        client.established_session.peer_signature_algorithm
-        == signature_algorithm
-    )
+    assert client.session is not None
+    assert client.session.peer_signature_algorithm == signature_algorithm
 
 
 def test_tls13_handshake_with_ec_secp256r1():
@@ -447,11 +444,8 @@ def test_tls13_handshake_with_ec_secp256r1():
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert client.established_session is not None
-    assert (
-        client.established_session.peer_signature_algorithm
-        == signature_algorithm
-    )
+    assert client.session is not None
+    assert client.session.peer_signature_algorithm == signature_algorithm
 
 
 def test_tls13_handshake_hello_retry_request(subtests):
@@ -484,10 +478,10 @@ def test_tls13_handshake_hello_retry_request(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._hello_retry_request_used
-        assert client.established_session is not None
-        assert client.established_session.group_id == NamedGroup.X25519
-        assert server.established_session is not None
-        assert server.established_session.group_id == NamedGroup.X25519
+        assert client.session is not None
+        assert client.session.group_id == NamedGroup.X25519
+        assert server.session is not None
+        assert server.session.group_id == NamedGroup.X25519
 
     with subtests.test(msg="Empty client key_share_groups"):
         handshake([])
@@ -539,7 +533,7 @@ def test_tls13_handshake_with_psk(subtests):
             maximum_version=TLSVersion.TLSv1_3,
         )
 
-        client._session = client_tickets[0]
+        client._offered_session = client_tickets[0]
 
         run_handshake(client, server)
 
@@ -565,7 +559,7 @@ def test_tls13_handshake_with_psk(subtests):
 
         # tamper resumption secret
         session.secret = session.secret[:-4] + bytes(4)
-        client._session = session
+        client._offered_session = session
 
         server_fail_hello(client, server)
 
@@ -590,10 +584,10 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._peer_cert_request is not None
-        assert server.established_session is not None
+        assert server.session is not None
         assert (
-            server.established_session.x509_peer is None
-            and server.established_session.x509_chain is None
+            server.session.x509_peer is None
+            and server.session.x509_chain is None
         )
 
     with subtests.test(verify_mode="CERT_REQUIRED"):

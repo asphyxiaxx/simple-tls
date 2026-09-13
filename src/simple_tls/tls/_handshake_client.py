@@ -186,7 +186,7 @@ class TLSHandshakeClient(TLSHandshake):
         else:
             self._hostname = hostname
 
-        self._session = session
+        self._offered_session = session
 
         ## Callback
         self.session_ticket_handler = session_ticket_handler
@@ -484,37 +484,43 @@ class TLSHandshakeClient(TLSHandshake):
                     self._inner_transcript = Transcript()
                     self._inner_client_random = get_random_bytes(32)
 
-        if self._session is not None:
-            session = self._session
+        if self._offered_session is not None:
+            offered_session = self._offered_session
+
             if (
-                not session.time_valid()
-                or session.is_server
-                or session.protocol_version() > self._maximum_version
-                or session.protocol_version() < self._minimum_version
+                not offered_session.time_valid()
+                or offered_session.is_server
+                or offered_session.protocol_version() > self._maximum_version
+                or offered_session.protocol_version() < self._minimum_version
                 or (
-                    session.protocol_version() < TLSVersion.TLSv1_3
+                    offered_session.protocol_version() < TLSVersion.TLSv1_3
                     and self._selected_ech_config is not None
                 )
             ):
                 session_type = SessionType.not_resumable
             else:
-                session_type = session.session_type()
+                session_type = offered_session.session_type()
 
             if session_type == SessionType.session_id:
-                self._session_id = session.session_id
+                self._session_id = offered_session.session_id
+
             elif session_type == SessionType.session_ticket:
                 # Generate random session_id so it track
                 # the session is resumed
                 self._session_id = get_random_bytes(32)
-                self._session_ticket = session.ticket
+                self._session_ticket = offered_session.ticket
+
             elif session_type == SessionType.pre_shared_key:
-                assert session.cipher_suite is not None
+                assert offered_session.cipher_suite is not None
+
                 identity = PSKIdentity(
-                    identity=session.ticket,
-                    obfuscated_ticket_age=session.obfuscated_age(),
+                    identity=offered_session.ticket,
+                    obfuscated_ticket_age=offered_session.obfuscated_age(),
                 )
-                key_schedule = KeySchedule(session.cipher_suite.prf_hash)
-                key_schedule.extract(session.secret)
+                key_schedule = KeySchedule(
+                    offered_session.cipher_suite.prf_hash
+                )
+                key_schedule.extract(offered_session.secret)
                 binder_key = key_schedule.derive_secret(
                     b"res binder", self._transcript
                 )
@@ -536,13 +542,10 @@ class TLSHandshakeClient(TLSHandshake):
             cipher_suites=self._get_cipher_suites(),
             compression_methods=self._conf_compresion_methods,
         )
-        result = False
 
-        # If maximum version above TLSv1.3 try to build an EncryptedClientHello
+        result = False
         if self._maximum_version >= TLSVersion.TLSv1_3:
             result = self._build_encrypted_client_hello(client_hello)
-
-        # Proceed to plain ClientHello if build_ech return False
         if not result:
             self._build_client_hello(client_hello)
 
@@ -557,11 +560,12 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SERVER_HELLO)
             return Status.OK
 
-        if self._session is None:
-            raise AlertInternalError("Missing session")
+        if self._offered_session is None:
+            raise AlertInternalError("Missing offered session")
 
-        self._early_session = self._session
-        self._version = self._early_session.version
+        offered_session = self._offered_session
+        self._session = offered_session.copy()
+        self._version = offered_session.version
         self._is_early_version = True
 
         # Early data extension is included in ClientHello
@@ -573,7 +577,7 @@ class TLSHandshakeClient(TLSHandshake):
             transcript = self._transcript
 
         self._setup_traffic_key_tls13(
-            session=self._early_session,
+            session=self._session,
             direction=Direction.ENCRYPT,
             epoch=Epoch.ZERO_RTT,
             label=b"c e traffic",
@@ -631,15 +635,16 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertIllegalParameter("Invalid compression method")
 
         if self._early_data_offered:
-            if self._early_session is None:
-                self.can_early_write = False
-                raise AlertInternalError("Missing early_session")
+            offered_session = self._offered_session
 
-            if self._version != self._early_session.version:
+            if offered_session is None:
+                self.can_early_write = False
+                raise AlertInternalError("Missing offered session")
+
+            if self._version != offered_session.version:
                 if (
                     self.protocol_version() >= TLSVersion.TLSv1_3
-                    or self._early_session.protocol_version()
-                    < TLSVersion.TLSv1_3
+                    or offered_session.protocol_version() < TLSVersion.TLSv1_3
                 ):
                     raise AlertInternalError("Version mistmatch")
 
@@ -702,30 +707,34 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Session ID
         if self._session_id and server_hello.session_id == self._session_id:
-            session = self._session
-            if session is None or self._ech_status == ECHStatus.REJECTED:
+            offered_session = self._offered_session
+
+            if (
+                offered_session is None
+                or self._ech_status == ECHStatus.REJECTED
+            ):
                 raise AlertIllegalParameter("Echoed invalid session id")
-            if session.version != self._version:
+            if offered_session.version != self._version:
                 raise AlertIllegalParameter("Invalid version")
-            if session.cipher_suite != self._cipher_suite:
+            if offered_session.cipher_suite != self._cipher_suite:
                 raise AlertIllegalParameter("Invalid cipher suite")
+
             self._session_reused = True
+            session = offered_session.copy(include_noauth=True)
         else:
-            self._session = None
-            self._new_session = self._get_new_session()
-            self._new_session.session_id = server_hello.session_id
-            self._new_session.cipher_suite = self._cipher_suite
+            session = self._get_new_session()
+            session.session_id = server_hello.session_id
+            session.cipher_suite = self._cipher_suite
+
+        self._session = session
 
         # Process extensions
         ext_map = server_hello.extension_map(ExtensionSource.SERVER)
         self._process_extensions(ext_map)
 
-        if self._session is not None:
-            if (
-                self._session.extended_master_secret
-                != self._extended_master_secret
-            ):
-                if self._session.extended_master_secret:
+        if self._session_reused:
+            if session.extended_master_secret != self._extended_master_secret:
+                if session.extended_master_secret:
                     raise AlertHandshakeFailure(
                         "EMS Session resumed without EMS extension"
                     )
@@ -740,7 +749,7 @@ class TLSHandshakeClient(TLSHandshake):
                 client_random=self._client_random,
                 server_random=self._server_random,
             )
-            self._setup_traffic_key(self._session)
+            self._setup_traffic_key(session)
 
         self.do_message_cb("read", server_hello)
         self._next_message()
@@ -749,7 +758,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_server_certificate(self) -> Status:
-        if self._session is not None:
+        if self._session_reused:
             self._set_state(ClientState.READ_SESSION_TICKET)
             return Status.OK
 
@@ -761,10 +770,10 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
-        session = self._new_session
+        session = self._session
         certificate = self._process_certificate(
             message, session, allow_anon=False
         )
@@ -796,10 +805,10 @@ class TLSHandshakeClient(TLSHandshake):
 
         certificate_status = message.get_handshake(CertificateStatus)
 
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
-        self._new_session.ocsp_response = certificate_status.ocsp
+        self._session.ocsp_response = certificate_status.ocsp
 
         self.do_message_cb("read", certificate_status)
         self._next_message()
@@ -817,13 +826,12 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        ske = message.get_handshake(ServerKeyExchange)
-
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
         version = self.protocol_version()
-        new_session = self._new_session
+        session = self._session
+        ske = message.get_handshake(ServerKeyExchange)
         parser = Parser(ske.data)
         parser.set_bookmark()
 
@@ -848,7 +856,7 @@ class TLSHandshakeClient(TLSHandshake):
                     "Empty key share in server key exchange"
                 )
 
-            new_session.group_id = group_id
+            session.group_id = group_id
             self._key_exchange = ECDHKeyExchange(group_id)
             self._peer_key = point
 
@@ -877,10 +885,12 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertInternalError("Unsupported cipher suite selected")
 
         if cipher_suite.auth != Authentication.ANON:
-            if new_session.x509_peer is None:
-                raise AlertInternalError("Missing x509_peer in new_session")
+            if session.x509_peer is None:
+                raise AlertInternalError(
+                    "Missing x509_peer in current_session"
+                )
 
-            x509_peer = new_session.x509_peer
+            x509_peer = session.x509_peer
             try:
                 peer_public_key = load_certificate_public_key(x509_peer)
             except ValueError as exc:
@@ -898,7 +908,7 @@ class TLSHandshakeClient(TLSHandshake):
                     signature_algorihtm=verify_alg,
                     supported_sigalgs=self._conf_signature_algorithms,
                 )
-                new_session.peer_signature_algorithm = verify_alg
+                session.peer_signature_algorithm = verify_alg
             else:
                 verify_alg = self._get_sigalg_tls1(
                     version=version,
@@ -1034,19 +1044,18 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_key_exchange(self) -> Status:
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
         version = self.protocol_version()
         cipher_suite = self.cipher()
-        new_session = self._new_session
-
+        session = self._session
         writer = Writer()
 
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
 
-            x509_peer = new_session.x509_peer
+            x509_peer = session.x509_peer
             if x509_peer is None:
                 raise AlertInternalError("Missing x509_peer in new_session")
 
@@ -1097,11 +1106,11 @@ class TLSHandshakeClient(TLSHandshake):
         master_secret = self._key_deriver.derive_master_secret(
             premaster_secret, label, transcript
         )
-        new_session.secret = master_secret
-        new_session.extended_master_secret = self._extended_master_secret
-        new_session.encrypt_then_mac = self._encrypt_then_mac
+        session.secret = master_secret
+        session.extended_master_secret = self._extended_master_secret
+        session.encrypt_then_mac = self._encrypt_then_mac
 
-        self._setup_traffic_key(new_session)
+        self._setup_traffic_key(session)
 
         self._set_state(ClientState.SEND_CLIENT_CERTIFICATE_VERIFY)
         return Status.OK
@@ -1144,18 +1153,14 @@ class TLSHandshakeClient(TLSHandshake):
             self.do_message_cb("write", npn)
             self._add_message(npn)
 
-        if self._new_session is not None:
-            session = self._new_session
-        else:
-            if self._session is None:
-                raise AlertInternalError("Missing session")
-            session = self._session
-
+        if self._session is None:
+            raise AlertInternalError("session not set")
         if self._key_deriver is None:
             raise AlertInternalError("key_deriver not set")
 
+        master_secret = self._session.secret
         verify_data = self._key_deriver.finished_verify_data(
-            session.secret, b"client finished", self._transcript
+            master_secret, b"client finished", self._transcript
         )
         finished = Finished(verify_data)
         self.do_message_cb("write", finished)
@@ -1165,7 +1170,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.FLUSH_MESSAGE
 
     def _do_finish_flight(self) -> Status:
-        if self._session is not None:
+        if self._session_reused:
             # If it is resumed session, Finished is sent after read the
             # server Finshed
             self._set_state(ClientState.FINISH_CLIENT_HANDSHAKE)
@@ -1187,15 +1192,12 @@ class TLSHandshakeClient(TLSHandshake):
         if not new_session_ticket.ticket:
             self._ticket_expected = False
         else:
-            if self._session is not None:
-                if self._new_session is not None:
-                    raise AlertInternalError("Unexpected new_session set")
-                self._new_session = self._session.copy(include_noauth=True)
-            elif self._new_session is None:
-                raise AlertInternalError("Missing new_session")
+            if self._session is None:
+                raise AlertInternalError("session not set")
 
-            self._new_session.rebase_time()
-            self._new_session.ticket = new_session_ticket.ticket
+            session = self._session
+            session.rebase_time()
+            session.ticket = new_session_ticket.ticket
 
         self.do_message_cb("read", new_session_ticket)
         self._next_message()
@@ -1215,19 +1217,15 @@ class TLSHandshakeClient(TLSHandshake):
 
         server_finished = message.get_handshake(Finished)
 
-        if self._new_session is not None:
-            session = self._new_session
-        else:
-            if self._session is None:
-                raise AlertInternalError("Missing session")
-            session = self._session
-
+        if self._session is None:
+            raise AlertInternalError("session not set")
         if self._key_deriver is None:
             raise AlertInternalError("key_deriver not set")
 
         verify_data = server_finished.verify_data
+        master_secret = self._session.secret
         expected_verify_data = self._key_deriver.finished_verify_data(
-            session.secret, b"server finished", self._transcript
+            master_secret, b"server finished", self._transcript
         )
         if not compare_digest(verify_data, expected_verify_data):
             raise AlertDecryptError("Server finished verify_data mismatch")
@@ -1235,7 +1233,7 @@ class TLSHandshakeClient(TLSHandshake):
         self.do_message_cb("read", server_finished)
         self._next_message()
 
-        if self._session is not None:
+        if self._session_reused:
             self._set_state(ClientState.SEND_CLIENT_FINISHED)
         else:
             self._set_state(ClientState.FINISH_CLIENT_HANDSHAKE)
@@ -1244,24 +1242,22 @@ class TLSHandshakeClient(TLSHandshake):
     def _do_finish_client_handshake(self) -> Status:
         if self._ech_status == ECHStatus.REJECTED:
             raise AlertECHRequired("ECH not negotiated")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
-        if self._new_session is not None:
-            has_new_session = True
-            self._established_session = self._new_session
-            self._established_session.not_resumable = False
-        else:
-            if self._session is None:
-                raise AlertInternalError("Missing session")
-            has_new_session = False
-            self._established_session = self._session
+        if not self._session_reused:
+            session = self._session
+            session.not_resumable = False
 
-        session = self._established_session
-        if (
-            has_new_session
-            and self.session_ticket_handler is not None
-            and session.session_type() != SessionType.not_resumable
-        ):
-            self.session_ticket_handler(session)
+            if (
+                self.session_ticket_handler is not None
+                and session.session_type() != SessionType.not_resumable
+            ):
+                session = session.copy(
+                    include_noauth=True, include_ticket=True
+                )
+                session.not_resumable = False
+                self.session_ticket_handler(session)
 
         self._set_state(ClientState.DONE)
         return Status.OK
@@ -1421,11 +1417,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         if server_hello.random == TLS13_HRR_SENTINEL:
             raise AlertUnexpectedMessage("Second hello retry request")
-
         if server_hello.session_id != self._session_id:
             raise AlertIllegalParameter("session_id mismatch")
-
-        # Saniry check if hello retry request used
+        # Sanity check if hello retry request used
         if server_hello.cipher_suite != cipher_suite:
             raise AlertIllegalParameter("cipher_suite mismatch")
 
@@ -1481,19 +1475,22 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertUnsupportedExtension("Unsupported extension")
 
         if psk_ext is not None:
+            offered_session = self._offered_session
+
             if (
                 not self._pre_shared_keys
                 or self._ech_status == ECHStatus.REJECTED
             ):
                 raise AlertUnsupportedExtension("Unexpected PSK extension")
-
-            if self._session is None or self._session.cipher_suite is None:
+            if offered_session is None:
+                raise AlertInternalError("Missing offered session")
+            if offered_session.cipher_suite is None:
                 raise AlertInternalError(
-                    "Missing session or session cipher_suite"
+                    "Missing cipher_suite in offered session"
                 )
-            if self._session.version != self._version:
+            if offered_session.version != self._version:
                 raise AlertIllegalParameter("version mismatch")
-            if self._session.cipher_suite.prf_hash != cipher_suite.prf_hash:
+            if offered_session.cipher_suite.prf_hash != cipher_suite.prf_hash:
                 raise AlertIllegalParameter("prf hash mismatch")
 
             # Selected index
@@ -1508,21 +1505,16 @@ class TLSHandshakeClient(TLSHandshake):
             self._key_schedule = key_schedule
             self._pre_shared_keys.clear()
 
-            new_session = self._session.copy()
-            new_session.renew_timeout(100)
-            self._session = None
+            session = offered_session.copy()
+            session.renew_timeout(100)
             self._session_reused = True
         else:
             if key_schedule.generation != 0:
                 raise AlertInternalError()
 
             key_schedule.extract(None)
-            new_session = self._get_new_session()
+            session = self._get_new_session()
 
-        self._new_session = new_session
-        self._new_session.cipher_suite = self._cipher_suite
-
-        shared_secret = None
         if kex_ext is not None:
             if (
                 self._conf_psk_kex_modes is not None
@@ -1541,7 +1533,6 @@ class TLSHandshakeClient(TLSHandshake):
                     f"Unexpected group '{key_share.group}' in key share "
                     f"extension"
                 ) from None
-
             try:
                 shared_secret = kex.compute_shared_secret(
                     key_share.key_exchange
@@ -1549,7 +1540,7 @@ class TLSHandshakeClient(TLSHandshake):
             except ValueError as exc:
                 raise AlertIllegalParameter(str(exc)) from None
 
-            new_session.group_id = key_share.group
+            session.group_id = key_share.group
 
         elif (
             self._conf_psk_kex_modes is not None
@@ -1557,19 +1548,25 @@ class TLSHandshakeClient(TLSHandshake):
         ):
             raise AlertIllegalParameter()
 
+        else:
+            shared_secret = None
+
         key_schedule.extract(shared_secret)
+
+        session.cipher_suite = self._cipher_suite
+        self._session = session
 
         self.do_message_cb("read", server_hello)
         self._next_message()
 
         self._setup_traffic_key_tls13(
-            session=self._new_session,
+            session=session,
             direction=Direction.DECRYPT,
             epoch=Epoch.HANDSHAKE,
             label=b"s hs traffic",
         )
         self._setup_traffic_key_tls13(
-            session=self._new_session,
+            session=session,
             direction=Direction.ENCRYPT,
             epoch=Epoch.HANDSHAKE,
             label=b"c hs traffic",
@@ -1597,33 +1594,55 @@ class TLSHandshakeClient(TLSHandshake):
         self.do_message_cb("read", enc_ext)
         self._next_message()
 
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
-        new_session = self._new_session
+        session = self._session
 
         if self._early_data_accepted:
+            offered_session = self._offered_session
+
             if not self._session_reused:
                 raise AlertInternalError("Session not reused")
             if self._ech_status == ECHStatus.REJECTED:
                 raise AlertIllegalParameter(
                     "Early data accepted on rejected ECH"
                 )
-            if self._early_session is None:
+            if offered_session is None:
                 raise AlertInternalError("Missing early_session")
-            if self._early_session.cipher_suite != new_session.cipher_suite:
+            if offered_session.cipher_suite != session.cipher_suite:
                 raise AlertIllegalParameter("Cipher suite mismatch")
-            if self._early_session.early_alpn != self._alpn_selected:
+            if offered_session.early_alpn != self._alpn_selected:
                 raise AlertIllegalParameter("ALPN mismatch")
 
-            new_session.has_alps = self._early_session.has_alps
-            new_session.local_alps = self._early_session.local_alps
-            new_session.peer_alps = self._early_session.peer_alps
+            session.has_alps = offered_session.has_alps
+            session.local_alps = offered_session.local_alps
+            session.peer_alps = offered_session.peer_alps
 
         elif self._early_data_offered:
             self.update_traffic_cb(Direction.ENCRYPT, Epoch.HANDSHAKE)
 
-        new_session.early_alpn = self._alpn_selected
+        alps_ext = typing.cast(
+            ServerALPSExtension | None,
+            ext_map.get(ExtensionType.APPLICATION_SETTINGS),
+        )
+        if alps_ext is not None:
+            if self._alpn_selected is None:
+                raise AlertIllegalParameter("Unexected ALPS extension")
+
+            try:
+                settings = self._conf_alps[self._alpn_selected]
+            except KeyError:
+                raise AlertIllegalParameter(
+                    f"Invalid ALPS extension with ALPN "
+                    f"'{self._alpn_selected!r}'"
+                ) from None
+
+            session.has_alps = True
+            session.local_alps = settings
+            session.peer_alps = alps_ext.settings
+
+        session.early_alpn = self._alpn_selected
 
         self._set_state(ClientState.READ_CERTIFICATE_REQUEST_TLS13)
         return Status.OK
@@ -1663,12 +1682,13 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
+        session = self._session
         certificate = self._process_certificate_tls13(
             message=message,
-            session=self._new_session,
+            session=session,
             supported_compressions=self._conf_cert_comp_algs,
             allow_anon=False,
         )
@@ -1683,7 +1703,7 @@ class TLSHandshakeClient(TLSHandshake):
             else:
                 hostname = self._hostname
 
-            self._verify_x509(self.context, self._new_session, hostname)
+            self._verify_x509(self.context, session, hostname)
 
         self.do_message_cb("read", certificate)
         self._next_message()
@@ -1698,11 +1718,11 @@ class TLSHandshakeClient(TLSHandshake):
 
         cert_verify = message.get_handshake(CertificateVerifyTLS12)
 
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
         self._process_certificate_verify(
-            session=self._new_session,
+            session=self._session,
             cert_verify=cert_verify,
             supported_sigalgs=self._conf_signature_algorithms,
         )
@@ -1724,8 +1744,8 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertUnexpectedMessage("Trailing handshake data")
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
         verify_data = finished.verify_data
         expected_verify_data = self._key_schedule.finished_verify_data(
@@ -1744,13 +1764,13 @@ class TLSHandshakeClient(TLSHandshake):
         self._key_schedule.extract(None)
 
         self._setup_traffic_key_tls13(
-            session=self._new_session,
+            session=self._session,
             direction=Direction.DECRYPT,
             epoch=Epoch.APPLICATION_DATA,
             label=b"s ap traffic",
         )
         self._setup_traffic_key_tls13(
-            session=self._new_session,
+            session=self._session,
             direction=Direction.ENCRYPT,
             epoch=Epoch.APPLICATION_DATA,
             label=b"c ap traffic",
@@ -1777,13 +1797,14 @@ class TLSHandshakeClient(TLSHandshake):
         if self._early_data_accepted:
             self.update_traffic_cb(Direction.ENCRYPT, Epoch.HANDSHAKE)
 
-        if self._new_session is None:
-            raise AlertInternalError("Missing new_session")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
+        session = self._session
         extensions: list[TLSExtension] = []
 
-        if self._new_session.has_alps and not self._early_data_accepted:
-            alps = ServerALPSExtension(self._new_session.local_alps)
+        if session.has_alps and not self._early_data_accepted:
+            alps = ServerALPSExtension(session.local_alps)
             extensions.append(alps)
 
         if extensions:
@@ -1850,12 +1871,12 @@ class TLSHandshakeClient(TLSHandshake):
         raise AlertUnexpectedMessage()
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
-        if self._established_session is None:
-            raise AlertInternalError("session not establish")
+        if self._session is None:
+            raise AlertInternalError("session not set")
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
 
-        established_session = self._established_session
+        session = self._session
         key_schedule = self._key_schedule
 
         if message.handshake_type == HandshakeType.NEWSESSION_TICKET:
@@ -1869,7 +1890,7 @@ class TLSHandshakeClient(TLSHandshake):
                 else:
                     max_early_data = 0
 
-                session = established_session.copy(include_noauth=True)
+                session = session.copy(include_noauth=True)
                 session.rebase_time()
                 session.set_timeout(new_session_ticket.ticket_lifetime)
                 session.ticket = new_session_ticket.ticket
@@ -2471,9 +2492,6 @@ class TLSHandshakeClient(TLSHandshake):
             self._alpn_selected = alpn_ext.protocol
 
         if version >= TLSVersion.TLSv1_3:
-            if self._new_session is None:
-                raise AlertInternalError("Missing new_session")
-
             forbid_extensions.add(ExtensionType.EXTENDED_MAIN_SECRET)
             forbid_extensions.add(ExtensionType.SUPPORTS_NPN)
             forbid_extensions.add(ExtensionType.SESSION_TICKET)
@@ -2482,27 +2500,6 @@ class TLSHandshakeClient(TLSHandshake):
 
             # Status request is sent in certificate extension
             forbid_extensions.add(ExtensionType.STATUS_REQUEST)
-
-            # application settings extension
-            apls_ext = typing.cast(
-                ServerALPSExtension | None,
-                ext_map.get(ExtensionType.APPLICATION_SETTINGS),
-            )
-            if apls_ext is not None:
-                if self._alpn_selected is None:
-                    raise AlertIllegalParameter("Unexected ALPS extension")
-
-                try:
-                    settings = self._conf_alps[self._alpn_selected]
-                except KeyError:
-                    raise AlertIllegalParameter(
-                        f"Invalid ALPS extension with ALPN "
-                        f"'{self._alpn_selected!r}'"
-                    ) from None
-
-                self._new_session.has_alps = True
-                self._new_session.local_alps = settings
-                self._new_session.peer_alps = apls_ext.settings
 
             # Encrypted client hello extension
             ech_ext = typing.cast(
@@ -2690,24 +2687,24 @@ class TLSHandshakeClient(TLSHandshake):
     def _should_offer_early_data(self) -> bool:
         if not self.context.early_data:
             return False
-
         if self._maximum_version < TLSVersion.TLSv1_3:
             return False
-
-        if self._session is None:
-            return False
-
-        if self._session.protocol_version() < TLSVersion.TLSv1_3:
-            return False
-
-        if self._session.ticket_max_early_data == 0:
-            return False
-
-        if self._session.early_alpn and self._conf_alpn_protocols is not None:
-            if self._session.early_alpn not in self._conf_alpn_protocols:
-                return False
-
         if len(self._pre_shared_keys) != 1:
+            return False
+
+        offered_session = self._offered_session
+
+        if offered_session is None:
+            return False
+        if offered_session.protocol_version() < TLSVersion.TLSv1_3:
+            return False
+        if offered_session.ticket_max_early_data == 0:
+            return False
+        if (
+            offered_session.early_alpn is not None
+            and self._conf_alpn_protocols is not None
+            and offered_session.early_alpn not in self._conf_alpn_protocols
+        ):
             return False
 
         return True

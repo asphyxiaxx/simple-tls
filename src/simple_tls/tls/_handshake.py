@@ -140,14 +140,7 @@ class TLSHandshake:
         """"""
 
         self._session: TLSSession | None = None
-        """Session currently establishing from previous session"""
-        self._established_session: TLSSession | None = None
-        """Session established by the conneciton, only available upon the
-        handshake completed"""
-        self._new_session: TLSSession | None = None
-        """"""
-        self._early_session: TLSSession | None = None
-        """"""
+        """Session currently establishing"""
 
         self._hs_state = 0
         """The current handshake state"""
@@ -236,12 +229,12 @@ class TLSHandshake:
         self._context = value
 
     @property
-    def early_session(self) -> TLSSession | None:
-        return self._early_session
+    def session(self) -> TLSSession | None:
+        return self._session
 
     @property
-    def established_session(self) -> TLSSession | None:
-        return self._established_session
+    def session_established(self) -> bool:
+        return True
 
     @property
     def hostname(self) -> bytes | None:
@@ -386,7 +379,7 @@ class TLSHandshake:
 
     def _setup_traffic_key(self, session: TLSSession) -> None:
         if self._key_deriver is None:
-            raise AlertInternalError("Missing key_deriver")
+            raise AlertInternalError("key_deriver not set")
         if session.cipher_suite is None:
             raise AlertInternalError("Missing cipher_suite in session")
 
@@ -463,7 +456,7 @@ class TLSHandshake:
         transcript: Transcript | None = None,
     ) -> None:
         if self._key_schedule is None:
-            raise AlertInternalError("Missing key_schedule")
+            raise AlertInternalError("key_schedule not set")
         if transcript is None:
             transcript = self._transcript
 
@@ -477,12 +470,12 @@ class TLSHandshake:
 
     def _update_traffic_key_tls13(self, direction: Direction) -> None:
         if self._key_schedule is None:
-            raise AlertInternalError("Missing key_schedule")
-        if self._established_session is None:
-            raise AlertInternalError("session not establish")
+            raise AlertInternalError("key_schedule not set")
+        if self._session is None:
+            raise AlertInternalError("session not set")
 
         epoch = Epoch.APPLICATION_DATA
-        session = self._established_session
+        session = self._session
 
         if direction == Direction.ENCRYPT:
             secret = self._enc_secret[epoch]
