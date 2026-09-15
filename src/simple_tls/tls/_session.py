@@ -80,7 +80,7 @@ class TLSSession:
     """verified peer's certificate"""
     verified_x509_chain: tuple[x509.Certificate, ...] | None = None
     """verified certificate chain sent by the peer, without leaf certificate"""
-    ocsp_response: bytes = b""
+    ocsp_response: bytes | None = None
     """OCSP Response"""
 
     time: datetime = field(default_factory=utcnow)
