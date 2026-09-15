@@ -503,17 +503,20 @@ class TLSHandshakeServer(TLSHandshake):
             )
 
         ticket_ext = client_hello.get_extension(SessionTicketExtension)
-        ticket_supported = ticket_ext is not None and (
+        session = None
+        session_supported = (
             self.context.session_storage is not None
             or self.context.session_keys is not None
         )
+        ticket_supported = session_supported and ticket_ext is not None
 
         if ticket_supported:
-            ticket_ext = typing.cast(SessionTicketExtension, ticket_ext)
             session = self._process_ticket(
-                SessionType.session_ticket, ticket_ext.ticket
+                SessionType.session_ticket,
+                typing.cast(SessionTicketExtension, ticket_ext).ticket,
             )
-        else:
+
+        if session is None and session_supported and client_hello.session_id:
             session = self._process_ticket(
                 SessionType.session_id, client_hello.session_id
             )
@@ -1004,9 +1007,7 @@ class TLSHandshakeServer(TLSHandshake):
                 self.context.session_storage is not None
                 and session.session_type() != SessionType.not_resumable
             ):
-                session = session.copy(
-                    include_noauth=True, include_ticket=True
-                )
+                session = session.copy(include_noauth=True)
                 session.not_resumable = False
                 self.context.session_storage.put(session.session_id, session)
 
