@@ -76,7 +76,6 @@ class SSLSocket(_ssl.SSLSocket):
         self.suppress_ragged_eofs = suppress_ragged_eofs
 
         tls_context = context._context
-        tls_context.callback_arg = self
 
         if tls_context.is_server and not server_side:
             raise TypeError(
@@ -159,6 +158,7 @@ class SSLSocket(_ssl.SSLSocket):
                     session=tls_session,
                     new_session_handler=new_session_handler,
                 )
+                setattr(self._sslobj, "_owner", self)
 
                 if do_handshake_on_connect:
                     timeout = self.gettimeout()
@@ -194,7 +194,6 @@ class SSLSocket(_ssl.SSLSocket):
             raise TypeError("set context on closed socket")
 
         tls_context = context._context
-        tls_context.callback_arg = self
         self._sslobj.context = tls_context
         self._context = context
 
@@ -579,7 +578,9 @@ class SSLSocket(_ssl.SSLSocket):
             context=self._context._context,
             server_hostname=str_to_bytes(self.server_hostname),
             session=session,
+            new_session_handler=self._new_session_handler,
         )
+        setattr(self._sslobj, "_owner", self)
 
         try:
             if connect_ex:

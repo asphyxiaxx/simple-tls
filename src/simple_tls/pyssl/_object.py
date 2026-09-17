@@ -69,6 +69,7 @@ class SSLObject(_ssl.SSLObject):
             session=tls_session,
             new_session_handler=new_session_handler,
         )
+        setattr(sslobj, "_owner", self)
         self._sslobj = sslobj
         self._context = context
         return self
@@ -86,7 +87,6 @@ class SSLObject(_ssl.SSLObject):
             raise TypeError("Not SSLContext")
 
         tls_context = context._context
-        tls_context.callback_arg = self
         self._sslobj.context = tls_context
         self._context = context
 

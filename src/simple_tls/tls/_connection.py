@@ -476,8 +476,7 @@ class TLSConnection:
             return
 
         sni_string = bytes_to_str(sni)
-        arg = self.context.callback_arg
-        result = callback(self, sni_string, arg)
+        result = callback(self, sni_string)
 
         if result is not None:
             try:
@@ -493,13 +492,12 @@ class TLSConnection:
     def _do_hs_callback(
         self, direction: Direction, message: HandshakeMessage
     ) -> None:
-        cb = self.context.msg_cb
-        arg = self.context.callback_arg
-        if cb is not None:
+        callback = self.context.msg_cb
+        if callback is not None:
             version = self._handshake.version
             content_type = ContentType.HANDSHAKE
             data = message.serialize()
-            cb(self, direction, version, content_type, data, arg)
+            callback(self, direction, version, content_type, data)
 
     # Record layer
     def _setup_traffic(

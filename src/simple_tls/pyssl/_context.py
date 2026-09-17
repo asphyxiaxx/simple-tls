@@ -158,12 +158,8 @@ class SSLContext:
             if not callable(callback):
                 raise TypeError("not a callable object")
 
-            def shim_cb(
-                _: tls.TLSConnection,
-                servername: str,
-                arg: typing.Any,
-            ) -> int | None:
-                return callback(arg, servername, self)
+            def shim_cb(conn: typing.Any, servername: str) -> int | None:
+                return callback(getattr(conn, "_owner"), servername, self)
 
             self._context.sni_cb = shim_cb
 

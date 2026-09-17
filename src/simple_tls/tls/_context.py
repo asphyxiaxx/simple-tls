@@ -33,14 +33,8 @@ from ._keyexchange import DHParameters, load_pem_parameters
 from ._session import TicketAEAD
 from ._utils import Buffer, StrOrBytesPath, version_from_wire
 
-_MsgCallback = typing.Callable[
-    [typing.Any, Direction, int, int, bytes, typing.Any],
-    None,
-]
-_SNICallback = typing.Callable[
-    [typing.Any, str, typing.Any],
-    int | None,
-]
+_MsgCallback = typing.Callable[[typing.Any, Direction, int, int, bytes], None]
+_SNICallback = typing.Callable[[typing.Any, str], int | None]
 
 
 class TLSContext:
@@ -166,9 +160,6 @@ class TLSContext:
         # ---------------------------------------------------------------------
         # Callbacks
         # ---------------------------------------------------------------------
-        self.callback_arg: typing.Any | None = None
-        """Argument to be pass together during callback"""
-
         # Shared Callbacks
         self.msg_cb: _MsgCallback | None = None
         """Traces or logs raw TLS handshake messages."""
