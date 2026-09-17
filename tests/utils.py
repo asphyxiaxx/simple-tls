@@ -116,27 +116,66 @@ SERVER_ED448_CERTFILE = format_path("certs", "server_ed448_chain.crt")
 SERVER_ED448_KEYFILE = format_path("certs", "server_ed448.key")
 
 
-def create_server(
+class SessionHandler:
+    def __init__(self):
+        self._sessions = []
+
+    def __call__(self, session):
+        self._sessions.append(session)
+
+    def __len__(self):
+        return len(self._sessions)
+
+    def pop(self):
+        return self._sessions.pop()
+
+
+class TicketAEAD:
+    def __init__(self):
+        self._storage = {}
+
+    def seal(self, data):
+        ticket = os.urandom(32)
+        self._storage[ticket] = data
+        return ticket
+
+    def open(self, ticket):
+        try:
+            return self._storage[ticket]
+        except KeyError:
+            return None
+
+
+def create_server_context(
     context=None,
     certfile=SERVER_RSA_CERTFILE,
     keyfile=SERVER_RSA_KEYFILE,
     **kwargs,
 ):
     if context is None:
-        context = TLSContext()
+        context = TLSContext(is_server=True)
         context.load_cert_chain(certfile, keyfile)
+        context.ticket_aead = TicketAEAD()
+    else:
+        assert context.is_server
 
     for name, value in kwargs.items():
         setattr(context, name, value)
 
-    server = TLSHandshakeServer(context)
-    return server
+    return context
 
 
-def create_client(context=None, cafile=SERVER_CAFILE, **kwargs):
+def create_server(context=None, **context_kwargs):
+    context = create_server_context(context, **context_kwargs)
+    return TLSHandshakeServer(context)
+
+
+def create_client_context(context=None, cafile=SERVER_CAFILE, **kwargs):
     if context is None:
-        context = TLSContext()
+        context = TLSContext(is_server=False)
         context.load_verify_locations(cafile)
+    else:
+        assert not context.is_server
 
     context.verify_mode = VerifyMode.CERT_REQUIRED
     context.check_hostname = True
@@ -144,8 +183,22 @@ def create_client(context=None, cafile=SERVER_CAFILE, **kwargs):
     for name, value in kwargs.items():
         setattr(context, name, value)
 
-    client = TLSHandshakeClient(context, hostname=b"localhost")
-    return client
+    return context
+
+
+def create_client(
+    context=None,
+    session=None,
+    session_handler=None,
+    **context_kwargs,
+):
+    context = create_client_context(context, **context_kwargs)
+    return TLSHandshakeClient(
+        context=context,
+        server_hostname=b"localhost",
+        session=session,
+        new_session_handler=session_handler,
+    )
 
 
 def run_handshake(client, server, stop_condition=None):

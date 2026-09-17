@@ -30,13 +30,16 @@ from cryptography.hazmat.primitives.ciphers import Cipher, CipherContext, aead
 from cryptography.hazmat.primitives.ciphers.algorithms import AES
 from cryptography.hazmat.primitives.ciphers.modes import CBC
 
-from ..utils.constant_time import cbc_remove_pad_and_mac, compare_digest
-from ..utils.math import strxor
-from ..utils.random import get_random_bytes
-from ._common import get_algorithm
+from simple_tls.utils.constant_time import (
+    cbc_remove_pad_and_mac,
+    compare_digest,
+)
+from simple_tls.utils.math import strxor
+from simple_tls.utils.random import get_random_bytes
+
 from ._constant import CipherSuite, Symmetric, TLSVersion
 from ._enum import Direction
-from ._types import ReadableBuffer, WritableBuffer
+from ._utils import Buffer, WritableBuffer, get_algorithm
 
 try:
     from cryptography.hazmat.decrepit.ciphers.algorithms import (  # type: ignore
@@ -96,10 +99,10 @@ class TLSCipher:
         encrypt_then_mac: bool = False,
     ) -> None:
         self.open: typing.Callable[
-            [int, int, ReadableBuffer, int, bytes, WritableBuffer], int
+            [int, int, Buffer, int, bytes, WritableBuffer], int
         ]
         self.seal: typing.Callable[
-            [int, int, ReadableBuffer, int, bytes, WritableBuffer], int
+            [int, int, Buffer, int, bytes, WritableBuffer], int
         ]
 
         self._cipher: _AEADCipherType | _CipherType | None = None
@@ -158,7 +161,7 @@ class TLSCipher:
 
             self._cipher = aead_spec.create(enc_key)
 
-            if direction == Direction.ENCRYPT:
+            if direction == Direction.WRITE:
                 self.seal = self._encrypt_aead
             else:
                 self.open = self._decrypt_aead
@@ -221,7 +224,7 @@ class TLSCipher:
 
                 self._max_overhead = algorithm.digest_size
 
-            if direction == Direction.ENCRYPT:
+            if direction == Direction.WRITE:
                 if cipher is not None:
                     self._cipher = cipher.encryptor()
                 self.seal = seal
@@ -307,7 +310,7 @@ class TLSCipher:
         seq_num: int,
         content_type: int,
         record_version: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
     ) -> bytes:
         aad = struct.pack(
             "!QBHH", seq_num, content_type, record_version, len(plaintext)
@@ -321,7 +324,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -336,7 +339,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -379,7 +382,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -419,7 +422,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -457,7 +460,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -495,7 +498,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        ciphertext: ReadableBuffer,
+        ciphertext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -510,7 +513,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        ciphertext: ReadableBuffer,
+        ciphertext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -556,7 +559,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        ciphertext: ReadableBuffer,
+        ciphertext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -612,7 +615,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        ciphertext: ReadableBuffer,
+        ciphertext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -662,7 +665,7 @@ class TLSCipher:
         self,
         content_type: int,
         record_version: int,
-        ciphertext: ReadableBuffer,
+        ciphertext: Buffer,
         seq_num: int,
         header: bytes,
         out: WritableBuffer,
@@ -708,7 +711,7 @@ class NullCipher(TLSCipher):
         self._max_overhead = 0
         self._block_size = 1
 
-        if direction == Direction.ENCRYPT:
+        if direction == Direction.WRITE:
             self.seal = self._encrypt_raw
         else:
             self.open = self._decrypt_raw

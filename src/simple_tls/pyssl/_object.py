@@ -5,6 +5,7 @@ import typing
 
 from simple_tls import tls, x509
 
+from ..utils.math import str_to_bytes
 from ._constant import Options
 from ._exception import SSLEOFError, SSLError, SSLWantReadError
 from ._session import SSLSession
@@ -34,26 +35,39 @@ class SSLObject(_ssl.SSLObject):
             raise ValueError("context not provided")
 
         self = cls.__new__(cls)
-        context._context.sni_callback_arg = self
+        tls_context = context._context
+
+        if tls_context.is_server and not server_side:
+            raise TypeError(
+                "Cannot create a client socket with a PROTOCOL_TLS_SERVER "
+                "context"
+            )
+        if not tls_context.is_server and server_side:
+            raise TypeError(
+                "Cannot create a server socket with a PROTOCOL_TLS_CLIENT "
+                "context"
+            )
 
         if not server_side:
-            session_ticket_handler = self._session_ticket_handler
+            new_session_handler = self._new_session_handler
+            if session is not None:
+                tls_session = session.session
+            else:
+                tls_session = None
         else:
-            session_ticket_handler = None
+            new_session_handler = None
+            tls_session = None
 
         if context.options & Options.OP_NO_TICKET:
-            session_ticket_handler = None
-            context._context.session_keys = None
-            context._context.session_storage = None
+            new_session_handler = None
 
         sslobj = tls.TLSConnection(
-            context=context._context,
+            context=tls_context,
             inbio=incoming,
             outbio=outgoing,
-            is_server=server_side,
-            server_hostname=server_hostname,
-            session=(session.session if session is not None else session),
-            session_ticket_handler=session_ticket_handler,
+            server_hostname=str_to_bytes(server_hostname),
+            session=tls_session,
+            new_session_handler=new_session_handler,
         )
         self._sslobj = sslobj
         self._context = context
@@ -67,13 +81,14 @@ class SSLObject(_ssl.SSLObject):
         return self._context
 
     @context.setter
-    def context(self, value: SSLContext) -> None:
-        if not isinstance(value, SSLContext):
+    def context(self, context: SSLContext) -> None:
+        if not isinstance(context, SSLContext):
             raise TypeError("Not SSLContext")
 
-        self._context = value
-        self._sslobj.context = value._context
-        self._sslobj.context.sni_callback_arg = self
+        tls_context = context._context
+        tls_context.callback_arg = self
+        self._sslobj.context = tls_context
+        self._context = context
 
     @property
     def session(self) -> SSLSession | None:  # type: ignore[override]
@@ -129,7 +144,7 @@ class SSLObject(_ssl.SSLObject):
         return self._sslobj.write(data)  # type: ignore
 
     def get_ech_retry_configs(self) -> bytes | None:
-        return self._sslobj.ech_retry_config(binary_form=True)
+        return self._sslobj.ech_retry_configs(binary_form=True)
 
     def ech_accepted(self) -> bool:
         return self._sslobj.ech_accepted()
@@ -261,5 +276,5 @@ class SSLObject(_ssl.SSLObject):
             raise SSLError("Not server")
         return self._sslobj.verify_client_post_handshake()
 
-    def _session_ticket_handler(self, session: tls.TLSSession) -> None:
+    def _new_session_handler(self, session: tls.TLSSession) -> None:
         self._session = SSLSession(session)

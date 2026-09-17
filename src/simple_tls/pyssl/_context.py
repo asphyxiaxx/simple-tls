@@ -21,10 +21,9 @@ from ._constant import (
     VerifyMode,
 )
 from ._object import SSLObject
-from ._session import SSLSession
+from ._session import SSLSession, TicketAEAD
 from ._socket import SSLSocket
 from ._types import (
-    ExtensionsCbType,
     PeerCertRetDictType,
     PSKClientCbType,
     PSKServerCbType,
@@ -46,8 +45,22 @@ class SSLContext:
     sslsocket_class: type[SSLSocket] = SSLSocket
     sslobject_class: type[SSLObject] = SSLObject
 
-    def __init__(self, protocol: int = PROTOCOL_TLS):
-        self._context = tls.TLSContext()
+    def __init__(self, protocol: int = PROTOCOL_TLS_CLIENT):
+        if protocol == PROTOCOL_TLS_CLIENT:
+            context = tls.TLSContext(is_server=False)
+            verify_mode = VerifyMode.CERT_REQUIRED
+            check_hostname = True
+        elif protocol == PROTOCOL_TLS_SERVER:
+            context = tls.TLSContext(is_server=True)
+            context.ticket_aead = TicketAEAD()
+            verify_mode = VerifyMode.CERT_NONE
+            check_hostname = False
+        elif protocol == PROTOCOL_TLS:
+            raise ValueError("PROTOCOL_TLS is unsupported.")
+        else:
+            raise ValueError(f"unsupported protocol {protocol}")
+
+        self._context = context
         self._options = (
             Options.OP_ENABLE_MIDDLEBOX_COMPAT
             | Options.OP_SINGLE_DH_USE
@@ -60,21 +73,17 @@ class SSLContext:
             | Options.OP_NO_TLSv1_1
         )
 
-        if protocol == PROTOCOL_TLS_CLIENT:
-            self.verify_mode = VerifyMode.CERT_REQUIRED
-            self.check_hostname = True
-        elif protocol == PROTOCOL_TLS_SERVER:
-            self.verify_mode = VerifyMode.CERT_NONE
-            self.check_hostname = False
+        self.verify_mode = verify_mode
+        self.check_hostname = check_hostname
 
     def _set_options(self) -> None:
-        if self._options & Options.OP_NO_TICKET:
-            self._context.session_keys = None
-            self._context.session_storage = None
+        if self._options & Options.OP_ENABLE_MIDDLEBOX_COMPAT:
+            self._context.middlebox_compat = True
+        else:
+            self._context.middlebox_compat = False
 
-        self._context.middlebox_compat = bool(
-            self._options & Options.OP_ENABLE_MIDDLEBOX_COMPAT
-        )
+        if self._options & Options.OP_NO_TICKET:
+            self._context.ticket_aead = None
 
     def wrap_socket(
         self,
@@ -122,31 +131,29 @@ class SSLContext:
 
     def set_ciphers(self, cipherlist: str) -> None:
         cipher_suites = parse_cipher_string(cipherlist)
-        self._context.cipher_suites = cipher_suites
+        self._context.set_cipher_suites(cipher_suites)
 
     def set_npn_protocols(self, npn_protocols: typing.Iterable[str]) -> None:
-        out = []
+        out: list[bytes] = []
         for protocol in npn_protocols:
             b = bytes(protocol, "ascii")
             if len(b) == 0 or len(b) > 255:
                 raise ValueError("NPN protocols must be 1 to 255 in length")
             out.append(b)
-
-        self._context.npn_protocols = out
+        self._context.set_npn_protocols(out)
 
     def set_alpn_protocols(self, alpn_protocols: typing.Iterable[str]) -> None:
-        out = []
+        out: list[bytes] = []
         for protocol in alpn_protocols:
             b = bytes(protocol, "ascii")
             if len(b) == 0 or len(b) > 255:
                 raise ValueError("NPN protocols must be 1 to 255 in length")
             out.append(b)
-
-        self._context.alpn_protocols = out
+        self._context.set_alpn_protocols(out)
 
     def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:
         if callback is None:
-            self._context.sni_callback = None
+            self._context.sni_cb = None
         else:
             if not callable(callback):
                 raise TypeError("not a callable object")
@@ -158,7 +165,7 @@ class SSLContext:
             ) -> int | None:
                 return callback(arg, servername, self)
 
-            self._context.sni_callback = shim_cb
+            self._context.sni_cb = shim_cb
 
     def set_psk_client_callback(
         self, callback: PSKClientCbType | None
@@ -171,13 +178,6 @@ class SSLContext:
         identity_hint: str | None = None,
     ) -> None:
         raise NotImplementedError
-
-    def set_exts_order_callback(
-        self, callback: ExtensionsCbType | None
-    ) -> None:
-        if callback is not None and not callable(callback):
-            raise TypeError("Not a callback object")
-        self._context.extensions_order_cb = callback
 
     def set_ecdh_curve(self, curve: str) -> None:
         lookup_map = {
@@ -203,14 +203,13 @@ class SSLContext:
         if not groups:
             raise ValueError(f"Unknown elliptic curve name '{curve}'")
 
-        self._context.supported_groups = groups
-        self._context.key_share_groups = groups[:2]
+        self._context.set_supported_groups(groups)
 
     def load_dh_params(self, path: str) -> None:
         return self._context.load_dh_params(path)
 
     def set_ech_configs(self, ech_config: bytes | None) -> None:
-        self._context.ech_configs = str_to_bytes(ech_config)
+        self._context.set_ech_configs(str_to_bytes(ech_config))
 
     def _load_windows_store_certs(
         self, storename: str, purpose: Purpose
@@ -273,19 +272,21 @@ class SSLContext:
     ) -> list[PeerCertRetDictType] | list[bytes]: ...
 
     def get_ca_certs(self, binary_form: bool = False) -> typing.Any:
-        ca_certs = self._context.get_ca_certs()
+        castore = self._context.castore
         if not binary_form:
-            return [parse_certificate(c) for c in ca_certs]
-        return [c.public_bytes(x509.Encoding.DER) for c in ca_certs]
+            return [parse_certificate(c) for c in castore]
+        return [c.public_bytes(x509.Encoding.DER) for c in castore]
 
     def load_cert_chain(
         self,
-        certfile: str | bytes,
-        keyfile: str | bytes | None = None,
-        password: str | bytes | None = None,
+        certfile: StrOrBytesPath,
+        keyfile: StrOrBytesPath | None = None,
+        password: str | ReadableBuffer | None = None,
     ) -> None:
-        return self._context.load_cert_chain(
-            certfile=certfile, keyfile=keyfile, password=password
+        self._context.load_cert_chain(
+            certfile=certfile,  # type:ignore
+            keyfile=keyfile,  # type:ignore
+            password=str_to_bytes(password),  # type:ignore
         )
 
     def load_verify_locations(
@@ -297,7 +298,7 @@ class SSLContext:
         self._context.load_verify_locations(
             cafile=cafile,  # type: ignore
             capath=capath,  # type: ignore
-            cadata=cadata,  # type: ignore
+            cadata=str_to_bytes(cadata),  # type: ignore
         )
 
     def load_default_certs(
@@ -357,14 +358,14 @@ class SSLContext:
 
     @property
     def application_settings(self) -> bool:
-        return b"h2" in self._context.alps
+        return any(x[0] == b"h2" for x in self._context.alps)
 
     @application_settings.setter
     def application_settings(self, value: bool) -> None:
         if value:
-            self._context.alps[b"h2"] = b""
+            self._context.add_alps(b"h2", b"")
         else:
-            self._context.alps.clear()
+            self._context.remove_alps(b"h2")
 
     @property
     def grease(self) -> bool:

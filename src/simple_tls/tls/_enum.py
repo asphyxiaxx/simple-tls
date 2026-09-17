@@ -43,8 +43,8 @@ class SessionType(int, enum.Enum):
 
 
 class Direction(int, enum.Enum):
-    DECRYPT = 0
-    ENCRYPT = 1
+    READ = 0
+    WRITE = 1
 
 
 class Epoch(int, enum.Enum):

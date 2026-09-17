@@ -22,52 +22,39 @@ from __future__ import annotations
 
 import typing
 
-from .. import x509
-from ..utils.math import str_to_bytes
-from ..x509.verification import ExtensionPolicy, Store
-from ._constant import (
-    CertificateCompressionAlgorithm,
-    CipherSuite,
-    ECPointFormat,
-    NamedGroup,
-    SignatureScheme,
-    TLSVersion,
-)
-from ._enum import Protocol, VerifyMode
+from simple_tls import x509
+from simple_tls.utils.math import str_to_bytes
+from simple_tls.x509.verification import ExtensionPolicy, Store
+
+from ._constant import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
+from ._enum import Direction, Protocol, VerifyMode
 from ._key import BasePrivateKey, load_pem_private_key
 from ._keyexchange import DHParameters, load_pem_parameters
-from ._session import TLSSessionKeys, TLSSessionStorage
-from ._supported import TLS_VERSIONS
-from ._types import StrOrBytesPath
+from ._session import TicketAEAD
+from ._utils import Buffer, StrOrBytesPath, version_from_wire
 
-if typing.TYPE_CHECKING:
-    from ._connection import TLSConnection
-
-_ExtensionsOrderCallback = typing.Callable[[list[int]], list[int]]
-_SNICallback = typing.Callable[
-    ["TLSConnection", str, typing.Any | None], int | None
+_MsgCallback = typing.Callable[
+    [typing.Any, Direction, int, int, bytes, typing.Any],
+    None,
 ]
-_MessageCallback = typing.Callable[
-    ["TLSConnection", typing.Literal["write", "read"], int, int, bytes], None
+_SNICallback = typing.Callable[
+    [typing.Any, str, typing.Any],
+    int | None,
 ]
 
 
 class TLSContext:
     """
-    Configuration factory for TLS connections.
+    Context for TLS connections.
     """
 
-    def __init__(self, protocol: Protocol = Protocol.TLS) -> None:
-        # ---------------------------------------------------------------------
-        # Protocol & Version
-        # ---------------------------------------------------------------------
-        self._protocol: Protocol = protocol
-        self._minimum_version: TLSVersion
-        self._maximum_version: TLSVersion
-
+    def __init__(
+        self,
+        protocol: Protocol = Protocol.TLS,
+        is_server: bool = False,
+    ) -> None:
         if protocol == Protocol.TLS:
-            self._minimum_version = TLSVersion.TLSv1_2
-            self._maximum_version = TLSVersion.TLSv1_3
+            pass
         elif protocol == Protocol.QUIC:
             raise NotImplementedError("QUIC is not supported yet.")
         elif self._protocol == Protocol.DTLS:
@@ -75,10 +62,16 @@ class TLSContext:
         else:
             raise ValueError(f"Unknown protocol '{protocol}'")
 
-        # ALPN / NPN
-        self._alpn_protocols: tuple[bytes, ...] = ()
-        self._npn_protocols: tuple[bytes, ...] = ()
-        self._alps: dict[bytes, bytes] = {}
+        self._protocol: Protocol = protocol
+        self._is_server: bool = is_server
+
+        # ---------------------------------------------------------------------
+        # Version
+        # ---------------------------------------------------------------------
+        self._minimum_version: TLSVersion = TLSVersion.TLSv1_2
+        """Normalize minimum TLS version"""
+        self._maximum_version: TLSVersion = TLSVersion.TLSv1_3
+        """Normalize maximum TLS version"""
 
         # ---------------------------------------------------------------------
         # Identity & Credentials
@@ -91,9 +84,17 @@ class TLSContext:
         self._verify_mode = VerifyMode.CERT_NONE
         self._check_hostname = False
 
-        # Certificate Policies
+        # Certificate policies
         self._ee_policy = ExtensionPolicy.defaults_ee()
         self._ca_policy = ExtensionPolicy.defaults_ca()
+
+        # ---------------------------------------------------------------------
+        # Protocol
+        # ---------------------------------------------------------------------
+        # ALPN / NPN
+        self._npn_protocols: tuple[bytes, ...] | None = None
+        self._alpn_protocols: tuple[bytes, ...] | None = None
+        self._alps: tuple[tuple[bytes, bytes], ...] = ()
 
         # ---------------------------------------------------------------------
         # Cryptographic Parameters
@@ -116,26 +117,15 @@ class TLSContext:
             CipherSuite.TLS_RSA_WITH_AES_256_CBC_SHA,
         )
 
-        # Key Exchange
-        self._dh_params: DHParameters | None = None
-        """DH parameters for server side only"""
-        self._supported_groups: tuple[int, ...] = (
+        # Key exchange
+        self._dh_parameters: DHParameters | None = None
+        self._supported_groups: tuple[int, ...] | None = (
             NamedGroup.X25519MLKEM768,
             NamedGroup.X25519,
             NamedGroup.SECP256R1,
             NamedGroup.SECP384R1,
         )
-        """supported groups to send over in TLSv1.3"""
-        self._key_share_groups: tuple[int, ...] = (
-            NamedGroup.X25519MLKEM768,
-            NamedGroup.X25519,
-        )
-
-        self._ec_point_formats: tuple[int, ...] = (ECPointFormat.UNCOMPRESSED,)
-        """ec point compression format (default uncompressed)"""
-
-        # Signature
-        self._signature_algorithms: tuple[int, ...] = (
+        self._signature_algorithms: tuple[int, ...] | None = (
             SignatureScheme.ECDSA_SECP256R1_SHA256,
             SignatureScheme.RSA_PSS_RSAE_SHA256,
             SignatureScheme.RSA_PKCS1_SHA256,
@@ -145,15 +135,9 @@ class TLSContext:
             SignatureScheme.RSA_PSS_RSAE_SHA512,
             SignatureScheme.RSA_PKCS1_SHA512,
         )
-        """Signature algorithms"""
+        self._certificate_compressions: tuple[int, ...] | None = None
 
-        # Certificate compression algorihtm
-        self._certificate_compressions: tuple[int, ...] = (
-            CertificateCompressionAlgorithm.ZLIB,
-        )
-        """Certificate compression algorithms (TLSv1.3 specific)"""
-
-        # ECH Config
+        # ECH configurations
         self._ech_configs: bytes | None = None
 
         # Compatibilty
@@ -163,10 +147,10 @@ class TLSContext:
         # Standard security features
         self.encrypt_then_mac: bool = False
         self.extended_master_secret: bool = True
-        self.required_extended_master_secret: bool = False
 
         # Client-side Privacy & Obfuscation
         self.client_hello_padding: bool = True
+        self.permute_extensions: bool = True
         self.grease: bool = True
         self.grease_ech: bool = True
 
@@ -179,40 +163,34 @@ class TLSContext:
         self.max_early_data_size: int = 0xFFFF
         self.post_handshake_auth: bool = False
 
-        # Session keys to decrypt ticket
-        self._session_keys: TLSSessionKeys | None = TLSSessionKeys()
+        # ---------------------------------------------------------------------
+        # Callbacks
+        # ---------------------------------------------------------------------
+        self.callback_arg: typing.Any | None = None
+        """Argument to be pass together during callback"""
 
-        # Session storage
-        self._session_storage: TLSSessionStorage | None = TLSSessionStorage()
+        # Shared Callbacks
+        self.msg_cb: _MsgCallback | None = None
+        """Traces or logs raw TLS handshake messages."""
 
-        # Message Callback
-        self.message_callback: _MessageCallback | None = None
-        """
-        Callback for Message Debugging/Tracing
-        Signature: (owner, direction, version, message) -> None
-        """
+        # Server-Side Callbacks
+        self.sni_cb: _SNICallback | None = None
+        """Invoked during SNI extension processing to select dynamic context or
+        certs."""
 
-        # Client specific callback
-        self.extensions_order_cb: _ExtensionsOrderCallback | None = None
-        """
-        Callback for Extension Reordering (for fingerprinting randomization)
-        Signature: (list_of_ids) -> list_of_ids
-        """
-
-        # Server specific callback
-        self.sni_callback: _SNICallback | None = None
-        """
-        Callback for SNI (Server Name Indication)
-        Signature: (connection, hostname, sni_callback_arg) -> int_result
-        """
-        self.sni_callback_arg: typing.Any | None = None
-        """
-        An optional custom argument which will pass to sni_callback
-        """
+        # ---------------------------------------------------------------------
+        # Others
+        # ---------------------------------------------------------------------
+        self.ticket_aead: TicketAEAD | None = None
+        """"""
 
     @property
     def protocol(self) -> Protocol:
         return self._protocol
+
+    @property
+    def is_server(self) -> bool:
+        return self._is_server
 
     @property
     def minimum_version(self) -> TLSVersion:
@@ -220,23 +198,12 @@ class TLSContext:
 
     @minimum_version.setter
     def minimum_version(self, value: TLSVersion) -> None:
-        version = self._verify_version(value)
-        err = False
-
-        if self._protocol == Protocol.DTLS:
-            if version < self._maximum_version:
-                err = True
-        else:
-            if version > self._maximum_version:
-                err = True
-
-        if err:
+        version = version_from_wire(self.protocol, value)
+        if version > self._maximum_version:
             raise ValueError(
-                f"Minimum version ({value}) cannot be greater than maximum "
-                f"({self._maximum_version})"
+                f"minimum_version ({value}) cannot be greater than maximum"
             )
-
-        self._minimum_version = version
+        self._minimum_version = value
 
     @property
     def maximum_version(self) -> TLSVersion:
@@ -244,23 +211,12 @@ class TLSContext:
 
     @maximum_version.setter
     def maximum_version(self, value: TLSVersion) -> None:
-        version = self._verify_version(value)
-        err = False
-
-        if self._protocol == Protocol.DTLS:
-            if version > self._minimum_version:
-                err = True
-        else:
-            if version < self._minimum_version:
-                err = True
-
-        if err:
+        version = version_from_wire(self.protocol, value)
+        if version < self._minimum_version:
             raise ValueError(
                 f"Maximum version ({value}) cannot be lesser than minimum "
-                f"({self._minimum_version})"
             )
-
-        self._maximum_version = version
+        self._maximum_version = value
 
     @property
     def verify_mode(self) -> VerifyMode:
@@ -271,7 +227,7 @@ class TLSContext:
         try:
             self._verify_mode = VerifyMode(value)
         except ValueError as exc:
-            raise ValueError(f"Unknown verify_mode '{value}'") from exc
+            raise ValueError(f"Invalid verify_mode '{value}'") from exc
 
     @property
     def check_hostname(self) -> bool:
@@ -288,125 +244,13 @@ class TLSContext:
         return self._castore
 
     @property
-    def x509_certs(self) -> typing.Sequence[x509.Certificate] | None:
+    def x509_certs(self) -> tuple[x509.Certificate, ...] | None:
         """Returns the chain of X.509 certificate (including leaf)."""
         return self._x509_certs
 
     @property
     def private_key(self) -> BasePrivateKey | None:
         return self._private_key
-
-    @property
-    def session_keys(self) -> TLSSessionKeys | None:
-        return self._session_keys
-
-    @session_keys.setter
-    def session_keys(self, value: TLSSessionKeys | None) -> None:
-        if value is not None and not isinstance(value, TLSSessionKeys):
-            raise TypeError("session_storage must be TLSSessionKeys object")
-        self._session_keys = value
-
-    @property
-    def session_storage(self) -> TLSSessionStorage | None:
-        return self._session_storage
-
-    @session_storage.setter
-    def session_storage(self, value: TLSSessionStorage | None) -> None:
-        if value is not None and not isinstance(value, TLSSessionStorage):
-            raise TypeError("session_storage must be TLSSessionStorage object")
-        self._session_storage = value
-
-    @property
-    def cipher_suites(self) -> typing.Sequence[CipherSuite]:
-        return self._cipher_suites
-
-    @cipher_suites.setter
-    def cipher_suites(self, value: typing.Sequence[CipherSuite]) -> None:
-        self._cipher_suites = tuple(
-            CipherSuite(v) if not isinstance(v, CipherSuite) else v
-            for v in value
-        )
-
-    @property
-    def signature_algorithms(self) -> typing.Sequence[int]:
-        """signature algorithms used for signing"""
-        return self._signature_algorithms
-
-    @signature_algorithms.setter
-    def signature_algorithms(self, value: typing.Sequence[int]) -> None:
-        self._signature_algorithms = tuple(value)
-
-    @property
-    def ec_point_formats(self) -> typing.Sequence[int]:
-        return self._ec_point_formats
-
-    @ec_point_formats.setter
-    def ec_point_formats(self, value: typing.Sequence[int]) -> None:
-        self._ec_point_formats = tuple(value)
-
-    @property
-    def certificate_compressions(self) -> typing.Sequence[int]:
-        return self._certificate_compressions
-
-    @certificate_compressions.setter
-    def certificate_compressions(self, value: typing.Sequence[int]) -> None:
-        self._certificate_compressions = tuple(value)
-
-    @property
-    def supported_groups(self) -> typing.Sequence[int]:
-        """"""
-        return self._supported_groups
-
-    @supported_groups.setter
-    def supported_groups(self, value: typing.Sequence[int]) -> None:
-        self._supported_groups = tuple(value)
-
-    @property
-    def key_share_groups(self) -> typing.Sequence[int]:
-        """key share groups to send over in TLSv1.3 for client side"""
-        return self._key_share_groups
-
-    @key_share_groups.setter
-    def key_share_groups(self, value: typing.Sequence[int]) -> None:
-        self._key_share_groups = tuple(value)
-
-    @property
-    def ech_configs(self) -> bytes | None:
-        return self._ech_configs
-
-    @ech_configs.setter
-    def ech_configs(self, value: bytes | None) -> None:
-        if value is not None and not isinstance(value, bytes):
-            raise TypeError("ech_configs must be bytes object")
-        self._ech_configs = value
-
-    @property
-    def dh_params(self) -> DHParameters | None:
-        return self._dh_params
-
-    @property
-    def alps(self) -> dict[bytes, bytes]:
-        return self._alps
-
-    @property
-    def alpn_protocols(self) -> typing.Sequence[bytes]:
-        return self._alpn_protocols
-
-    @alpn_protocols.setter
-    def alpn_protocols(self, value: typing.Sequence[bytes]) -> None:
-        if not all(isinstance(p, bytes) for p in value):
-            raise TypeError("alpn_protocols must be Sequence of bytes object")
-        self._alpn_protocols = tuple(value)
-
-    @property
-    def npn_protocols(self) -> typing.Sequence[bytes]:
-        return self._npn_protocols
-
-    @npn_protocols.setter
-    def npn_protocols(self, value: typing.Sequence[bytes]) -> None:
-        if not all(isinstance(p, bytes) for p in value):
-            raise TypeError("npn_protocols must be Sequence of bytes object")
-        self._npn_protocols = tuple(value)
 
     @property
     def ee_policy(self) -> ExtensionPolicy:
@@ -428,28 +272,105 @@ class TLSContext:
             raise TypeError("ca_policy must be x509.ExtensionPolicy instance")
         self._ca_policy = value
 
+    @property
+    def npn_protocols(self) -> tuple[bytes, ...] | None:
+        return self._npn_protocols
+
+    @property
+    def alpn_protocols(self) -> tuple[bytes, ...] | None:
+        return self._alpn_protocols
+
+    @property
+    def alps(self) -> tuple[tuple[bytes, bytes], ...]:
+        return self._alps
+
+    @property
+    def cipher_suites(self) -> tuple[CipherSuite, ...]:
+        return self._cipher_suites
+
+    @property
+    def dh_parameters(self) -> DHParameters | None:
+        """Diffie-Hellman parameters (server-side only)"""
+        return self._dh_parameters
+
+    @property
+    def supported_groups(self) -> tuple[int, ...] | None:
+        """Supported groups (TLSv1.3)"""
+        return self._supported_groups
+
+    @property
+    def signature_algorithms(self) -> tuple[int, ...] | None:
+        """Signature algorithms (TLSv1.3)"""
+        return self._signature_algorithms
+
+    @property
+    def certificate_compressions(self) -> tuple[int, ...] | None:
+        """Certificate compression algorithms (TLSv1.3)"""
+        return self._certificate_compressions
+
+    @property
+    def ech_configs(self) -> bytes | None:
+        """ECH configurations (TLSv1.3)"""
+        return self._ech_configs
+
+    def set_cipher_suites(self, value: typing.Iterable[CipherSuite]) -> None:
+        cipher_suites = tuple(value)
+        if not cipher_suites:
+            raise ValueError("Empty cipher suites")
+        self._cipher_suites = cipher_suites
+
+    def set_supported_groups(self, value: typing.Iterable[int]) -> None:
+        self._supported_groups = tuple(value) or None
+
+    def set_signature_algorithms(self, value: typing.Iterable[int]) -> None:
+        self._signature_algorithms = tuple(value) or None
+
+    def set_certificate_compressions(
+        self, value: typing.Iterable[int]
+    ) -> None:
+        self._certificate_compressions = tuple(value) or None
+
+    def set_ech_configs(self, value: Buffer | None) -> None:
+        if isinstance(value, Buffer):
+            value = bytes(value)
+        elif value is not None:
+            raise TypeError("ech_configs must be bytes object")
+        self._ech_configs = value
+
+    def set_alpn_protocols(self, protocols: typing.Iterable[Buffer]) -> None:
+        self._alpn_protocols = tuple(bytes(p) for p in protocols) or None
+
+    def add_alps(self, protocol: Buffer, settings: Buffer) -> None:
+        self._alps = (*self._alps, (bytes(protocol), bytes(settings)))
+
+    def remove_alps(self, protocol: Buffer) -> None:
+        self._alps = tuple(x for x in self._alps if x[0] != protocol)
+
+    def set_npn_protocols(self, protocols: typing.Iterable[Buffer]) -> None:
+        self._npn_protocols = tuple(bytes(p) for p in protocols) or None
+
     def load_dh_params(self, path: StrOrBytesPath) -> None:
         with open(path, "rb") as fp:
             pem_data = fp.read()
-        self._dh_params = load_pem_parameters(pem_data)
+        self._dh_parameters = load_pem_parameters(pem_data)
 
     def load_cert_chain(
         self,
         certfile: StrOrBytesPath,
         keyfile: StrOrBytesPath | None = None,
-        password: str | bytes | None = None,
+        password: Buffer | None = None,
     ) -> None:
         """
         Securely loads the chain and key, updating internal state atomically.
         """
-        password = str_to_bytes(password)
-
         with open(certfile, "rb") as fp:
             pem_data = fp.read()
 
         certs = x509.load_pem_x509_certificates(pem_data)
         if not certs:
             raise ValueError(f"No certificates found in {certfile!r}")
+
+        password = str_to_bytes(password)
 
         if b"PRIVATE KEY" in pem_data:
             key = load_pem_private_key(pem_data, password)
@@ -464,14 +385,11 @@ class TLSContext:
         self._x509_certs = tuple(certs)
         self._private_key = key
 
-    def get_ca_certs(self) -> list[x509.Certificate]:
-        return [c for c in self.castore]
-
     def load_verify_locations(
         self,
         cafile: StrOrBytesPath | None = None,
         capath: StrOrBytesPath | None = None,
-        cadata: str | bytes | None = None,
+        cadata: Buffer | None = None,
     ) -> None:
         if cafile:
             with open(cafile, "rb") as fp:
@@ -486,27 +404,7 @@ class TLSContext:
             self.castore.extend(certificates)
 
         if cadata:
-            if isinstance(cadata, str):
-                cadata = str_to_bytes(cadata)
-                certificates = x509.load_pem_x509_certificates(cadata)
-                self.castore.extend(certificates)
-            else:
-                certificates = x509.load_der_x509_certificates(cadata)
-                self.castore.extend(certificates)
-
-    def _verify_version(self, version: int) -> TLSVersion:
-        supported_versions: tuple[int, ...]
-
-        if self._protocol == Protocol.TLS:
-            supported_versions = TLS_VERSIONS
-        elif self._protocol == Protocol.QUIC:
-            supported_versions = ()
-        elif self._protocol == Protocol.DTLS:
-            supported_versions = ()
-        else:
-            raise ValueError(f"Unknown protocol '{self._protocol}'")
-
-        if version not in supported_versions:
-            raise ValueError(f"Unsupported TLS version '{version}'")
-
-        return TLSVersion(version)
+            if not isinstance(cadata, bytes):
+                cadata = bytes(cadata)
+            certificates = x509.load_pem_x509_certificates(cadata)
+            self.castore.extend(certificates)

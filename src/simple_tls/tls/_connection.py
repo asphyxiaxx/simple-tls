@@ -24,8 +24,9 @@ import struct
 import typing
 from ssl import MemoryBIO
 
-from .. import x509
-from ..utils.math import bytes_to_str, int_to_bytes, str_to_bytes
+from simple_tls import x509
+from simple_tls.utils.math import bytes_to_str, int_to_bytes
+
 from ._alert import AlertException
 from ._cipher import InvalidTag, NullCipher, TLSCipher
 from ._constant import (
@@ -47,11 +48,11 @@ from ._exception import (
 )
 from ._extension import ECHConfig
 from ._handshake import TLSHandshake
-from ._handshake_client import SessionTicketHandler, TLSHandshakeClient
+from ._handshake_client import NewSessionHandler, TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
 from ._message import Alert, ChangeCipherSpec, HandshakeMessage
 from ._session import TLSSession
-from ._types import ReadableBuffer, WritableBuffer
+from ._utils import Buffer, WritableBuffer
 
 _HEADER_LENGTH = 5
 _MAX_EARLY_DATA_SKIPPED = 16384
@@ -84,43 +85,45 @@ class TLSConnection:
         context: TLSContext,
         inbio: MemoryBIO | None = None,
         outbio: MemoryBIO | None = None,
-        is_server: bool = False,
-        server_hostname: bytes | str | None = None,
+        server_hostname: Buffer | None = None,
         session: TLSSession | None = None,
-        session_ticket_handler: SessionTicketHandler | None = None,
+        new_session_handler: NewSessionHandler | None = None,
     ) -> None:
         if context.check_hostname and not server_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
-        if is_server:
+        handshake: TLSHandshakeClient | TLSHandshakeServer
+        if context.is_server:
             if server_hostname:
                 raise ValueError(
                     "server_hostname can only be specified in client mode"
                 )
-            if session is not None or session_ticket_handler is not None:
+            if session is not None:
                 raise ValueError(
                     "session can only be specified in client mode"
                 )
+            if new_session_handler is not None:
+                raise ValueError(
+                    "new_session_handler can only be specified in client mode"
+                )
 
-            handshake = typing.cast(TLSHandshake, TLSHandshakeServer(context))
+            handshake = TLSHandshakeServer(context=context)
+            handshake.sni_callback = self._do_sni_callback
         else:
-            handshake = typing.cast(
-                TLSHandshake,
-                TLSHandshakeClient(
-                    context=context,
-                    hostname=str_to_bytes(server_hostname),
-                    session=session,
-                    session_ticket_handler=session_ticket_handler,
-                ),
+            handshake = TLSHandshakeClient(
+                context=context,
+                server_hostname=server_hostname,
+                session=session,
+                new_session_handler=new_session_handler,
             )
 
+        handshake.message_cb = self._do_hs_callback
+        handshake.setup_traffic_cb = self._setup_traffic
+        handshake.update_traffic_cb = self._update_traffic
+        handshake.add_ccs_cb = self._add_ccs
+
         self._handshake_status = Status.OK
-        self._handshake = handshake
-        self._handshake.do_message_cb = self._do_hs_callback
-        self._handshake.setup_traffic_cb = self._setup_traffic
-        self._handshake.update_traffic_cb = self._update_traffic
-        self._handshake.add_ccs_cb = self._add_ccs
-        self._handshake.do_sni_cb = self._sni_callback
+        self._handshake = typing.cast(TLSHandshake, handshake)
 
         self._send_record_limit = 2**14
         """send record limit"""
@@ -158,10 +161,10 @@ class TLSConnection:
         self._current_write_epoch = Epoch.INITIAL
         self._current_read_epoch = Epoch.INITIAL
         self._write_states = {
-            Epoch.INITIAL: ConnectionState.create_initial(Direction.ENCRYPT)
+            Epoch.INITIAL: ConnectionState.create_initial(Direction.WRITE)
         }
         self._read_states = {
-            Epoch.INITIAL: ConnectionState.create_initial(Direction.DECRYPT)
+            Epoch.INITIAL: ConnectionState.create_initial(Direction.READ)
         }
 
     @property
@@ -192,21 +195,21 @@ class TLSConnection:
         return self._handshake.ech_status == ECHStatus.ACCEPTED
 
     @typing.overload
-    def ech_retry_config(
+    def ech_retry_configs(
         self, binary_form: typing.Literal[True] = ...
     ) -> bytes | None: ...
 
     @typing.overload
-    def ech_retry_config(
+    def ech_retry_configs(
         self, binary_form: typing.Literal[False] = ...
     ) -> list[ECHConfig] | None: ...
 
     @typing.overload
-    def ech_retry_config(
+    def ech_retry_configs(
         self, binary_form: bool = ...
     ) -> list[ECHConfig] | bytes | None: ...
 
-    def ech_retry_config(
+    def ech_retry_configs(
         self, binary_form: bool = True
     ) -> list[ECHConfig] | bytes | None:
         ech_retry_config = self._handshake.ech_retry_configs
@@ -245,7 +248,7 @@ class TLSConnection:
             raise TLSError("Not server")
         raise NotImplementedError()
 
-    def bio_write(self, data: bytes) -> None:
+    def bio_write(self, data: Buffer) -> None:
         """
         Data from the network
         """
@@ -336,7 +339,7 @@ class TLSConnection:
         del self._pending_app_data[:length]
         return bytes(app_data)
 
-    def write(self, data: ReadableBuffer) -> int:
+    def write(self, data: Buffer) -> int:
         if not (self._handshake.done or self._handshake.can_early_write):
             self.do_handshake()
 
@@ -462,11 +465,88 @@ class TLSConnection:
                 break
 
     def shutdown(self) -> None:
-        if self._write_shutdown != Shutdown.NONE:
+        if self._write_shutdown == Shutdown.NONE:
+            self._send_alert(AlertDescription.CLOSE_NOTIFY, fatal=False)
+            self._write_shutdown = Shutdown.CLOSE_NOTIFY
+
+    # Callbacks
+    def _do_sni_callback(self, sni: bytes) -> None:
+        callback = self.context.sni_cb
+        if callback is None:
             return
 
-        self._send_alert(AlertDescription.CLOSE_NOTIFY, fatal=False)
-        self._write_shutdown = Shutdown.CLOSE_NOTIFY
+        sni_string = bytes_to_str(sni)
+        arg = self.context.callback_arg
+        result = callback(self, sni_string, arg)
+
+        if result is not None:
+            try:
+                description = AlertDescription(result)
+            except ValueError:
+                self._send_alert(
+                    AlertDescription.INTERNAL_ERROR,
+                    f"Unknown alert description '{description}'",
+                )
+            else:
+                self._send_alert(description)
+
+    def _do_hs_callback(
+        self, direction: Direction, message: HandshakeMessage
+    ) -> None:
+        cb = self.context.msg_cb
+        arg = self.context.callback_arg
+        if cb is not None:
+            version = self._handshake.version
+            content_type = ContentType.HANDSHAKE
+            data = message.serialize()
+            cb(self, direction, version, content_type, data, arg)
+
+    # Record layer
+    def _setup_traffic(
+        self, direction: Direction, epoch: Epoch, cipher: TLSCipher
+    ) -> None:
+        state = ConnectionState(epoch, cipher)
+        version = self._handshake.protocol_version()
+        max_seal_overhead = _HEADER_LENGTH
+        max_seal_overhead += cipher.max_overhead()
+
+        if version < TLSVersion.TLSv1_1 and cipher.is_block_cipher():
+            state.record_splitting = True
+            max_seal_overhead *= 2
+
+        if version >= TLSVersion.TLSv1_3:
+            state.hide_content_type = True
+            max_seal_overhead += 1
+
+        state.max_seal_overhead = max_seal_overhead
+
+        if direction == Direction.WRITE:
+            self._write_states[epoch] = state
+        else:
+            self._read_states[epoch] = state
+
+    def _update_traffic(self, direction: Direction, epoch: Epoch) -> None:
+        if direction == Direction.WRITE:
+            assert len(self._handshake.pending_flight()) == 0
+            self._current_write_epoch = epoch
+        else:
+            self._current_read_epoch = epoch
+
+    def _add_ccs(self) -> None:
+        record_version = self._record_version()
+        css = ChangeCipherSpec(type=1)
+        css_data = css.serialize()
+        header = self._get_header(
+            css.content_type, record_version, len(css_data)
+        )
+        self._pending_flight.extend(header)
+        self._pending_flight.extend(css_data)
+
+    def _read_ccs(self, epoch: Epoch) -> None:
+        content_type, _ = self._open_record()
+        if content_type != ContentType.CHANGE_CIPHER_SPEC:
+            self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
+        self._current_read_epoch = epoch
 
     @typing.overload
     def _send_alert(
@@ -511,85 +591,6 @@ class TLSConnection:
             raise TLSLocalAlert(description, reason)
         return None
 
-    def _sni_callback(self, hostname: bytes) -> None:
-        callback = self.context.sni_callback
-        if callback is None:
-            return
-
-        sni = bytes_to_str(hostname)
-        arg = self.context.sni_callback_arg
-        result = callback(self, sni, arg)
-
-        if result is not None:
-            try:
-                description = AlertDescription(result)
-            except ValueError:
-                self._send_alert(
-                    AlertDescription.INTERNAL_ERROR,
-                    f"Unknown alert description '{description}'",
-                )
-            else:
-                self._send_alert(description)
-
-    def _do_hs_callback(
-        self,
-        direction: typing.Literal["write", "read"],
-        message: HandshakeMessage,
-    ) -> None:
-        cb = self.context.message_callback
-        if cb is not None:
-            version = self._handshake.version
-            data = message.serialize()
-            cb(self, direction, version, ContentType.HANDSHAKE, data)
-        return None
-
-    # Record layer
-    def _setup_traffic(
-        self, direction: Direction, epoch: Epoch, cipher: TLSCipher
-    ) -> None:
-        state = ConnectionState(epoch, cipher)
-        version = self._handshake.protocol_version()
-        max_seal_overhead = _HEADER_LENGTH
-        max_seal_overhead += cipher.max_overhead()
-
-        if version < TLSVersion.TLSv1_1 and cipher.is_block_cipher():
-            state.record_splitting = True
-            max_seal_overhead *= 2
-
-        if version >= TLSVersion.TLSv1_3:
-            state.hide_content_type = True
-            max_seal_overhead += 1
-
-        state.max_seal_overhead = max_seal_overhead
-
-        if direction == Direction.ENCRYPT:
-            self._write_states[epoch] = state
-        else:
-            self._read_states[epoch] = state
-
-    def _update_traffic(self, direction: Direction, epoch: Epoch) -> None:
-        if direction == Direction.ENCRYPT:
-            assert len(self._handshake.pending_flight()) == 0
-            self._current_write_epoch = epoch
-        else:
-            self._current_read_epoch = epoch
-
-    def _add_ccs(self) -> None:
-        record_version = self._record_version()
-        css = ChangeCipherSpec(type=1)
-        css_data = css.serialize()
-        header = self._get_header(
-            css.content_type, record_version, len(css_data)
-        )
-        self._pending_flight.extend(header)
-        self._pending_flight.extend(css_data)
-
-    def _read_ccs(self, epoch: Epoch) -> None:
-        content_type, _ = self._open_record()
-        if content_type != ContentType.CHANGE_CIPHER_SPEC:
-            self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
-        self._current_read_epoch = epoch
-
     def _read_handshake(self) -> None:
         content_type, data = self._open_record()
         if content_type != ContentType.HANDSHAKE:
@@ -628,7 +629,7 @@ class TLSConnection:
         self._outbio.write(self._pending_flight)
         self._pending_flight.clear()
 
-    def _write(self, content_type: int, data: ReadableBuffer) -> None:
+    def _write(self, content_type: int, data: Buffer) -> None:
         self._flush_handshake()
 
         if not data:
@@ -640,7 +641,7 @@ class TLSConnection:
     def _seal_record(
         self,
         content_type: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
     ) -> memoryview:
         epoch = self._current_write_epoch
         state = self._write_states[epoch]
@@ -665,7 +666,7 @@ class TLSConnection:
     def _seal_record_internal(
         self,
         content_type: int,
-        plaintext: ReadableBuffer,
+        plaintext: Buffer,
         buf: WritableBuffer,
     ) -> int:
         assert len(plaintext) <= self._send_record_limit
@@ -867,7 +868,7 @@ class TLSConnection:
         if self._early_data_ignored >= _MAX_EARLY_DATA_SKIPPED:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
 
-    def _process_alert(self, data: ReadableBuffer) -> typing.NoReturn:
+    def _process_alert(self, data: Buffer) -> typing.NoReturn:
         alert = Alert.from_bytes(data)  # type: ignore
 
         if alert.level == AlertLevel.WARNING:
@@ -904,7 +905,7 @@ class TLSConnection:
             return False
         return True
 
-    def _unpad_data_tlsv1_3(self, data: ReadableBuffer) -> tuple[int, int]:
+    def _unpad_data_tlsv1_3(self, data: Buffer) -> tuple[int, int]:
         for pos in range(len(data) - 1, -1, -1):
             value = data[pos]
             if value != 0:

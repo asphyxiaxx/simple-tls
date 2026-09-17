@@ -1,4 +1,22 @@
+import os
+
 from simple_tls import tls
+
+
+class TicketAEAD:
+    def __init__(self) -> None:
+        self._sessions: dict[bytes, bytes] = {}
+
+    def seal(self, data: bytes) -> bytes:
+        ticket = os.urandom(32)
+        self._sessions[ticket] = data
+        return ticket
+
+    def open(self, ticket: bytes) -> bytes | None:
+        try:
+            return self._sessions[ticket]
+        except KeyError:
+            return None
 
 
 class SSLSession:

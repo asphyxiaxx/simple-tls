@@ -256,7 +256,7 @@ class SSLConnection:
         if self._conn is None:
             raise TypeError("connection state not set")
 
-        return self._conn.ech_retry_config(binary_form=True)
+        return self._conn.ech_retry_configs(binary_form=True)
 
     def get_app_data(self) -> bytes:
         """

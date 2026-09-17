@@ -23,19 +23,20 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field
 
-from .. import x509
-from ..protocol.hpke import Context as HPKEContext
-from ..utils.codec import ParseError, Parser
-from ..utils.compression import UnsupportedCompression
-from ..utils.math import bytes_to_int, bytes_to_str
-from ..x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
-from ..x509.verification import (
+from simple_tls import x509
+from simple_tls.protocol.hpke import Context as HPKEContext
+from simple_tls.utils.codec import ParseError, Parser
+from simple_tls.utils.compression import UnsupportedCompression
+from simple_tls.utils.math import bytes_to_int, bytes_to_str
+from simple_tls.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
+from simple_tls.x509.verification import (
     CertificateExpired,
     CertificateNotYetValid,
     UntrustedRoot,
     VerificationError,
     Verifier,
 )
+
 from ._alert import (
     AlertBadCertificate,
     AlertCertificateExpired,
@@ -48,7 +49,6 @@ from ._alert import (
     AlertUnknownCA,
 )
 from ._cipher import TLSCipher
-from ._common import get_algorithm
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     SERVER_CONTEXT_STRING,
@@ -96,8 +96,13 @@ from ._supported import (
     TLS_VERSIONS,
 )
 from ._transcript import KeyDeriver, KeySchedule, Transcript
-from ._types import ReadableBuffer
+from ._utils import Buffer, get_algorithm, version_from_wire
 from ._x509_validator import EKUValidator, SANValidator
+
+MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
+SetupTrafficCallback = typing.Callable[[Direction, Epoch, TLSCipher], None]
+UpdateTrafficCallback = typing.Callable[[Direction, Epoch], None]
+AddCSSCallback = typing.Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,93 +122,62 @@ class TLSHandshake:
     is_server: typing.ClassVar[bool]
 
     def __init__(self, context: TLSContext) -> None:
-        self.do_message_cb: typing.Callable[
-            [typing.Literal["write", "read"], HandshakeMessage], None
-        ] = lambda rw, m: None
-        self.do_sni_cb: typing.Callable[[bytes], None] = lambda h: None
-        self.setup_traffic_cb: typing.Callable[
-            [Direction, Epoch, TLSCipher], None
-        ] = lambda d, e, c: None
-        self.update_traffic_cb: typing.Callable[[Direction, Epoch], None] = (
-            lambda d, e: None
-        )
-        self.add_ccs_cb: typing.Callable[[], None] = lambda: None
+        # Callbacks
+        self.message_cb: MessageCallback = lambda rw, m: None
+        self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
+        self.update_traffic_cb: UpdateTrafficCallback = lambda d, e: None
+        self.add_ccs_cb: AddCSSCallback = lambda: None
 
         self.context = context
-        """TLS context"""
+        """asociated TLS context containing configuration"""
         self.skip_early_data: bool = False
-        """Instructs the record layer should skip the unexpected early data
-        messages when 0-RTT is rejected"""
+        """instructs the record layer to discard unexpected early data messages
+        when 0-RTT is rejected"""
         self.can_early_write: bool = False
-        """"""
+        """indicates whether the record layer is currently allowed to send
+        early data (0-RTT)"""
         self.can_early_read: bool = False
-        """"""
-
-        self._session: TLSSession | None = None
-        """Session currently establishing"""
+        """indicates whether the record layer is currently allowed to process
+        incoming early data (0-RTT)"""
 
         self._hs_state = 0
-        """The current handshake state"""
-        self._hostname: bytes | None = None
-        """hostname, on the server, is the value of the SNI extension"""
-        self._session_reused: bool = False
-        """"""
         self._protocol: Protocol = context.protocol
-        """"""
-        self._cipher_suite: CipherSuite | None = None
-        """cipher suite being negotitaed in this handshake"""
-        self._minimum_version: int = self._version_from_wire(
-            context.minimum_version
-        )
-        """minimum_version is the minimum accepted protocol version"""
-        self._maximum_version: int = self._version_from_wire(
-            context.maximum_version
-        )
-        """maximum_version is the maximum accepted protocol version"""
-        self._client_version: int = TLSVersion.UNSPECIFIED
-        """the value sent or received in the ClientHello version."""
+        self._session: TLSSession | None = None
+        self._session_reused: bool = False
         self._session_id: bytes = b""
-        """session ID in the ClientHello"""
+        self._cipher_suite: CipherSuite | None = None
+        self._minimum_version: int = version_from_wire(
+            self._protocol, context.minimum_version
+        )
+        self._maximum_version: int = version_from_wire(
+            self._protocol, context.maximum_version
+        )
         self._version: int = TLSVersion.UNSPECIFIED
-        """Negotiate protocol version, or zero if the version has not yet
-        been set"""
         self._is_early_version: bool = False
-        """Predicted 0-RTT version"""
+        self._client_version: int = TLSVersion.UNSPECIFIED
         self._in_early_data: bool = False
-        """True while in early data state"""
-        self._early_data_accepted: bool = False
-        """True when early data accepted"""
         self._early_data_offered: bool = False
-        """True when early data offered by client"""
-
+        self._hostname: bytes | None = None
+        self._early_data_accepted: bool = False
         self._npn_selected: bytes | None = None
-        """Selected NPN protocol"""
         self._alpn_selected: bytes | None = None
-        """Selected ALPN Protocol"""
-
-        self._client_random: bytes = b""
-        self._server_random: bytes = b""
-
-        self._previous_client_finished: bytes | None = None
-        self._previous_server_finished: bytes | None = None
 
         # dispatch function handler
         self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
 
         # Buffer
         self._hs_buf = bytearray()
-        """handshake data waiting to be process"""
         self._pending_hs_data = bytearray()
-        """pending handshake data to be send"""
         self._cache: Handshake | None = None
-        """cached Handshake"""
 
         # Transcript and secrets
+        self._client_random: bytes = b""
+        self._server_random: bytes = b""
+        self._enc_secret: dict[Epoch, bytes] = {}
+        self._dec_secret: dict[Epoch, bytes] = {}
         self._transcript: Transcript = Transcript()
         self._key_deriver: KeyDeriver | None = None
         self._key_schedule: KeySchedule | None = None
-        self._enc_secret: dict[Epoch, bytes] = {}
-        self._dec_secret: dict[Epoch, bytes] = {}
 
         if self._minimum_version > self._maximum_version:
             raise ValueError(
@@ -223,10 +197,13 @@ class TLSHandshake:
         return self._context
 
     @context.setter
-    def context(self, value: TLSContext) -> None:
-        if not isinstance(value, TLSContext):
+    def context(self, context: TLSContext) -> None:
+        if not isinstance(context, TLSContext):
             raise TypeError("context must be TLSContext object")
-        self._context = value
+        if self.is_server != context.is_server:
+            t = "server" if self.is_server else "client"
+            raise TypeError(f"expect {t} context")
+        self._context = context
 
     @property
     def session(self) -> TLSSession | None:
@@ -330,7 +307,7 @@ class TLSHandshake:
         handshake_data = handshake.serialize()
         transcript.update_hash(handshake_data)
 
-    def add_hs_data(self, data: ReadableBuffer) -> None:
+    def add_hs_data(self, data: Buffer) -> None:
         self._hs_buf.extend(data)
 
     def has_unprocessed_hs_data(self) -> bool:
@@ -422,7 +399,7 @@ class TLSHandshake:
             write_mac, write_key, write_iv = cl_mac, cl_key, cl_iv
 
         read_cipher = TLSCipher(
-            direction=Direction.DECRYPT,
+            direction=Direction.READ,
             version=version,
             cipher_suite=cipher_suite,
             enc_key=read_key,
@@ -431,11 +408,11 @@ class TLSHandshake:
             encrypt_then_mac=encrypt_then_mac,
         )
         self.setup_traffic_cb(
-            Direction.DECRYPT, Epoch.APPLICATION_DATA, read_cipher
+            Direction.READ, Epoch.APPLICATION_DATA, read_cipher
         )
 
         write_cipher = TLSCipher(
-            direction=Direction.ENCRYPT,
+            direction=Direction.WRITE,
             version=version,
             cipher_suite=cipher_suite,
             enc_key=write_key,
@@ -444,7 +421,7 @@ class TLSHandshake:
             encrypt_then_mac=encrypt_then_mac,
         )
         self.setup_traffic_cb(
-            Direction.ENCRYPT, Epoch.APPLICATION_DATA, write_cipher
+            Direction.WRITE, Epoch.APPLICATION_DATA, write_cipher
         )
 
     def _setup_traffic_key_tls13(
@@ -461,7 +438,7 @@ class TLSHandshake:
             transcript = self._transcript
 
         secret = self._key_schedule.derive_secret(label, transcript)
-        if direction == Direction.ENCRYPT:
+        if direction == Direction.WRITE:
             self._enc_secret[epoch] = secret
         else:
             self._dec_secret[epoch] = secret
@@ -477,7 +454,7 @@ class TLSHandshake:
         epoch = Epoch.APPLICATION_DATA
         session = self._session
 
-        if direction == Direction.ENCRYPT:
+        if direction == Direction.WRITE:
             secret = self._enc_secret[epoch]
             new_secret = self._key_schedule.upd_secret(secret)
             self._enc_secret[epoch] = new_secret
@@ -530,7 +507,7 @@ class TLSHandshake:
             raise ValueError("KeyUpdate is only support for TLSv1.3")
 
         key_update = KeyUpdate(message_type)
-        self.do_message_cb("write", key_update)
+        self.message_cb(Direction.WRITE, key_update)
         self._add_message(key_update, update_hash=False)
 
     def _close_early_data(self) -> None:
@@ -877,7 +854,7 @@ class TLSHandshake:
         cls,
         context: TLSContext,
         session: TLSSession,
-        hostname: bytes | str | None = None,
+        hostname: bytes | None = None,
     ) -> None:
         if session.x509_peer is None or session.x509_chain is None:
             raise AlertInternalError(

@@ -24,9 +24,15 @@ PCTRTT: TypeAlias = tuple[tuple[str, str], ...]
 PCTRTTT: TypeAlias = tuple[PCTRTT, ...]
 PeerCertRetDictType: TypeAlias = dict[str, str | PCTRTTT | PCTRTT]
 
-PSKClientCbType: TypeAlias = Callable[[str | None], tuple[str | None, bytes]]
-PSKServerCbType: TypeAlias = Callable[[str | None], bytes]
-SrvnmeCbType: TypeAlias = Callable[
-    [Union["SSLSocket", "SSLObject"], str | None, "SSLContext"], int | None
+PSKClientCbType: TypeAlias = Callable[
+    [str | None],
+    tuple[str | None, bytes],
 ]
-ExtensionsCbType: TypeAlias = Callable[[list[int]], list[int]]
+PSKServerCbType: TypeAlias = Callable[
+    [str | None],
+    bytes,
+]
+SrvnmeCbType: TypeAlias = Callable[
+    [Union["SSLSocket", "SSLObject"], str | None, "SSLContext"],
+    int | None,
+]

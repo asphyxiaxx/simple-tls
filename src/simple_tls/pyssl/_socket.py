@@ -7,7 +7,7 @@ from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
 
 from simple_tls import tls, x509
 
-from ..utils.math import bytes_to_str
+from ..utils.math import bytes_to_str, str_to_bytes
 from ._constant import Options
 from ._exception import (
     SSLEOFError,
@@ -75,6 +75,20 @@ class SSLSocket(_ssl.SSLSocket):
         self.do_handshake_on_connect = do_handshake_on_connect
         self.suppress_ragged_eofs = suppress_ragged_eofs
 
+        tls_context = context._context
+        tls_context.callback_arg = self
+
+        if tls_context.is_server and not server_side:
+            raise TypeError(
+                "Cannot create a client socket with a PROTOCOL_TLS_SERVER "
+                "context"
+            )
+        if not tls_context.is_server and server_side:
+            raise TypeError(
+                "Cannot create a server socket with a PROTOCOL_TLS_CLIENT "
+                "context"
+            )
+
         try:
             # See if we are connected
             try:
@@ -127,26 +141,23 @@ class SSLSocket(_ssl.SSLSocket):
 
             if connected:
                 if not server_side:
-                    session_ticket_handler = self._session_ticket_handler
+                    new_session_handler = self._new_session_handler
+                    if session is not None:
+                        tls_session = session.session
+                    else:
+                        tls_session = None
                 else:
-                    session_ticket_handler = None
+                    new_session_handler = None
+                    tls_session = None
 
                 if context.options & Options.OP_NO_TICKET:
-                    session_ticket_handler = None
-                    context._context.session_keys = None
-                    context._context.session_storage = None
+                    new_session_handler = None
 
-                context._context.sni_callback_arg = self
-
-                # create the SSL object
                 self._sslobj = tls.TLSConnection(
-                    context=self._context._context,
-                    is_server=self.server_side,
-                    server_hostname=self.server_hostname,
-                    session=(
-                        session.session if session is not None else session
-                    ),
-                    session_ticket_handler=session_ticket_handler,
+                    context=tls_context,
+                    server_hostname=str_to_bytes(self.server_hostname),
+                    session=tls_session,
+                    new_session_handler=new_session_handler,
                 )
 
                 if do_handshake_on_connect:
@@ -176,15 +187,16 @@ class SSLSocket(_ssl.SSLSocket):
         return self._context
 
     @context.setter
-    def context(self, value: SSLContext) -> None:
-        if not isinstance(value, SSLContext):
+    def context(self, context: SSLContext) -> None:
+        if not isinstance(context, SSLContext):
             raise TypeError("Not SSLContext")
         if self._sslobj is None:
             raise TypeError("set context on closed socket")
 
-        self._context = value
-        self._sslobj.context = value._context
-        self._sslobj.context.sni_callback_arg = self
+        tls_context = context._context
+        tls_context.callback_arg = self
+        self._sslobj.context = tls_context
+        self._context = context
 
     @property
     def session(self) -> SSLSession | None:  # type: ignore[override]
@@ -213,7 +225,7 @@ class SSLSocket(_ssl.SSLSocket):
             # EAGAIN.
             self.getpeername()
 
-    def _session_ticket_handler(self, session: tls.TLSSession) -> None:
+    def _new_session_handler(self, session: tls.TLSSession) -> None:
         self._session = SSLSession(session)
 
     def _drive_tls(
@@ -342,7 +354,7 @@ class SSLSocket(_ssl.SSLSocket):
     def get_ech_retry_configs(self) -> bytes | None:
         if self._sslobj is None:
             return None
-        return self._sslobj.ech_retry_config(binary_form=True)
+        return self._sslobj.ech_retry_configs(binary_form=True)
 
     def ech_accepted(self) -> bool:
         if self._sslobj is None:
@@ -565,10 +577,8 @@ class SSLSocket(_ssl.SSLSocket):
 
         self._sslobj = tls.TLSConnection(
             context=self._context._context,
-            is_server=False,
-            server_hostname=self.server_hostname,
+            server_hostname=str_to_bytes(self.server_hostname),
             session=session,
-            session_ticket_handler=self._session_ticket_handler,
         )
 
         try:

@@ -34,13 +34,6 @@ class AlertException(Exception):
         return self.message
 
 
-class CustomAlert(AlertException):
-    def __init__(self, description: AlertDescription, fatal: bool = True):
-        self.description = description
-        self.fatal = fatal
-        super().__init__("", fatal)
-
-
 class AlertBadCertificate(AlertException):
     description = AlertDescription.BAD_CERTIFICATE
 

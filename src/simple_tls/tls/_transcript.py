@@ -22,11 +22,12 @@ from __future__ import annotations
 
 from cryptography.hazmat.primitives import hashes, hmac
 
-from ..protocol.kdf import hkdf_expand, hkdf_extract
-from ..utils.codec import Writer
-from ..utils.math import strxor
-from ._common import get_algorithm, get_hash
+from simple_tls.protocol.kdf import hkdf_expand, hkdf_extract
+from simple_tls.utils.codec import Writer
+from simple_tls.utils.math import strxor
+
 from ._constant import UNSPECIFIED, CipherSuite, HandshakeType, TLSVersion
+from ._utils import get_algorithm, get_hash
 
 
 class Transcript:

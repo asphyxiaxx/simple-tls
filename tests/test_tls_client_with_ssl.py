@@ -12,6 +12,7 @@ from .utils import (
     SERVER_EC_SECP256R1_KEYFILE,
     SERVER_RSA_CERTFILE,
     SERVER_RSA_KEYFILE,
+    create_client_context,
     format_path,
 )
 
@@ -77,20 +78,26 @@ def create_ssl_context(certfile, keyfile):
 
 @pytest.fixture
 def rsa_server():
-    ctx = create_ssl_context(SERVER_RSA_CERTFILE, SERVER_RSA_KEYFILE)
+    ctx = create_ssl_context(
+        certfile=SERVER_RSA_CERTFILE, keyfile=SERVER_RSA_KEYFILE
+    )
     return VirtualTLSServer(ctx)
 
 
 @pytest.fixture
 def dsa_server():
-    ctx = create_ssl_context(SERVER_DSA_CERTFILE, SERVER_DSA_KEYFILE)
+    ctx = create_ssl_context(
+        certfile=SERVER_DSA_CERTFILE,
+        keyfile=SERVER_DSA_KEYFILE,
+    )
     return VirtualTLSServer(ctx)
 
 
 @pytest.fixture
 def ec_server():
     ctx = create_ssl_context(
-        SERVER_EC_SECP256R1_CERTFILE, SERVER_EC_SECP256R1_KEYFILE
+        certfile=SERVER_EC_SECP256R1_CERTFILE,
+        keyfile=SERVER_EC_SECP256R1_KEYFILE,
     )
     return VirtualTLSServer(ctx)
 
@@ -130,10 +137,12 @@ def do_handshake(conn, virtual_server):
     ),
 )
 def test_tls13_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.minimum_version = tls.TLSVersion.TLSv1_3
-    context.maximum_version = tls.TLSVersion.TLSv1_3
-    context.cipher_suites = [cipher_suite]
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_3,
+        maximum_version=tls.TLSVersion.TLSv1_3,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -195,10 +204,12 @@ def test_tls13_handshake(cipher_suite, rsa_server):
     ),
 )
 def test_tls12_rsa_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_2
-    context.maximum_version = tls.TLSVersion.TLSv1_2
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_2,
+        maximum_version=tls.TLSVersion.TLSv1_2,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -235,10 +246,12 @@ def test_tls12_rsa_handshake(cipher_suite, rsa_server):
     ),
 )
 def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_2
-    context.maximum_version = tls.TLSVersion.TLSv1_2
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_2,
+        maximum_version=tls.TLSVersion.TLSv1_2,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -267,10 +280,12 @@ def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
     ),
 )
 def test_tls12_dss_handshake(cipher_suite, dsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_2
-    context.maximum_version = tls.TLSVersion.TLSv1_2
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_2,
+        maximum_version=tls.TLSVersion.TLSv1_2,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -307,10 +322,12 @@ def test_tls12_dss_handshake(cipher_suite, dsa_server):
     ),
 )
 def test_tls11_rsa_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_1
-    context.maximum_version = tls.TLSVersion.TLSv1_1
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_1,
+        maximum_version=tls.TLSVersion.TLSv1_1,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -337,10 +354,12 @@ def test_tls11_rsa_handshake(cipher_suite, rsa_server):
     ),
 )
 def test_tls11_ecdsa_handshake(cipher_suite, ec_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_1
-    context.maximum_version = tls.TLSVersion.TLSv1_1
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_1,
+        maximum_version=tls.TLSVersion.TLSv1_1,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -365,10 +384,12 @@ def test_tls11_ecdsa_handshake(cipher_suite, ec_server):
     ),
 )
 def test_tls11_dss_handshake(cipher_suite, dsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_1
-    context.maximum_version = tls.TLSVersion.TLSv1_1
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1_1,
+        maximum_version=tls.TLSVersion.TLSv1_1,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -405,10 +426,12 @@ def test_tls11_dss_handshake(cipher_suite, dsa_server):
     ),
 )
 def test_tls1_rsa_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1
-    context.maximum_version = tls.TLSVersion.TLSv1
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1,
+        maximum_version=tls.TLSVersion.TLSv1,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -435,10 +458,12 @@ def test_tls1_rsa_handshake(cipher_suite, rsa_server):
     ),
 )
 def test_tls1_ecdsa_handshake(cipher_suite, ec_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1
-    context.maximum_version = tls.TLSVersion.TLSv1
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1,
+        maximum_version=tls.TLSVersion.TLSv1,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:
@@ -463,10 +488,12 @@ def test_tls1_ecdsa_handshake(cipher_suite, ec_server):
     ),
 )
 def test_tls1_dss_handshake(cipher_suite, dsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1
-    context.maximum_version = tls.TLSVersion.TLSv1
+    context = create_client_context(
+        minimum_version=tls.TLSVersion.TLSv1,
+        maximum_version=tls.TLSVersion.TLSv1,
+        check_hostname=False,
+    )
+    context.set_cipher_suites([cipher_suite])
     conn = tls.TLSConnection(context)
 
     try:

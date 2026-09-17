@@ -24,8 +24,9 @@ import enum
 import typing
 from dataclasses import dataclass, field
 
-from ..utils.codec import ParseError, Parser, Writer
-from ..utils.math import int_to_bytes
+from simple_tls.utils.codec import ParseError, Parser, Writer
+from simple_tls.utils.math import int_to_bytes
+
 from ._constant import (
     CertificateStatusType,
     ECHClientHelloType,

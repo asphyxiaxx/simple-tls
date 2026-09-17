@@ -55,31 +55,41 @@ def int_to_bytes(
 
 
 @typing.overload
-def str_to_bytes(value: None, encoding: str = ...) -> None: ...
-@typing.overload
 def str_to_bytes(value: _StrOrBytes, encoding: str = ...) -> bytes: ...
+
+
+@typing.overload
+def str_to_bytes(value: None, encoding: str = ...) -> None: ...
+
+
 def str_to_bytes(
     value: _StrOrBytes | None, encoding: str = "latin-1"
 ) -> bytes | None:
-    if isinstance(value, (bytearray, memoryview)):
-        value = bytes(value)
-    elif isinstance(value, str):
-        value = value.encode(encoding=encoding)
-    return value
+    if value is not None:
+        if isinstance(value, str):
+            return value.encode(encoding=encoding)
+        if isinstance(value, bytes):
+            return value
+        return bytes(value)
+    return None
+
+
+@typing.overload
+def bytes_to_str(value: _StrOrBytes, encoding: str = ...) -> str: ...
 
 
 @typing.overload
 def bytes_to_str(value: None, encoding: str = ...) -> None: ...
-@typing.overload
-def bytes_to_str(value: typing.Any, encoding: str = ...) -> str: ...
+
+
 def bytes_to_str(
-    value: typing.Any | None, encoding: str = "latin-1"
+    value: _StrOrBytes | None, encoding: str = "latin-1"
 ) -> str | None:
-    if isinstance(value, (bytes, bytearray)):
-        return value.decode(encoding)
-    elif isinstance(value, str):
-        return value
-    return str(value) if value is not None else None
+    if value is not None:
+        if isinstance(value, str):
+            return value
+        return str(value, encoding=encoding)
+    return None
 
 
 strxor = utils.strxor

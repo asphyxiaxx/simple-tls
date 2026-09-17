@@ -41,7 +41,6 @@ from ._alert import (
     AlertUnexpectedMessage,
     AlertUnknownCA,
     AlertUnsupportedExtension,
-    CustomAlert,
 )
 from ._cipher import NullCipher, TLSCipher
 from ._connection import ConnectionState, TLSConnection
@@ -185,7 +184,7 @@ from ._message import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from ._session import TLSSession
+from ._session import TicketAEAD, TLSSession
 from ._supported import (
     CERTIFICATE_COMPRESSIONS,
     DSA_SIGNATURE_ALGORITHMS,
@@ -284,7 +283,6 @@ __all__ = [
     "ConnectionState",
     "ContentType",
     "CookieExtension",
-    "CustomAlert",
     "Direction",
     "ECCurveType",
     "ECHClientHelloType",
@@ -377,6 +375,7 @@ __all__ = [
     "TLSSession",
     "TLSVersion",
     "TLSWantReadError",
+    "TicketAEAD",
     "Transcript",
     "Validator",
     "VerifyMode",

@@ -20,20 +20,18 @@
 
 from __future__ import annotations
 
-import dataclasses
-import threading
+import abc
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from simple_tls import x509
+from simple_tls.utils.codec import Parser, Writer
+from simple_tls.utils.misc import utcnow
 
-from .. import x509
-from ..utils.codec import ParseError, Parser, Writer
-from ..utils.constant_time import compare_digest
-from ..utils.misc import utcnow
-from ..utils.random import get_random_bytes
 from ._constant import CipherSuite, TLSVersion
 from ._enum import Protocol, SessionType
+from ._utils import Buffer
 
 
 @dataclass
@@ -261,66 +259,15 @@ class TLSSession:
         return writer.tobytes()
 
 
-@dataclasses.dataclass
-class SessionKey:
-    key_id: bytes  # 16 bytes
-    aead_key: bytes  # 32 bytes for AES-256-GCM
-    aead: AESGCM
+class TicketAEAD(typing.Protocol):
+    """Protocol-agnostic ticket AEAD interface"""
 
-    @classmethod
-    def generate(cls) -> SessionKey:
-        key_id = get_random_bytes(16)
-        aead_key = get_random_bytes(32)
-        aead = AESGCM(aead_key)
-        return SessionKey(key_id, aead_key, aead)
+    @abc.abstractmethod
+    def seal(self, plaintext: bytes) -> Buffer | None:
+        """Encrypts raw session bytes into an opaque ticket payload."""
+        ...
 
-
-class TLSSessionKeys:
-    def __init__(self) -> None:
-        self._keys = [SessionKey.generate()]
-        self._current_key = self._keys[0]
-        self._lock = threading.Lock()
-
-    def rotate_key(self) -> None:
-        with self._lock:
-            new_key = SessionKey.generate()
-            self._keys.insert(0, new_key)
-            self._current_key = new_key
-            self._keys = self._keys[:2]  # keep only 2 (current + old)
-
-    def create_ticket(self, session: TLSSession) -> bytes:
-        plaintext = session.serialize()
-        key = self._current_key
-        nonce = get_random_bytes(12)
-        ciphertext = key.aead.encrypt(nonce, plaintext, b"")
-        return key.key_id + nonce + ciphertext
-
-    def decrypt_ticket(self, ticket_bytes: bytes) -> TLSSession | None:
-        try:
-            parser = Parser(ticket_bytes)
-            key_id = parser.read_bytes(16)
-            ciphertext = parser.read_prefixed_bytes(2)
-            nonce = parser.read_bytes(12)
-        except ParseError:
-            return None
-
-        for key in self._keys:
-            if not compare_digest(key.key_id, key_id):
-                continue
-            try:
-                plaintext = key.aead.decrypt(nonce, ciphertext, b"")
-                return TLSSession.from_bytes(plaintext)
-            except Exception:
-                pass
-        return None
-
-
-class TLSSessionStorage:
-    def __init__(self) -> None:
-        self._storage: dict[bytes, TLSSession] = {}
-
-    def get(self, key: bytes) -> TLSSession | None:
-        return self._storage.get(key, None)
-
-    def put(self, key: bytes, session: TLSSession) -> None:
-        self._storage[key] = session
+    @abc.abstractmethod
+    def open(self, ticket: bytes) -> Buffer | None:
+        """Decrypts ticket payload back into raw session bytes."""
+        ...

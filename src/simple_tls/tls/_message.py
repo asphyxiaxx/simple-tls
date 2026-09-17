@@ -23,9 +23,10 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field
 
-from ..utils.codec import ParseError, Parser, Writer
-from ..utils.compression import ZLIB, ZSTD, Brotli
-from ..utils.math import int_to_bytes
+from simple_tls.utils.codec import ParseError, Parser, Writer
+from simple_tls.utils.compression import ZLIB, ZSTD, Brotli
+from simple_tls.utils.math import int_to_bytes
+
 from ._alert import AlertUnexpectedMessage
 from ._constant import (
     AlertDescription,

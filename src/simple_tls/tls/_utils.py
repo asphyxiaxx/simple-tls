@@ -21,11 +21,64 @@
 from __future__ import annotations
 
 import typing
+from os import PathLike
+from typing import TypeAlias
 
 from cryptography.hazmat.primitives import hashes
 
 from ._constant import UNSPECIFIED, HashAlgorithm
-from ._types import ReadableBuffer
+from ._enum import Protocol
+from ._supported import TLS_VERSIONS
+
+Buffer: TypeAlias = bytes | bytearray | memoryview
+WritableBuffer: TypeAlias = bytearray | memoryview
+StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
+
+_T = typing.TypeVar("_T")
+
+
+@typing.overload
+def filter(
+    items: typing.Iterable[_T] | None,
+    valid_items: typing.Container[_T],
+    default_items: typing.Sequence[_T],
+) -> tuple[_T, ...]: ...
+
+
+@typing.overload
+def filter(
+    items: typing.Iterable[_T] | None,
+    valid_items: typing.Container[_T],
+    default_items: None = None,
+) -> tuple[_T, ...] | None: ...
+
+
+def filter(
+    items: typing.Iterable[_T] | None,
+    valid_items: typing.Container[_T],
+    default_items: typing.Sequence[_T] | None = None,
+) -> tuple[_T, ...] | None:
+    if items is not None:
+        filtered = tuple(i for i in items if i in valid_items)
+        if filtered:
+            return filtered
+    if default_items is None:
+        return None
+    return tuple(default_items)
+
+
+def version_from_wire(protocol: Protocol, version: int) -> int:
+    if protocol == Protocol.TLS:
+        if version in TLS_VERSIONS:
+            return version
+    raise ValueError(f"Unknown version {version}")
+
+
+def version_to_wire(protocol: Protocol, version: int) -> int:
+    if protocol == Protocol.TLS:
+        if version in TLS_VERSIONS:
+            return version
+    raise ValueError(f"Unknown version {version}")
 
 
 def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
@@ -37,7 +90,7 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
 
 def get_hash(
     hash_algorithm: int,
-    message: ReadableBuffer = b"",
+    message: Buffer = b"",
 ) -> hashes.Hash:
     if hash_algorithm == UNSPECIFIED:
         hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())

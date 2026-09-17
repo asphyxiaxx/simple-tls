@@ -24,9 +24,10 @@ import ipaddress
 import re
 import typing
 
-from .. import x509
-from ..x509.oid import ExtensionOID
-from ..x509.verification import Verifier
+from simple_tls import x509
+from simple_tls.x509.oid import ExtensionOID
+from simple_tls.x509.verification import Verifier
+
 from ._alert import AlertBadCertificate
 
 
