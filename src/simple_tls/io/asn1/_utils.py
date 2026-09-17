@@ -95,3 +95,11 @@ class Tag:
     tag_id: int
     tag_class: int = TagClass.UNIVERSAL
     tag_format: int = TagFormat.SIMPLE
+
+
+@typing.runtime_checkable
+class Mapped(typing.Protocol):
+    def to_encoder(self) -> typing.Any: ...
+
+    @classmethod
+    def from_decoder(cls, value: int) -> typing.Self: ...

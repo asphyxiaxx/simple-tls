@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from ._decoder import Decoder
 from ._encoder import Encoder
 from ._nodes import register_mapped_type, register_seq
+from ._utils import Mapped
 
 if sys.version_info < (3, 11):
     from typing_extensions import dataclass_transform
@@ -35,8 +36,10 @@ else:
 
 
 _T = typing.TypeVar("_T")
+_M = typing.TypeVar("_M", bound="Mapped")
 
 _Wrapper = typing.Callable[[type[_T]], type[_T]]
+_MappedWrapper = typing.Callable[[type[_M]], type[_M]]
 
 
 @typing.overload
@@ -120,14 +123,14 @@ def set(cls: type[_T] | None = None) -> type[_T] | _Wrapper:
     return wrapper
 
 
-def mapped(base_type: typing.Any) -> _Wrapper:
+def mapped(base_type: typing.Any) -> _MappedWrapper:
     """
     Decorator to map a custom Python class to an underlying ASN.1 type.
     The class must implement `to_encoder(self) -> base_type`
     and `from_decoder(cls, value: base_type) -> cls`.
     """
 
-    def wrapper(cls: type[_T]) -> type[_T]:
+    def wrapper(cls: type[_M]) -> type[_M]:
         register_mapped_type(cls, base_type)
         return cls
 

@@ -24,7 +24,8 @@ import typing
 from collections import deque
 from collections.abc import Hashable
 
-from ...utils.math import byte_length, int_to_bytes
+from simple_tls.utils.math import byte_length, int_to_bytes
+
 from ._codecs import PRIMITIC_CODECS
 from ._errors import (
     ASN1Error,
@@ -46,7 +47,7 @@ from ._nodes import (
     Type,
     resolve_type,
 )
-from ._utils import Tag, TagClass, TagFormat, Variant
+from ._utils import Mapped, Tag, TagClass, TagFormat, Variant
 
 _T = typing.TypeVar("_T")
 
@@ -347,7 +348,7 @@ class Encoder:
 
     def _encode_mapped(
         self,
-        value: typing.Any,
+        value: Mapped,
         node: MappedType,
     ) -> Writer:
         try:

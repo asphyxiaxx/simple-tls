@@ -25,7 +25,8 @@ import struct
 import typing
 from datetime import datetime, timezone
 
-from ...utils.math import bytes_to_int
+from simple_tls.utils.math import bytes_to_int
+
 from ._errors import InvalidPayload, InvalidType, InvalidValue
 from ._types import BitString, Marker, Null, ObjectIdentifier
 

@@ -24,7 +24,8 @@ import typing
 from collections.abc import Hashable
 from dataclasses import dataclass
 
-from ...utils.math import bytes_to_int
+from simple_tls.utils.math import bytes_to_int
+
 from ._codecs import PRIMITIC_CODECS
 from ._errors import (
     ASN1Error,
@@ -50,7 +51,7 @@ from ._nodes import (
     Type,
     resolve_type,
 )
-from ._utils import Tag, TagClass, TagFormat, Variant
+from ._utils import Mapped, Tag, TagClass, TagFormat, Variant
 
 _T = typing.TypeVar("_T")
 
@@ -474,15 +475,14 @@ class Decoder:
         depth: int,
         optional: bool = False,
         ctx: TLCache | None = None,
-    ) -> typing.Any | None:
+    ) -> Mapped | None:
         inner_node = node.inner_node
         obj = self._decode_node(parser, inner_node, depth, optional, ctx)
 
         if obj is None:
             return None
-
         try:
-            return node.python_type.from_decoder(obj)  # type:ignore
+            return node.python_type.from_decoder(obj)
         except Exception as exc:
             raise MappingError(exc) from exc
 

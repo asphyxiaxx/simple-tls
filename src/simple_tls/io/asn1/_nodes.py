@@ -30,7 +30,7 @@ from typing import Annotated, TypeAlias
 
 from ._codecs import PRIMITIC_CODECS
 from ._types import Marker
-from ._utils import Explicit, Implicit, OpenType, Variant
+from ._utils import Explicit, Implicit, Mapped, OpenType, Variant
 
 get_type_hints = typing.get_type_hints
 get_type_args = typing.get_args
@@ -116,7 +116,7 @@ class ChoiceType(Type):
 
 @dataclass(frozen=True)
 class MappedType(Type):
-    python_type: type
+    python_type: type[Mapped]
     inner_node: Type
 
 
@@ -402,21 +402,16 @@ def register_seq(cls: type, is_set: bool) -> None:
     setattr(cls, "__asn1_spec__", spec)
 
 
-def register_mapped_type(cls: type, t: typing.Any) -> None:
+def register_mapped_type(cls: type[Mapped], t: typing.Any) -> None:
     if hasattr(cls, "__asn1_spec__"):
         raise TypeError(
             f"Cannot map class '{cls.__name__}' because it is already "
             f"registered as an ASN.1 type"
         )
-
-    if not _has_function(cls, "to_encoder"):
+    if not issubclass(cls, Mapped):
         raise TypeError(
             f"Class '{cls.__name__}' must implement 'to_encoder(self)'"
-        )
-
-    if not _has_function(cls, "from_decoder"):
-        raise TypeError(
-            f"Class '{cls.__name__}' must implement 'from_decoder(cls, value)'"
+            f"and 'from_decoder(cls, value)'"
         )
 
     inner_node = resolve_type(t)
