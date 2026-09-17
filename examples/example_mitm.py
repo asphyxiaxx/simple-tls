@@ -61,7 +61,7 @@ def create_proxy_server_context(
     context.minimum_version = min_version.value or stls.TLSVersion.TLSv1  # type: ignore
     context.maximum_version = max_version.value or stls.TLSVersion.TLSv1_3  # type: ignore
     context.check_hostname = False
-    context.alps[b"h2"] = b""
+    context.add_alps(b"h2", b"")
 
     if verify.value == SSL.VERIFY_PEER:
         context.verify_mode = stls.VerifyMode.CERT_REQUIRED
@@ -74,8 +74,7 @@ def create_proxy_server_context(
         except KeyError:
             pass
         else:
-            context.key_share_groups = [groups]
-            context.supported_groups = [groups]
+            context.set_supported_groups([groups])
 
     if ca_path is None and ca_pemfile is None:
         ca_pemfile = certifi.where()
@@ -97,9 +96,13 @@ class SSLConnection:
         self._conn: stls.TLSConnection | None = None
         self._server_hostname: bytes | None = None
 
+    def _new_session_handler(self, session: stls.TLSSession) -> None:
+        pass
+
     def set_connect_state(self) -> None:
         context = self._context
         server_hostname = self._server_hostname
+
         if server_hostname is None:
             context.check_hostname = False
         elif context.verify_mode != stls.VerifyMode.CERT_NONE:
@@ -107,33 +110,22 @@ class SSLConnection:
 
         self._conn = stls.TLSConnection(
             context=context,
-            is_server=False,
             server_hostname=server_hostname,
-            session_ticket_handler=lambda s: None,
+            new_session_handler=self._new_session_handler,
         )
 
     def set_accept_state(self) -> None:
         context = self._context
-        server_hostname = self._server_hostname
-        if server_hostname is None:
-            context.check_hostname = False
-        elif context.verify_mode != stls.VerifyMode.CERT_NONE:
-            context.check_hostname = True
-
-        self._conn = stls.TLSConnection(
-            context=context,
-            is_server=True,
-            server_hostname=server_hostname,
-        )
+        self._conn = stls.TLSConnection(context)
 
     def set_alpn_protos(self, protos: typing.Sequence[bytes]) -> None:
-        self._context.alpn_protocols = protos
+        self._context.set_alpn_protocols(protos)
 
     def set_tlsext_host_name(self, host_name: bytes) -> None:
         self._server_hostname = host_name
 
     def set_ech_config(self, ech_config: bytes | None) -> None:
-        self._context.ech_configs = ech_config
+        self._context.set_ech_configs(ech_config)
 
     def bio_read(self, bufsiz: int) -> bytes:
         if self._conn is None:
