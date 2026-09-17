@@ -484,7 +484,7 @@ class TLSConnection:
             except ValueError:
                 self._send_alert(
                     AlertDescription.INTERNAL_ERROR,
-                    f"Unknown alert description '{description}'",
+                    f"Unknown alert description '{result}'",
                 )
             else:
                 self._send_alert(description)
