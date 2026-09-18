@@ -484,15 +484,9 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertHandshakeFailure(
                     "Resumed EMS session without EMS extenison"
                 )
-
-            if session.encrypt_then_mac and not self._encrypt_then_mac:
-                raise AlertHandshakeFailure(
-                    "Resumed ETM session without ETM extension"
-                )
-
-            if (
-                session.extended_master_secret != self._extended_master_secret
-                or session.encrypt_then_mac != self._encrypt_then_mac
+            elif (
+                self._extended_master_secret
+                and not session.extended_master_secret
             ):
                 session = None
 
@@ -1172,9 +1166,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Selected key share group extension
         if self._key_share_group_id is not None:
-            extensions.append(
-                HRRKeyShareExtension(self._key_share_group_id)
-            )
+            extensions.append(HRRKeyShareExtension(self._key_share_group_id))
 
         if not extensions:
             # Currently still not support send cookie extension
