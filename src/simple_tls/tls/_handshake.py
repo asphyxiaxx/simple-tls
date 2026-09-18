@@ -143,6 +143,7 @@ class TLSHandshake:
         self._hs_state = 0
         self._protocol: Protocol = context.protocol
         self._session: TLSSession | None = None
+        self._session_establish: bool = False
         self._session_reused: bool = False
         self._session_id: bytes = b""
         self._cipher_suite: CipherSuite | None = None
@@ -207,11 +208,17 @@ class TLSHandshake:
 
     @property
     def session(self) -> TLSSession | None:
-        return self._session
+        if self._session_establish or self._in_early_data:
+            return self._session
+        return None
 
     @property
     def session_established(self) -> bool:
-        return True
+        return self._session_establish
+
+    @property
+    def session_reused(self) -> bool:
+        return self._session_reused
 
     @property
     def hostname(self) -> bytes | None:
@@ -238,16 +245,17 @@ class TLSHandshake:
         return self._early_data_offered
 
     @property
-    def session_reused(self) -> bool:
-        return self._session_reused
-
-    @property
     def npn_selected(self) -> bytes | None:
         return self._npn_selected
 
     @property
     def alpn_selected(self) -> bytes | None:
-        return self._alpn_selected
+        if self._in_early_data:
+            assert self._session is not None
+            alpn_selected = self._session.early_alpn
+        else:
+            alpn_selected = self._alpn_selected
+        return alpn_selected
 
     @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:

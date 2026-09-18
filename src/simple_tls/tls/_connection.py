@@ -182,11 +182,11 @@ class TLSConnection:
         return self._handshake.is_server
 
     @property
-    def server_hostname(self) -> str | None:
-        return bytes_to_str(self._handshake.hostname)
+    def server_hostname(self) -> bytes | None:
+        return self._handshake.hostname
 
     def handshake_complete(self) -> bool:
-        return self._handshake.done
+        return self._handshake.session_established
 
     def session_reused(self) -> bool:
         return self._handshake.session_reused
@@ -407,11 +407,11 @@ class TLSConnection:
                 chain.extend(session.x509_chain)
         return chain
 
-    def selected_npn_protocol(self) -> str | None:
-        return bytes_to_str(self._handshake.npn_selected)
+    def selected_npn_protocol(self) -> bytes | None:
+        return self._handshake.npn_selected
 
-    def selected_alpn_protocol(self) -> str | None:
-        return bytes_to_str(self._handshake.alpn_selected)
+    def selected_alpn_protocol(self) -> bytes | None:
+        return self._handshake.alpn_selected
 
     def cipher(self) -> CipherSuite | None:
         session = self._handshake.session

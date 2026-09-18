@@ -4,8 +4,8 @@ import ssl as _ssl
 import typing
 
 from simple_tls import tls, x509
+from simple_tls.utils.math import bytes_to_str, str_to_bytes
 
-from ..utils.math import str_to_bytes
 from ._constant import Options
 from ._exception import SSLEOFError, SSLError, SSLWantReadError
 from ._session import SSLSession
@@ -20,6 +20,7 @@ class SSLObject(_ssl.SSLObject):
     _context: SSLContext
     _sslobj: tls.TLSConnection
     _session: SSLSession | None
+    _server_hostname: str | None
 
     @classmethod
     def _create(
@@ -35,6 +36,7 @@ class SSLObject(_ssl.SSLObject):
             raise ValueError("context not provided")
 
         self = cls.__new__(cls)
+        self._server_hostname = server_hostname
         tls_context = context._context
 
         if tls_context.is_server and not server_side:
@@ -110,7 +112,7 @@ class SSLObject(_ssl.SSLObject):
         The currently set server hostname (for SNI), or ``None`` if no
         server hostname is set.
         """
-        return self._sslobj.server_hostname
+        return self._server_hostname
 
     @typing.overload  # type: ignore[override]
     def read(self, len: int = 1024, buffer: None = None) -> bytes: ...
@@ -199,14 +201,14 @@ class SSLObject(_ssl.SSLObject):
         Return the currently selected NPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if NPN is not supported by one
         of the peers."""
-        return self._sslobj.selected_npn_protocol()
+        return bytes_to_str(self._sslobj.selected_npn_protocol())
 
     def selected_alpn_protocol(self) -> str | None:
         """
         Return the currently selected ALPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if ALPN is not supported by
         one of the peers."""
-        return self._sslobj.selected_alpn_protocol()
+        return bytes_to_str(self._sslobj.selected_alpn_protocol())
 
     def cipher(self) -> tuple[str, str, int] | None:
         """

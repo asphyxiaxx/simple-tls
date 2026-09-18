@@ -164,7 +164,6 @@ from ._supported import ECC_GROUPS, FFDHE_GROUPS, KEM_GROUPS, SUPPORTED_GROUPS
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._utils import Buffer, filter
 
-ExtensionOrderCallback = typing.Callable[[list[int]], list[int]]
 NewSessionHandler = typing.Callable[[TLSSession], None]
 
 
@@ -511,7 +510,7 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertInternalError("offered_session not set")
 
         offered_session = self._offered_session
-        self._session = offered_session.copy()
+        self._session = offered_session.copy(include_noauth=True)
         self._version = offered_session.version
         self._is_early_version = True
 
@@ -1183,29 +1182,6 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.FINISH_CLIENT_HANDSHAKE)
         return Status.OK
 
-    def _do_finish_client_handshake(self) -> Status:
-        if self._ech_status == ECHStatus.REJECTED:
-            raise AlertECHRequired("ECH not negotiated")
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
-        if not self._session_reused:
-            session = self._session
-            session.not_resumable = False
-
-            if (
-                self._new_session_cb is not None
-                and session.session_type() != SessionType.not_resumable
-            ):
-                session = session.copy(
-                    include_noauth=True, include_ticket=True
-                )
-                session.not_resumable = False
-                self._new_session_cb(session)
-
-        self._set_state(ClientState.DONE)
-        return Status.OK
-
     def _do_read_hrr_tlsv13(self) -> Status:
         message = self._get_message()
         if message is None:
@@ -1788,6 +1764,31 @@ class TLSHandshakeClient(TLSHandshake):
         self.update_traffic_cb(Direction.WRITE, Epoch.APPLICATION_DATA)
 
         self._set_state(ClientState.FINISH_CLIENT_HANDSHAKE)
+        return Status.OK
+
+    def _do_finish_client_handshake(self) -> Status:
+        if self._ech_status == ECHStatus.REJECTED:
+            raise AlertECHRequired("ECH not negotiated")
+        if self._session is None:
+            raise AlertInternalError("session not set")
+
+        if not self._session_reused:
+            session = self._session
+            session.not_resumable = False
+
+            if (
+                self._new_session_cb is not None
+                and session.session_type() != SessionType.not_resumable
+            ):
+                session = session.copy(
+                    include_noauth=True, include_ticket=True
+                )
+                session.not_resumable = False
+                self._new_session_cb(session)
+
+        self._session_establish = True
+
+        self._set_state(ClientState.DONE)
         return Status.OK
 
     def _do_read_post_handshake(self) -> Status:

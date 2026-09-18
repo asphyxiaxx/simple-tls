@@ -952,17 +952,6 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
         return Status.FLUSH_MESSAGE
 
-    def _do_finish_server_handshake(self) -> Status:
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
-        if not self._session_reused:
-            session = self._session
-            session.not_resumable = False
-
-        self._set_state(ServerState.DONE)
-        return Status.OK
-
     def _do_select_parameters_tls13(self) -> Status:
         message = self._get_message()
         if message is None:
@@ -1695,6 +1684,19 @@ class TLSHandshakeServer(TLSHandshake):
 
         self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
         return Status.PACK_FLIGHT
+
+    def _do_finish_server_handshake(self) -> Status:
+        if self._session is None:
+            raise AlertInternalError("session not set")
+
+        if not self._session_reused:
+            session = self._session
+            session.not_resumable = False
+
+        self._session_establish = True
+
+        self._set_state(ServerState.DONE)
+        return Status.OK
 
     def _do_read_post_handshake(self) -> Status:
         message = self._get_message()

@@ -6,8 +6,8 @@ import typing
 from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
 
 from simple_tls import tls, x509
+from simple_tls.utils.math import bytes_to_str, str_to_bytes
 
-from ..utils.math import bytes_to_str, str_to_bytes
 from ._constant import Options
 from ._exception import (
     SSLEOFError,
@@ -403,14 +403,13 @@ class SSLSocket(_ssl.SSLSocket):
     def selected_npn_protocol(self) -> str | None:
         self._checkClosed()
         if self._sslobj is not None:
-            return self._sslobj.selected_npn_protocol()
+            return bytes_to_str(self._sslobj.selected_npn_protocol())
         return None
 
     def selected_alpn_protocol(self) -> str | None:
         self._checkClosed()
-
         if self._sslobj is not None:
-            return self._sslobj.selected_alpn_protocol()
+            return bytes_to_str(self._sslobj.selected_alpn_protocol())
         return None
 
     def cipher(self) -> tuple[str, str, int] | None:
