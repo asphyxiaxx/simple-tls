@@ -89,8 +89,6 @@ class TLSConnection:
         session: TLSSession | None = None,
         new_session_handler: NewSessionHandler | None = None,
     ) -> None:
-        if context.check_hostname and not server_hostname:
-            raise ValueError("check_hostname requires server_hostname")
 
         handshake: TLSHandshakeClient | TLSHandshakeServer
         if context.is_server:
@@ -332,12 +330,13 @@ class TLSConnection:
         if buffer is not None:
             if len(buffer) < data_len:
                 raise ValueError("buffer too small")
+
             buffer[:data_len] = app_data
             del self._pending_app_data[:length]
             return data_len
-
-        del self._pending_app_data[:length]
-        return bytes(app_data)
+        else:
+            del self._pending_app_data[:length]
+            return bytes(app_data)
 
     def write(self, data: Buffer) -> int:
         if not (self._handshake.done or self._handshake.can_early_write):
@@ -640,11 +639,7 @@ class TLSConnection:
         record_data = self._seal_record(content_type, data)
         self._outbio.write(record_data)
 
-    def _seal_record(
-        self,
-        content_type: int,
-        plaintext: Buffer,
-    ) -> memoryview:
+    def _seal_record(self, content_type: int, plaintext: Buffer) -> memoryview:
         epoch = self._current_write_epoch
         state = self._write_states[epoch]
         original_buf = self._write_buf
@@ -666,10 +661,7 @@ class TLSConnection:
         return original_buf[:written]
 
     def _seal_record_internal(
-        self,
-        content_type: int,
-        plaintext: Buffer,
-        buf: WritableBuffer,
+        self, content_type: int, plaintext: Buffer, buf: WritableBuffer
     ) -> int:
         assert len(plaintext) <= self._send_record_limit
 

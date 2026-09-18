@@ -176,6 +176,9 @@ class TLSHandshakeClient(TLSHandshake):
         session: TLSSession | None = None,
         new_session_handler: NewSessionHandler | None = None,
     ) -> None:
+        if context.check_hostname and not server_hostname:
+            raise ValueError("check_hostname requires server_hostname")
+
         ## Initialization
         super().__init__(context)
 
