@@ -188,7 +188,7 @@ class SSLSocket(_ssl.SSLSocket):
 
     @context.setter
     def context(self, context: SSLContext) -> None:
-        if not isinstance(context, SSLContext):
+        if not hasattr(context, "_context"):
             raise TypeError("Not SSLContext")
         if self._sslobj is None:
             raise TypeError("set context on closed socket")

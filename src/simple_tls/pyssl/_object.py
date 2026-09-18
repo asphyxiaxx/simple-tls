@@ -83,7 +83,7 @@ class SSLObject(_ssl.SSLObject):
 
     @context.setter
     def context(self, context: SSLContext) -> None:
-        if not isinstance(context, SSLContext):
+        if not hasattr(context, "_context"):
             raise TypeError("Not SSLContext")
 
         tls_context = context._context
