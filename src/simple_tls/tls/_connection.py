@@ -28,7 +28,6 @@ from simple_tls import x509
 from simple_tls.utils.math import bytes_to_str, int_to_bytes
 
 from ._alert import AlertException
-from ._cipher import InvalidTag, NullCipher, TLSCipher
 from ._constant import (
     AlertDescription,
     AlertLevel,
@@ -52,6 +51,7 @@ from ._handshake_client import NewSessionHandler, TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
 from ._message import Alert, ChangeCipherSpec, HandshakeMessage
 from ._session import TLSSession
+from ._symmetric import InvalidTag, KeyMaterial, NullCipher, TLSCipher
 from ._utils import Buffer, WritableBuffer
 
 _HEADER_LENGTH = 5
@@ -501,8 +501,12 @@ class TLSConnection:
 
     # Record layer
     def _setup_traffic(
-        self, direction: Direction, epoch: Epoch, cipher: TLSCipher
+        self,
+        direction: Direction,
+        epoch: Epoch,
+        key_material: KeyMaterial,
     ) -> None:
+        cipher = TLSCipher(key_material)
         state = ConnectionState(epoch, cipher)
         version = self._handshake.protocol_version()
         max_seal_overhead = _HEADER_LENGTH

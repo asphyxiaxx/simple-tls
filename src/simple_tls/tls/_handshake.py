@@ -48,7 +48,6 @@ from ._alert import (
     AlertInternalError,
     AlertUnknownCA,
 )
-from ._cipher import TLSCipher
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     SERVER_CONTEXT_STRING,
@@ -94,12 +93,13 @@ from ._supported import (
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
 )
+from ._symmetric import KeyMaterial, get_key_iv_len
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._utils import Buffer, get_algorithm, version_from_wire
 from ._x509_validator import EKUValidator, SANValidator
 
 MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
-SetupTrafficCallback = typing.Callable[[Direction, Epoch, TLSCipher], None]
+SetupTrafficCallback = typing.Callable[[Direction, Epoch, KeyMaterial], None]
 UpdateTrafficCallback = typing.Callable[[Direction, Epoch], None]
 AddCSSCallback = typing.Callable[[], None]
 
@@ -360,7 +360,7 @@ class TLSHandshake:
         master_secret = session.secret
         encrypt_then_mac = session.encrypt_then_mac
 
-        key_len, iv_len = TLSCipher.get_key_iv_len(version, cipher_suite)
+        key_len, iv_len = get_key_iv_len(version, cipher_suite)
         if cipher_suite.aead:
             mac_size = 0
         else:
@@ -393,7 +393,7 @@ class TLSHandshake:
             read_mac, read_key, read_iv = sv_mac, sv_key, sv_iv
             write_mac, write_key, write_iv = cl_mac, cl_key, cl_iv
 
-        read_cipher = TLSCipher(
+        read_material = KeyMaterial(
             direction=Direction.READ,
             version=version,
             cipher_suite=cipher_suite,
@@ -403,10 +403,10 @@ class TLSHandshake:
             encrypt_then_mac=encrypt_then_mac,
         )
         self.setup_traffic_cb(
-            Direction.READ, Epoch.APPLICATION_DATA, read_cipher
+            Direction.READ, Epoch.APPLICATION_DATA, read_material
         )
 
-        write_cipher = TLSCipher(
+        write_material = KeyMaterial(
             direction=Direction.WRITE,
             version=version,
             cipher_suite=cipher_suite,
@@ -416,7 +416,7 @@ class TLSHandshake:
             encrypt_then_mac=encrypt_then_mac,
         )
         self.setup_traffic_cb(
-            Direction.WRITE, Epoch.APPLICATION_DATA, write_cipher
+            Direction.WRITE, Epoch.APPLICATION_DATA, write_material
         )
 
     def _setup_traffic_key_tls13(
@@ -475,14 +475,14 @@ class TLSHandshake:
 
         version = session.protocol_version()
         cipher_suite = session.cipher_suite
-        key_len, iv_len = TLSCipher.get_key_iv_len(version, cipher_suite)
+        key_len, iv_len = get_key_iv_len(version, cipher_suite)
         key = self._key_schedule.hkdf_expand_label(
             secret, b"key", b"", key_len
         )
         fixed_nonce = self._key_schedule.hkdf_expand_label(
             secret, b"iv", b"", iv_len
         )
-        cipher = TLSCipher(
+        cipher = KeyMaterial(
             direction=direction,
             version=version,
             cipher_suite=cipher_suite,

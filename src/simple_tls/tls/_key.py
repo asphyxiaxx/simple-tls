@@ -51,13 +51,16 @@ class InvalidSignature(Exception):
 
 
 class BasePrivateKey:
-    def sign(self, msg: bytes, signature_algorithm: int) -> bytes:
+    def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         raise NotImplementedError
 
 
 class BasePublicKey:
     def verify(
-        self, signature: bytes, msg: bytes, signature_algorithm: int
+        self,
+        signature: bytes,
+        message: bytes,
+        signature_algorithm: int,
     ) -> None:
         raise NotImplementedError
 
@@ -66,7 +69,7 @@ class RSAPrivateKey(BasePrivateKey):
     def __init__(self, key: rsa.RSAPrivateKey) -> None:
         self._key = key
 
-    def sign(self, msg: bytes, signature_algorithm: int) -> bytes:
+    def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         try:
             func, hashalg = self._SIGNING_FUNCS[signature_algorithm]
         except KeyError:
@@ -81,7 +84,7 @@ class RSAPrivateKey(BasePrivateKey):
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
 
-        hashobj.update(msg)
+        hashobj.update(message)
         msg_hash = hashobj.finalize()
 
         return func(self._key, msg_hash, algorithm)
@@ -142,7 +145,10 @@ class RSAPublicKey(BasePublicKey):
         self._key = key
 
     def verify(
-        self, signature: bytes, msg: bytes, signature_algorithm: int
+        self,
+        signature: bytes,
+        message: bytes,
+        signature_algorithm: int,
     ) -> None:
         try:
             func, hashalg = self._VERIFYING_FUNCS[signature_algorithm]
@@ -158,7 +164,7 @@ class RSAPublicKey(BasePublicKey):
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
 
-        hashobj.update(msg)
+        hashobj.update(message)
         msg_hash = hashobj.finalize()
 
         try:
@@ -220,7 +226,7 @@ class DSAPrivateKey(BasePrivateKey):
     def __init__(self, key: dsa.DSAPrivateKey) -> None:
         self._key = key
 
-    def sign(self, msg: bytes, signature_algorithm: int) -> bytes:
+    def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm not in DSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
                 f"Invalid signature_algorithm '{signature_algorithm}'"
@@ -229,7 +235,7 @@ class DSAPrivateKey(BasePrivateKey):
         hashalg = (signature_algorithm >> 8) & 0xFF
         algorithm = get_algorithm(hashalg)
 
-        return self._key.sign(msg, algorithm)
+        return self._key.sign(message, algorithm)
 
     @property
     def key_size(self) -> int:
@@ -241,7 +247,10 @@ class DSAPublicKey(BasePublicKey):
         self._key = key
 
     def verify(
-        self, signature: bytes, msg: bytes, signature_algorithm: int
+        self,
+        signature: bytes,
+        message: bytes,
+        signature_algorithm: int,
     ) -> None:
         if signature_algorithm not in DSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
@@ -252,7 +261,7 @@ class DSAPublicKey(BasePublicKey):
         algorithm = get_algorithm(hashalg)
 
         try:
-            self._key.verify(signature, msg, algorithm)
+            self._key.verify(signature, message, algorithm)
         except exceptions.InvalidSignature:
             raise InvalidSignature from None
 
@@ -282,7 +291,7 @@ class ECPrivateKey(BasePrivateKey):
     def __init__(self, key: ec.EllipticCurvePrivateKey) -> None:
         self._key = key
 
-    def sign(self, msg: bytes, signature_algorithm: int) -> bytes:
+    def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm not in ECDSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
                 f"Invalid signature_algorithm '{signature_algorithm}'"
@@ -291,7 +300,7 @@ class ECPrivateKey(BasePrivateKey):
         hashalg = (signature_algorithm >> 8) & 0xFF
         algorithm = get_algorithm(hashalg)
 
-        return self._key.sign(msg, ec.ECDSA(algorithm))
+        return self._key.sign(message, ec.ECDSA(algorithm))
 
     @property
     def group_id(self) -> int:
@@ -303,7 +312,10 @@ class ECPublicKey(BasePublicKey):
         self._key = key
 
     def verify(
-        self, signature: bytes, msg: bytes, signature_algorithm: int
+        self,
+        signature: bytes,
+        message: bytes,
+        signature_algorithm: int,
     ) -> None:
         if signature_algorithm not in ECDSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
@@ -314,7 +326,7 @@ class ECPublicKey(BasePublicKey):
         algorithm = get_algorithm(hashalg)
 
         try:
-            self._key.verify(signature, msg, ec.ECDSA(algorithm))
+            self._key.verify(signature, message, ec.ECDSA(algorithm))
         except exceptions.InvalidSignature:
             raise InvalidSignature from None
 
@@ -327,13 +339,13 @@ class Ed25519PrivateKey(BasePrivateKey):
     def __init__(self, key: ed25519.Ed25519PrivateKey) -> None:
         self._key = key
 
-    def sign(self, msg: bytes, signature_algorithm: int) -> bytes:
+    def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm != SignatureScheme.ED25519:
             raise ValueError(
                 f"Invalid signature_algorithm '{signature_algorithm}'"
             )
 
-        return self._key.sign(msg)
+        return self._key.sign(message)
 
 
 class Ed25519PublicKey(BasePublicKey):
@@ -341,7 +353,10 @@ class Ed25519PublicKey(BasePublicKey):
         self._key = key
 
     def verify(
-        self, signature: bytes, msg: bytes, signature_algorithm: int
+        self,
+        signature: bytes,
+        message: bytes,
+        signature_algorithm: int,
     ) -> None:
         if signature_algorithm != SignatureScheme.ED25519:
             raise ValueError(
@@ -349,7 +364,7 @@ class Ed25519PublicKey(BasePublicKey):
             )
 
         try:
-            self._key.verify(signature, msg)
+            self._key.verify(signature, message)
         except exceptions.InvalidSignature:
             raise InvalidSignature from None
 
@@ -358,13 +373,13 @@ class Ed448PrivateKey(BasePrivateKey):
     def __init__(self, key: ed448.Ed448PrivateKey) -> None:
         self._key = key
 
-    def sign(self, msg: bytes, signature_algorithm: int) -> bytes:
+    def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm != SignatureScheme.ED448:
             raise ValueError(
                 f"Invalid signature_algorithm '{signature_algorithm}'"
             )
 
-        return self._key.sign(msg)
+        return self._key.sign(message)
 
 
 class Ed448PublicKey(BasePublicKey):
@@ -372,7 +387,10 @@ class Ed448PublicKey(BasePublicKey):
         self._key = key
 
     def verify(
-        self, signature: bytes, msg: bytes, signature_algorithm: int
+        self,
+        signature: bytes,
+        message: bytes,
+        signature_algorithm: int,
     ) -> None:
         if signature_algorithm != SignatureScheme.ED448:
             raise ValueError(
@@ -380,7 +398,7 @@ class Ed448PublicKey(BasePublicKey):
             )
 
         try:
-            self._key.verify(signature, msg)
+            self._key.verify(signature, message)
         except exceptions.InvalidSignature:
             raise InvalidSignature from None
 

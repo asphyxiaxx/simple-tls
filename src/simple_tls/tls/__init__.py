@@ -42,7 +42,6 @@ from ._alert import (
     AlertUnknownCA,
     AlertUnsupportedExtension,
 )
-from ._cipher import NullCipher, TLSCipher
 from ._connection import ConnectionState, TLSConnection
 from ._constant import (
     AlertDescription,
@@ -200,6 +199,7 @@ from ._supported import (
     SUPPORTED_GROUPS,
     TLS_VERSIONS,
 )
+from ._symmetric import KeyMaterial, NullCipher, TLSCipher
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._x509_validator import Validator
 
@@ -316,6 +316,7 @@ __all__ = [
     "IntExtension",
     "KeyDeriver",
     "KeyExchange",
+    "KeyMaterial",
     "KeySchedule",
     "KeyShareEntry",
     "KeyUpdate",
