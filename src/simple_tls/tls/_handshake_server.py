@@ -919,13 +919,10 @@ class TLSHandshakeServer(TLSHandshake):
 
             session = self._session
             session.rebase_time()
-            self._encrypt_session(session)
-
-            if session.ticket:
-                new_session_ticket = NewSessionTicket(
-                    ticket_lifetime=int(session.timeout.total_seconds()),
-                    ticket=session.ticket,
-                )
+            ticket = self._encrypt_session(session)
+            if ticket:
+                ticket_lifetime = int(session.timeout.total_seconds())
+                new_session_ticket = NewSessionTicket(ticket_lifetime, ticket)
                 self.message_cb(Direction.WRITE, new_session_ticket)
                 self._add_message(new_session_ticket)
 
@@ -1684,14 +1681,13 @@ class TLSHandshakeServer(TLSHandshake):
             )
 
             # Ticket
-            self._encrypt_session(new_session)
-
-            if new_session.ticket:
+            ticket = self._encrypt_session(new_session)
+            if ticket:
                 new_session_ticket = NewSessionTicketTLS13(
                     ticket_lifetime=int(new_session.timeout.total_seconds()),
                     ticket_age_add=new_session.ticket_age_add,
                     ticket_nonce=ticket_nonce,
-                    ticket=new_session.ticket,
+                    ticket=ticket,
                     extensions=self._serialize_extensions(extensions),
                 )
                 self.message_cb(Direction.WRITE, new_session_ticket)
@@ -1959,11 +1955,12 @@ class TLSHandshakeServer(TLSHandshake):
 
         return None
 
-    def _encrypt_session(self, session: TLSSession) -> None:
+    def _encrypt_session(self, session: TLSSession) -> bytes | None:
         ticket_aead = self.context.ticket_aead
         if ticket_aead is None:
-            return
+            return None
 
         ticket = ticket_aead.seal(session.serialize())
         if ticket is not None:
-            session.ticket = bytes(ticket)
+            return bytes(ticket)
+        return None
