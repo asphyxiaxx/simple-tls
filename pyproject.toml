@@ -73,7 +73,7 @@ warn_return_any = false
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
-module = "simple_tls.tls._cipher"
+module = "simple_tls.tls._symmetric"
 disable_error_code = ["arg-type"]
 
 [[tool.mypy.overrides]]
