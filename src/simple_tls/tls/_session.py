@@ -30,7 +30,7 @@ from simple_tls.utils.codec import Parser, Writer
 from simple_tls.utils.misc import utcnow
 
 from ._constant import CipherSuite, TLSVersion
-from ._enum import Protocol, SessionType
+from ._enum import Protocol
 from ._utils import Buffer
 
 
@@ -128,23 +128,6 @@ class TLSSession:
     def protocol_version(self) -> int:
         assert self.version != TLSVersion.UNSPECIFIED
         return self.version
-
-    def session_type(self) -> SessionType:
-        if self.not_resumable:
-            return SessionType.not_resumable
-
-        if self.protocol_version() >= TLSVersion.TLSv1_3:
-            if self.is_server or self.ticket:
-                return SessionType.pre_shared_key
-            return SessionType.not_resumable
-
-        if self.ticket:
-            return SessionType.session_ticket
-
-        if self.session_id:
-            return SessionType.session_id
-
-        return SessionType.not_resumable
 
     def copy(
         self, include_noauth: bool = False, include_ticket: bool = False

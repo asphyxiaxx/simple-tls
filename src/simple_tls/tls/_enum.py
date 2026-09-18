@@ -35,13 +35,6 @@ class VerifyMode(int, enum.Enum):
     CERT_REQUIRED = 2
 
 
-class SessionType(int, enum.Enum):
-    not_resumable = enum.auto()
-    session_id = enum.auto()
-    session_ticket = enum.auto()
-    pre_shared_key = enum.auto()
-
-
 class Direction(int, enum.Enum):
     READ = 0
     WRITE = 1

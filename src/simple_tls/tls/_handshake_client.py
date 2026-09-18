@@ -78,7 +78,6 @@ from ._enum import (
     Direction,
     ECHStatus,
     Epoch,
-    SessionType,
     Status,
     VerifyMode,
 )
@@ -1778,7 +1777,8 @@ class TLSHandshakeClient(TLSHandshake):
 
             if (
                 self._new_session_cb is not None
-                and session.session_type() != SessionType.not_resumable
+                and session.protocol_version() <= TLSVersion.TLSv1_2
+                and (session.ticket or session.session_id)
             ):
                 session = session.copy(
                     include_noauth=True, include_ticket=True
