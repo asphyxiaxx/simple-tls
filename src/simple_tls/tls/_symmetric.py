@@ -661,8 +661,8 @@ class NullCipher(TLSCipher):
         else:
             self.open = self._decrypt_raw
 
-    def ciphertext_length(self, plaintext_len: int) -> int:
-        return plaintext_len
+    def ciphertext_length(self, plaintext_length: int) -> int:
+        return plaintext_length
 
     def _encrypt_raw(
         self,
