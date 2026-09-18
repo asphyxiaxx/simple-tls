@@ -251,19 +251,16 @@ class TLSHandshakeServer(TLSHandshake):
         ## Temporary State
         self._hs_state = ServerState.START_ACCEPT
         self._extensions_recv: set[int] = set()
-        """extensions type that was recevied from client hello"""
-        self._group_id: int | None = None
-        """ECC group id negotiated"""
         self._npn_expected: bool = False
-        """True if expect npn protocol from client"""
         self._ticket_expected: bool = False
-        """True if server sent session ticket extension in ServerHello"""
-        self._selected_psk: int | None = None
-        """index of selected pre shared key from client hello"""
-        self._selected_key_share_group: int | None = None
-        """selected key share group from client hello"""
         self._certificate_requested: bool = False
-        """True if certificate request message sent to client"""
+
+        self._pre_shared_key: tuple[bytes, bytes] | None = None
+        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
+
+        # Identity
+        self._private_key: BasePrivateKey | None = None
+        self._x509_certs: tuple[x509.Certificate, ...] | None = None
 
         # Peer item
         self._peer_cipher_suites: tuple[int, ...] | None = None
@@ -272,6 +269,12 @@ class TLSHandshakeServer(TLSHandshake):
         self._peer_key: bytes | None = None
 
         # Negotiated variable
+        self._psk_index: int | None = None
+        """PSK index selected"""
+        self._group_id: int | None = None
+        """gorup id (TLSv1)"""
+        self._key_share_group_id: int | None = None
+        """gorup id for key share (TLSv1.3)"""
         self._signature_algorithm: int | None = None
         """signature algorithm to be used with signing"""
         self._secure_renegotiation: bool = False
@@ -284,14 +287,6 @@ class TLSHandshakeServer(TLSHandshake):
         """True when PHA negotiated"""
         self._certificate_compression: int | None = None
         """Certificate compression algorithm negotiated"""
-
-        # Identity
-        self._private_key: BasePrivateKey | None = None
-        self._x509_certs: tuple[x509.Certificate, ...] | None = None
-
-        # tuple of identity and binder key derived from PSK extension
-        self._pre_shared_key: tuple[bytes, bytes] | None = None
-        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
 
     @property
     def done(self) -> bool:
@@ -1041,7 +1036,7 @@ class TLSHandshakeServer(TLSHandshake):
                         raise AlertDecryptError("binder verify failed")
 
                     self._session_reused = True
-                    self._selected_psk = index
+                    self._psk_index = index
                     # Store in case of HRR
                     self._pre_shared_key = (identity, binder_key)
                     break
@@ -1086,11 +1081,11 @@ class TLSHandshakeServer(TLSHandshake):
             # and dh groups
             for key_share_group in self._supported_groups:
                 if key_share_group in shared_key_shares:
-                    self._selected_key_share_group = key_share_group
+                    self._key_share_group_id = key_share_group
                     self._peer_key = shared_key_shares[key_share_group]
                     break
                 if key_share_group in self._peer_supported_groups:
-                    self._selected_key_share_group = key_share_group
+                    self._key_share_group_id = key_share_group
                     hrr = True
                     break
             else:
@@ -1098,7 +1093,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         new_session.cipher_suite = self._cipher_suite
         new_session.early_alpn = self._alpn_selected
-        new_session.group_id = self._selected_key_share_group
+        new_session.group_id = self._key_share_group_id
 
         alps_ext = client_hello.get_extension(ClientALPSExtension)
         if (
@@ -1126,7 +1121,7 @@ class TLSHandshakeServer(TLSHandshake):
                 # RFC8446 Section 4.2.10
                 # early data MUST be the first PSK listed in the client's
                 # "pre_shared_key" extension
-                and self._selected_psk == 0
+                and self._psk_index == 0
                 and not hrr
                 and session is not None
                 and session.ticket_max_early_data > 0
@@ -1176,9 +1171,9 @@ class TLSHandshakeServer(TLSHandshake):
             extensions.append(CookieExtension(self._cookie))
 
         # Selected key share group extension
-        if self._selected_key_share_group is not None:
+        if self._key_share_group_id is not None:
             extensions.append(
-                HRRKeyShareExtension(self._selected_key_share_group)
+                HRRKeyShareExtension(self._key_share_group_id)
             )
 
         if not extensions:
@@ -1231,12 +1226,12 @@ class TLSHandshakeServer(TLSHandshake):
         ):
             raise AlertIllegalParameter()
 
-        if self._selected_key_share_group is None and self._cookie is None:
+        if self._key_share_group_id is None and self._cookie is None:
             raise AlertInternalError()
 
         key_share_ext = client_hello.get_extension(ClientKeyShareExtension)
-        if self._selected_key_share_group is not None:
-            selected_ks_group = self._selected_key_share_group
+        if self._key_share_group_id is not None:
+            selected_ks_group = self._key_share_group_id
 
             if key_share_ext is None:
                 raise AlertMissingExtension("Missing key share extension")
@@ -1260,7 +1255,7 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertIllegalParameter("Unxpected cookie extension")
 
         psk_ext = client_hello.get_extension(ClientPSKExtension)
-        if self._selected_psk is not None:
+        if self._psk_index is not None:
             if self._pre_shared_key is None:
                 raise AlertInternalError()
             if psk_ext is None:
@@ -1282,7 +1277,7 @@ class TLSHandshakeServer(TLSHandshake):
                 if not compare_digest(binders[i], expected_binder):
                     raise AlertDecryptError("binder verify failed")
 
-                self._selected_psk = i
+                self._psk_index = i
                 break
 
             else:
@@ -1312,15 +1307,15 @@ class TLSHandshakeServer(TLSHandshake):
             ServerSupportedVersionExtension(self.protocol_version())
         )
 
-        if self._selected_psk is not None:
-            extensions.append(ServerPSKExtension(self._selected_psk))
+        if self._psk_index is not None:
+            extensions.append(ServerPSKExtension(self._psk_index))
 
-        if self._selected_key_share_group is not None:
+        if self._key_share_group_id is not None:
             if self._peer_key is None:
                 raise AlertInternalError("peer_key not set")
 
             kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
-            ks_group = self._selected_key_share_group
+            ks_group = self._key_share_group_id
             if ks_group in ECC_GROUPS:
                 kex = ECDHKeyExchange(ks_group)
             elif ks_group in FFDHE_GROUPS:
