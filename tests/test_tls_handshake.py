@@ -847,11 +847,11 @@ def test_tls13_server_unsuported_group():
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm not in RSA_PSS_RSAE_SIGNATURE_ALGORITHMS
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_rsa_pkcs1(
     signature_algorithm,
@@ -880,11 +880,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_rsa_pkcs1(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm not in DSA_SIGNATURE_ALGORITHMS
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_dsa(
     signature_algorithm,
@@ -913,11 +913,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_dsa(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm != SignatureScheme.ECDSA_SECP256R1_SHA256
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_ec_secp256r1(
     signature_algorithm,
@@ -946,11 +946,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_ec_secp256r1(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm != SignatureScheme.ED25519
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_ed25519(
     signature_algorithm,
@@ -979,11 +979,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_ed25519(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm != SignatureScheme.ED448
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_ed448(
     signature_algorithm,
