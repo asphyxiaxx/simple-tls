@@ -93,7 +93,6 @@ from ._supported import (
     RSA_PKCS1_SIGNATURE_ALGORITHMS,
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
-    TLS_VERSIONS,
 )
 from ._transcript import KeyDeriver, KeySchedule, Transcript
 from ._utils import Buffer, get_algorithm, version_from_wire
@@ -294,18 +293,6 @@ class TLSHandshake:
     def cipher(self) -> CipherSuite:
         assert self._cipher_suite is not None
         return self._cipher_suite
-
-    def _version_from_wire(self, version: int) -> int:
-        if self._protocol == Protocol.TLS:
-            if version in TLS_VERSIONS:
-                return version
-        raise ValueError(f"Unknown version {version}")
-
-    def _version_to_wire(self, version: int) -> int:
-        if self._protocol == Protocol.TLS:
-            if version in TLS_VERSIONS:
-                return version
-        raise ValueError(f"Unknown version {version}")
 
     @staticmethod
     def _update_hash(

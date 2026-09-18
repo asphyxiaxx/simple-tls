@@ -399,9 +399,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._client_random = get_random_bytes(32)
 
         # Version to send in client hello
-        self._client_version = self._version_to_wire(
-            min(self._maximum_version, TLSVersion.TLSv1_2)
-        )
+        self._client_version = min(self._maximum_version, TLSVersion.TLSv1_2)
 
         if self._maximum_version >= TLSVersion.TLSv1_3:
             if not self._supported_groups:
