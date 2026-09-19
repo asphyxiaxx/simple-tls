@@ -99,13 +99,13 @@ class Store:
     ) -> list[Certificate] | _T | None:
         return self._trust_map.get(key, default)
 
-    def append(self, cert: Certificate) -> None:
-        self._certs.append(cert)
-        self._trust_map.setdefault(cert.subject, []).append(cert)
+    def append(self, certificate: Certificate) -> None:
+        self._certs.append(certificate)
+        self._trust_map.setdefault(certificate.subject, []).append(certificate)
 
-    def extend(self, certs: list[Certificate]) -> None:
-        self._certs.extend(certs)
-        for c in certs:
+    def extend(self, certificates: list[Certificate]) -> None:
+        self._certs.extend(certificates)
+        for c in certificates:
             self._trust_map.setdefault(c.subject, []).append(c)
 
     def get_trust_map(self) -> dict[Name, list[Certificate]]:
