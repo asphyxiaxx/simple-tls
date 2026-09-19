@@ -89,7 +89,6 @@ class TLSConnection:
         session: TLSSession | None = None,
         new_session_handler: NewSessionHandler | None = None,
     ) -> None:
-
         handshake: TLSHandshakeClient | TLSHandshakeServer
         if context.is_server:
             if server_hostname:
