@@ -1389,9 +1389,11 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self.context.verify_mode != VerifyMode.CERT_NONE:
             cert_extensions: list[TLSExtension] = []
+
             cert_extensions.append(
                 SignatureAlgorithmsExtension(self._signature_algorithms)
             )
+
             if self._certificate_compressions is not None:
                 cert_extensions.append(
                     CompressedCertificateExtension(
