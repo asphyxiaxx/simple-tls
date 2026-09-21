@@ -28,14 +28,11 @@ from simple_tls.utils.math import str_to_bytes
 from simple_tls.x509.verification import ExtensionPolicy, Store
 
 from ._constant import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
-from ._enum import Direction, Protocol, VerifyMode
+from ._enum import Protocol, VerifyMode
 from ._key import BasePrivateKey, load_pem_private_key
 from ._keyexchange import DHParameters
 from ._session import TicketAEAD, TLSSession
 from ._utils import Buffer, StrOrBytesPath
-
-_MsgCallback = typing.Callable[[typing.Any, Direction, int, int, bytes], None]
-_SNICallback = typing.Callable[[typing.Any, str], int | None]
 
 
 @dataclass(frozen=True)
@@ -140,7 +137,7 @@ class TLSConfiguration:
     """Supported algorithms for certificate compression
     (e.g., zlib, brotli, zstd)."""
 
-    ech_configs: Buffer | None = None
+    ech_configs: bytes | None = None
     """Encrypted ClientHello (ECH) configuration bytes."""
 
     encrypt_then_mac: bool = False
@@ -188,21 +185,21 @@ class TLSConfiguration:
     """Allow connections to legacy servers that do not support secure
     renegotiation."""
 
-    npn_protocols: typing.Sequence[Buffer] | None = None
+    npn_protocols: typing.Sequence[bytes] | None = None
     """Next Protocol Negotiation (NPN) protocol list (legacy)."""
 
-    alpn_protocols: typing.Sequence[Buffer] | None = None
+    alpn_protocols: typing.Sequence[bytes] | None = None
     """Application-Layer Protocol Negotiation (ALPN) protocol list in
     preference order."""
 
-    alps: typing.Mapping[Buffer, Buffer] | None = None
+    alps: typing.Mapping[bytes, bytes] | None = None
     """Application-Layer Protocol Settings (ALPS) mapped by ALPN protocol name.
     """
 
     session: TLSSession | None = None
     """Session object to attempt session resumption during the handshake."""
 
-    server_hostname: Buffer | None = None
+    server_hostname: bytes | None = None
     """Target hostname used for Server Name Indication (SNI) and certificate
     verification."""
 
