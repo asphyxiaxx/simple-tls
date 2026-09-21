@@ -109,7 +109,7 @@ class SSLConnection:
             context.check_hostname = True
 
         self._conn = stls.TLSConnection(
-            context=context,
+            configuration=context,
             server_hostname=server_hostname,
             new_session_handler=self._new_session_handler,
         )

@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 from ._alert import (
+    Alert,
     AlertBadCertificate,
     AlertBadRecordMac,
     AlertCertificateExpired,
@@ -42,6 +43,8 @@ from ._alert import (
     AlertUnknownCA,
     AlertUnsupportedExtension,
 )
+from ._callback import ClientHelloInfo, HandshakeContext, TicketContext
+from ._configuration import TLSConfiguration, TLSCredential
 from ._connection import ConnectionState, TLSConnection
 from ._constant import (
     AlertDescription,
@@ -73,7 +76,6 @@ from ._constant import (
     TLSEnum,
     TLSVersion,
 )
-from ._context import TLSContext
 from ._enum import (
     ClientHelloType,
     ClientState,
@@ -151,9 +153,9 @@ from ._extension import (
 from ._handshake import TLSHandshake
 from ._handshake_client import TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
+from ._key import load_certificate_public_key, load_pem_private_key
+from ._keyexchange import load_pem_parameters
 from ._message import (
-    Alert,
-    ApplicationData,
     Certificate,
     CertificateEntry,
     CertificateRequest,
@@ -163,7 +165,6 @@ from ._message import (
     CertificateTLS13,
     CertificateVerify,
     CertificateVerifyTLS12,
-    ChangeCipherSpec,
     ClientHello,
     ClientKeyExchange,
     CompressedCertificate,
@@ -174,7 +175,6 @@ from ._message import (
     HandshakeMessage,
     HelloRequest,
     KeyUpdate,
-    Message,
     NewSessionTicket,
     NewSessionTicketTLS13,
     NextProtocol,
@@ -241,7 +241,6 @@ __all__ = [
     "AlertUnexpectedMessage",
     "AlertUnknownCA",
     "AlertUnsupportedExtension",
-    "ApplicationData",
     "Authentication",
     "CertStatusRequestExtension",
     "Certificate",
@@ -255,7 +254,6 @@ __all__ = [
     "CertificateTLS13",
     "CertificateVerify",
     "CertificateVerifyTLS12",
-    "ChangeCipherSpec",
     "CipherSuite",
     "ClientALPNExtension",
     "ClientALPSExtension",
@@ -263,6 +261,7 @@ __all__ = [
     "ClientECHExtension",
     "ClientEarlyDataExtension",
     "ClientHello",
+    "ClientHelloInfo",
     "ClientHelloPaddingExtension",
     "ClientHelloType",
     "ClientKeyExchange",
@@ -306,6 +305,7 @@ __all__ = [
     "HRRECHExtension",
     "HRRKeyShareExtension",
     "Handshake",
+    "HandshakeContext",
     "HandshakeMessage",
     "HandshakeType",
     "HashAlgorithm",
@@ -321,7 +321,6 @@ __all__ = [
     "KeyShareEntry",
     "KeyUpdate",
     "KeyUpdateMessageType",
-    "Message",
     "NameType",
     "NamedGroup",
     "NewSessionTicket",
@@ -360,8 +359,9 @@ __all__ = [
     "Symmetric",
     "TLSAlert",
     "TLSCipher",
+    "TLSConfiguration",
     "TLSConnection",
-    "TLSContext",
+    "TLSCredential",
     "TLSEOFError",
     "TLSEnum",
     "TLSError",
@@ -375,9 +375,13 @@ __all__ = [
     "TLSVersion",
     "TLSWantReadError",
     "TicketAEAD",
+    "TicketContext",
     "Transcript",
     "Validator",
     "VerifyMode",
+    "load_certificate_public_key",
+    "load_pem_parameters",
+    "load_pem_private_key",
 ]
 
 

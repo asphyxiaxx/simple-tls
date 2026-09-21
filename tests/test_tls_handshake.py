@@ -16,6 +16,7 @@ from simple_tls.tls import (
     NamedGroup,
     ServerState,
     SignatureScheme,
+    TLSCredential,
     TLSVersion,
     VerifyMode,
 )
@@ -33,10 +34,10 @@ from .utils import (
     SERVER_RSA_CERTFILE,
     SERVER_RSA_KEYFILE,
     SessionHandler,
+    TicketAEAD,
     create_client,
-    create_client_context,
     create_server,
-    create_server_context,
+    load_castore,
     run_handshake,
 )
 
@@ -88,7 +89,7 @@ def test_handshake_with_rsa_pkcs1(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher().auth == Authentication.RSA
+    assert client.cipher_suite().auth == Authentication.RSA
 
 
 @pytest.mark.parametrize(
@@ -106,29 +107,26 @@ def test_handshake_with_dsa(version):
     ]
     signature_algorithms = []
 
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=version,
         maximum_version=version,
+        cipher_suites=cipher_suites,
+        signature_algorithms=signature_algorithms,
     )
-    client_context.set_cipher_suites(cipher_suites)
-    client_context.set_signature_algorithms(signature_algorithms)
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_DSA_CERTFILE,
         keyfile=SERVER_DSA_KEYFILE,
         minimum_version=version,
         maximum_version=version,
+        cipher_suites=cipher_suites,
+        signature_algorithms=signature_algorithms,
     )
-    server_context.set_cipher_suites(cipher_suites)
-    server_context.set_signature_algorithms(signature_algorithms)
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher().auth == Authentication.DSS
+    assert client.cipher_suite().auth == Authentication.DSS
 
 
 @pytest.mark.parametrize(
@@ -147,31 +145,28 @@ def test_handshake_with_ec_secp256r1(version):
     supported_groups = [NamedGroup.SECP256R1]
     signature_algorithms = []
 
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=version,
         maximum_version=version,
+        cipher_suites=cipher_suites,
+        supported_groups=supported_groups,
+        signature_algorithms=signature_algorithms,
     )
-    client_context.set_cipher_suites(cipher_suites)
-    client_context.set_supported_groups(supported_groups)
-    client_context.set_signature_algorithms(signature_algorithms)
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_EC_SECP256R1_CERTFILE,
         keyfile=SERVER_EC_SECP256R1_KEYFILE,
         minimum_version=version,
         maximum_version=version,
+        cipher_suites=cipher_suites,
+        supported_groups=supported_groups,
+        signature_algorithms=signature_algorithms,
     )
-    server_context.set_cipher_suites(cipher_suites)
-    server_context.set_supported_groups(supported_groups)
-    server_context.set_signature_algorithms(signature_algorithms)
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher().auth == Authentication.ECDSA
+    assert client.cipher_suite().auth == Authentication.ECDSA
 
 
 @pytest.mark.parametrize(
@@ -184,19 +179,16 @@ def test_handshake_with_ec_secp256r1(version):
     ),
 )
 def test_handshake_with_alpn(version):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=version,
         maximum_version=version,
+        alpn_protocols=[b"h2"],
     )
-    client_context.set_alpn_protocols([b"h2"])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         minimum_version=version,
         maximum_version=version,
+        alpn_protocols=[b"http/1.1", b"h2"],
     )
-    server_context.set_alpn_protocols([b"http/1.1", b"h2"])
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
@@ -215,19 +207,16 @@ def test_handshake_with_alpn(version):
     ),
 )
 def test_handshake_with_npn(version):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=version,
         maximum_version=version,
+        npn_protocols=[b"h2"],
     )
-    client_context.set_npn_protocols([b"h2"])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         minimum_version=version,
         maximum_version=version,
+        npn_protocols=[b"http/1.1", b"h2"],
     )
-    server_context.set_npn_protocols([b"http/1.1", b"h2"])
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
@@ -246,16 +235,19 @@ def test_handshake_with_npn(version):
     ),
 )
 def test_handshake_with_session_ticket(subtests, version):
-    # First handshake
     session_handler = SessionHandler()
+    ticket_aead = TicketAEAD()
+
+    # First handshake
     client = create_client(
-        session_handler=session_handler,
         minimum_version=version,
         maximum_version=version,
     )
+    client.new_session_cb = session_handler
     server = create_server(
         minimum_version=version,
         maximum_version=version,
+        ticket_aead=ticket_aead,
     )
 
     run_handshake(client, server)
@@ -271,8 +263,16 @@ def test_handshake_with_session_ticket(subtests, version):
     assert session.secret is not None
 
     with subtests.test(msg="session_resumption"):
-        client = create_client(client.context, session)
-        server = create_server(server.context)
+        client = create_client(
+            minimum_version=version,
+            maximum_version=version,
+            session=session,
+        )
+        server = create_server(
+            minimum_version=version,
+            maximum_version=version,
+            ticket_aead=ticket_aead,
+        )
 
         run_handshake(client, server)
 
@@ -334,21 +334,18 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
 )
 def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_RSA_CERTFILE,
         keyfile=SERVER_RSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
@@ -361,21 +358,18 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
 def test_tls13_handshake_with_ec_secp256r1():
     signature_algorithm = SignatureScheme.ECDSA_SECP256R1_SHA256
 
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_EC_SECP256R1_CERTFILE,
         keyfile=SERVER_EC_SECP256R1_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
@@ -387,25 +381,21 @@ def test_tls13_handshake_with_ec_secp256r1():
 
 def test_tls13_handshake_hello_retry_request(subtests):
     def handshake(client_supported_groups):
-        client_context = create_client_context(
+        client = create_client(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
+            supported_groups=client_supported_groups,
         )
-        client_context.set_supported_groups(client_supported_groups)
-        client = create_client(client_context)
-
-        server_supported_groups = [
-            NamedGroup.X25519,
-            NamedGroup.SECP384R1,
-        ]
-        server_context = create_server_context(
+        server = create_server(
             certfile=SERVER_EC_SECP256R1_CERTFILE,
             keyfile=SERVER_EC_SECP256R1_KEYFILE,
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
+            supported_groups=[
+                NamedGroup.X25519,
+                NamedGroup.SECP384R1,
+            ],
         )
-        server_context.set_supported_groups(server_supported_groups)
-        server = create_server(server_context)
 
         assert not client._hello_retry_request_used
 
@@ -430,16 +420,19 @@ def test_tls13_handshake_hello_retry_request(subtests):
 
 
 def test_tls13_handshake_with_psk(subtests):
-    # First handshake
     session_handler = SessionHandler()
+    ticket_aead = TicketAEAD()
+
+    # First handshake
     client = create_client(
-        session_handler=session_handler,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
     )
+    client.new_session_cb = session_handler
     server = create_server(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        ticket_aead=ticket_aead,
     )
 
     run_handshake(client, server)
@@ -457,8 +450,16 @@ def test_tls13_handshake_with_psk(subtests):
         assert not session.not_resumable
         assert session.secret is not None
 
-        client = create_client(client.context, session)
-        server = create_server(server.context)
+        client = create_client(
+            minimum_version=TLSVersion.TLSv1_3,
+            maximum_version=TLSVersion.TLSv1_3,
+            session=session,
+        )
+        server = create_server(
+            minimum_version=TLSVersion.TLSv1_3,
+            maximum_version=TLSVersion.TLSv1_3,
+            ticket_aead=ticket_aead,
+        )
 
         run_handshake(client, server)
 
@@ -476,8 +477,16 @@ def test_tls13_handshake_with_psk(subtests):
         # tamper resumption secret
         session.secret = session.secret[:-4] + bytes(4)
 
-        client = create_client(client.context, session)
-        server = create_server(server.context)
+        client = create_client(
+            minimum_version=TLSVersion.TLSv1_3,
+            maximum_version=TLSVersion.TLSv1_3,
+            session=session,
+        )
+        server = create_server(
+            minimum_version=TLSVersion.TLSv1_3,
+            maximum_version=TLSVersion.TLSv1_3,
+            ticket_aead=ticket_aead
+        )
 
         server_fail_hello(client, server)
 
@@ -525,30 +534,23 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
 
 @pytest.mark.skip()
 def test_tls13_handshake_with_certificate_request_with_certificate():
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        credential=TLSCredential.from_certfile(
+            certfile=SERVER_RSA_CERTFILE,
+            keyfile=SERVER_RSA_KEYFILE,
+        ),
     )
-    client_context.load_cert_chain(
-        certfile=SERVER_RSA_CERTFILE,
-        keyfile=SERVER_RSA_KEYFILE,
-    )
-    client_context.load_verify_locations(cafile=SERVER_CAFILE)
-    client = create_client(client_context)
 
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_RSA_CERTFILE,
         keyfile=SERVER_RSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
         verify_mode=VerifyMode.CERT_REQUIRED,
+        castore=load_castore(SERVER_CAFILE),
     )
-    server_context.load_cert_chain(
-        certfile=SERVER_RSA_CERTFILE,
-        keyfile=SERVER_RSA_KEYFILE,
-    )
-    server_context.load_verify_locations(cafile=SERVER_CAFILE)
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
@@ -752,19 +754,16 @@ def test_server_unsupported_version():
     ),
 )
 def test_server_unsupported_alpn(version):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=version,
         maximum_version=version,
+        alpn_protocols=[b"h2"],
     )
-    client_context.set_alpn_protocols([b"h2"])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         minimum_version=version,
         maximum_version=version,
+        alpn_protocols=[b"http/1.1", b"h3"],
     )
-    server_context.set_alpn_protocols([b"http/1.1", b"h3"])
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -781,19 +780,16 @@ def test_server_unsupported_alpn(version):
     ),
 )
 def test_server_unsupported_npn(version):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=version,
         maximum_version=version,
+        npn_protocols=[b"h2"],
     )
-    client_context.set_npn_protocols([b"h2"])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         minimum_version=version,
         maximum_version=version,
+        npn_protocols=[b"sentinel", b"http/1.1", b"h3"],
     )
-    server_context.set_npn_protocols([b"sentinel", b"http/1.1", b"h3"])
-    server = create_server(server_context)
 
     run_handshake(client, server)
 
@@ -804,19 +800,16 @@ def test_server_unsupported_npn(version):
 
 
 def test_tls13_server_unsuported_cipher_suite():
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        cipher_suites=[CipherSuite.TLS_AES_128_CCM_SHA256],
     )
-    client_context.set_cipher_suites([CipherSuite.TLS_AES_128_CCM_SHA256])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        cipher_suites=[CipherSuite.TLS_AES_256_GCM_SHA384],
     )
-    server_context.set_cipher_suites([CipherSuite.TLS_AES_256_GCM_SHA384])
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -825,19 +818,16 @@ def test_tls13_server_unsuported_cipher_suite():
 
 
 def test_tls13_server_unsuported_group():
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        supported_groups=[NamedGroup.X25519],
     )
-    client_context.set_supported_groups([NamedGroup.X25519])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        supported_groups=[NamedGroup.SECP256R1],
     )
-    server_context.set_supported_groups([NamedGroup.SECP256R1])
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -856,21 +846,18 @@ def test_tls13_server_unsuported_group():
 def test_tls13_server_unsupported_signature_algorithm_with_rsa_pkcs1(
     signature_algorithm,
 ):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_RSA_CERTFILE,
         keyfile=SERVER_RSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -889,21 +876,18 @@ def test_tls13_server_unsupported_signature_algorithm_with_rsa_pkcs1(
 def test_tls13_server_unsupported_signature_algorithm_with_dsa(
     signature_algorithm,
 ):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_DSA_CERTFILE,
         keyfile=SERVER_DSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -922,21 +906,18 @@ def test_tls13_server_unsupported_signature_algorithm_with_dsa(
 def test_tls13_server_unsupported_signature_algorithm_with_ec_secp256r1(
     signature_algorithm,
 ):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_EC_SECP256R1_CERTFILE,
         keyfile=SERVER_EC_SECP256R1_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -955,21 +936,18 @@ def test_tls13_server_unsupported_signature_algorithm_with_ec_secp256r1(
 def test_tls13_server_unsupported_signature_algorithm_with_ed25519(
     signature_algorithm,
 ):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_ED25519_CERTFILE,
         keyfile=SERVER_ED25519_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 
@@ -988,21 +966,18 @@ def test_tls13_server_unsupported_signature_algorithm_with_ed25519(
 def test_tls13_server_unsupported_signature_algorithm_with_ed448(
     signature_algorithm,
 ):
-    client_context = create_client_context(
+    client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=[signature_algorithm],
     )
-    client_context.set_signature_algorithms([signature_algorithm])
-    client = create_client(client_context)
-
-    server_context = create_server_context(
+    server = create_server(
         certfile=SERVER_ED448_CERTFILE,
         keyfile=SERVER_ED448_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        signature_algorithms=SIGNATURE_ALGORITHMS,
     )
-    server_context.set_signature_algorithms(SIGNATURE_ALGORITHMS)
-    server = create_server(server_context)
 
     server_fail_hello(client, server)
 

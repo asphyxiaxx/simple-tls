@@ -49,6 +49,7 @@ from ._alert import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
+from ._configuration import TLSConfiguration
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     GREASES,
@@ -71,7 +72,6 @@ from ._constant import (
     Symmetric,
     TLSVersion,
 )
-from ._context import TLSContext
 from ._enum import (
     ClientHelloType,
     ClientState,
@@ -159,9 +159,16 @@ from ._message import (
     ServerKeyExchange,
 )
 from ._session import TLSSession
-from ._supported import ECC_GROUPS, FFDHE_GROUPS, KEM_GROUPS, SUPPORTED_GROUPS
+from ._supported import (
+    CERTIFICATE_COMPRESSIONS,
+    ECC_GROUPS,
+    FFDHE_GROUPS,
+    KEM_GROUPS,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
+)
 from ._transcript import KeyDeriver, KeySchedule, Transcript
-from ._utils import Buffer, filter
+from ._utils import filter
 
 NewSessionHandler = typing.Callable[[TLSSession], None]
 
@@ -169,22 +176,18 @@ NewSessionHandler = typing.Callable[[TLSSession], None]
 class TLSHandshakeClient(TLSHandshake):
     is_server = False
 
-    def __init__(
-        self,
-        context: TLSContext,
-        server_hostname: Buffer | None = None,
-        session: TLSSession | None = None,
-        new_session_handler: NewSessionHandler | None = None,
-    ) -> None:
-        if context.check_hostname and not server_hostname:
+    def __init__(self, configuration: TLSConfiguration) -> None:
+        if configuration.check_hostname and not configuration.server_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
+        self.new_session_cb: NewSessionHandler | None = None
+
         ## Initialization
-        super().__init__(context)
+        super().__init__(configuration)
 
-        self._offered_session = session
-        self._new_session_cb = new_session_handler
+        self._offered_session = configuration.session
 
+        server_hostname = configuration.server_hostname
         if server_hostname and is_valid_sni(bytes_to_str(server_hostname)):
             self._hostname = bytes(server_hostname)
 
@@ -195,7 +198,7 @@ class TLSHandshakeClient(TLSHandshake):
         # Cipher Suites
         self._cipher_suites: tuple[CipherSuite, ...] = tuple(
             cipher_suite
-            for cipher_suite in context.cipher_suites
+            for cipher_suite in configuration.cipher_suites
             if (
                 cipher_suite.minimum_version <= self._maximum_version
                 and cipher_suite.maximum_version >= self._minimum_version
@@ -212,17 +215,17 @@ class TLSHandshakeClient(TLSHandshake):
             valid_groups = ()
 
         self._supported_groups: tuple[int, ...] | None = filter(
-            context.supported_groups, valid_groups
+            configuration.supported_groups, valid_groups
         )
 
         # Signature Algorithms
-        self._signature_algorithms: tuple[int, ...] | None = (
-            context.signature_algorithms
+        self._signature_algorithms: tuple[int, ...] | None = filter(
+            configuration.signature_algorithms, SIGNATURE_ALGORITHMS
         )
 
         # Certificate Compression Algorithm
-        self._certificate_compressions: tuple[int, ...] | None = (
-            context.certificate_compressions
+        self._certificate_compressions: tuple[int, ...] | None = filter(
+            configuration.certificate_compressions, CERTIFICATE_COMPRESSIONS
         )
 
         # EC point formats
@@ -232,43 +235,55 @@ class TLSHandshakeClient(TLSHandshake):
         self._psk_kex_modes: tuple[int, ...] = (PSKKeyExchangeMode.PSK_DHE_KE,)
 
         # Permute extensions
-        self._enable_permute_extensions: bool = context.permute_extensions
+        self._enable_permute_extensions: bool = (
+            configuration.permute_extensions
+        )
 
         # Early Data
-        self._enable_early_data: bool = context.early_data
+        self._enable_early_data: bool = configuration.early_data
 
         # Status Request
-        self._enable_status_request: bool = context.status_request
+        self._enable_status_request: bool = configuration.status_request
 
         # Signed certificate timestamp
-        self._enable_scts: bool = context.signed_certificate_timestamp
+        self._enable_scts: bool = configuration.signed_certificate_timestamp
 
         # Client Hello Padding
-        self._enable_client_hello_padding: bool = context.client_hello_padding
+        self._enable_client_hello_padding: bool = (
+            configuration.client_hello_padding
+        )
 
         # Encrypt Then Mac
-        self._enable_etm: bool = context.encrypt_then_mac
+        self._enable_etm: bool = configuration.encrypt_then_mac
 
         # Extended Master Secret
-        self._enable_ems: bool = context.extended_master_secret
+        self._enable_ems: bool = configuration.extended_master_secret
 
         # Post Handshake Authentication
-        self._enable_pha: bool = context.post_handshake_auth
+        self._enable_pha: bool = configuration.post_handshake_auth
 
         # Grease
-        self._enable_grease = context.grease
-        self._enable_grease_ech = context.grease_ech
+        self._enable_grease = configuration.grease
+        self._enable_grease_ech = configuration.grease_ech
 
         # ALPN Protocols
-        self._alpn_protocols: tuple[bytes, ...] | None = context.alpn_protocols
+        self._alpn_protocols: tuple[bytes, ...] | None = (
+            tuple(configuration.alpn_protocols)
+            if configuration.alpn_protocols
+            else None
+        )
 
         # NPN Protocols
-        self._npn_protocols: tuple[bytes, ...] | None = context.npn_protocols
+        self._npn_protocols: tuple[bytes, ...] | None = (
+            tuple(configuration.npn_protocols)
+            if configuration.npn_protocols
+            else None
+        )
 
         # Application Settings
         self._alps: dict[bytes, bytes] = {}
-        if self._alpn_protocols is not None:
-            for protocol, settings in context.alps:
+        if self._alpn_protocols is not None and configuration.alps is not None:
+            for protocol, settings in configuration.alps.items():
                 if protocol in self._alpn_protocols:
                     self._alps[protocol] = settings
 
@@ -343,7 +358,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Identity
         self._private_key: BasePrivateKey | None = None
-        self._x509_certs: tuple[x509.Certificate, ...] | None = None
+        self._x509_certificates: tuple[x509.Certificate, ...] | None = None
 
         # Peer item
         self._peer_cookie: bytes | None = None
@@ -396,7 +411,7 @@ class TLSHandshakeClient(TLSHandshake):
     def _do_start_connect(self) -> Status:
         self._session_reused = False
 
-        context = self.context
+        context = self.configuration
 
         # Client Random
         self._client_random = get_random_bytes(32)
@@ -478,7 +493,7 @@ class TLSHandshakeClient(TLSHandshake):
                 if self._should_offer_early_data():
                     self._early_data_offered = True
 
-        if self._new_session_cb is not None and self._session_ticket is None:
+        if self.new_session_cb is not None and self._session_ticket is None:
             self._session_ticket = b""
 
         client_hello = ClientHello(
@@ -533,7 +548,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._in_early_data = True
         self.can_early_write = True
 
-        if self.context.middlebox_compat:
+        if self.configuration.middlebox_compat:
             self.add_ccs_cb()
 
         self._set_state(ClientState.READ_SERVER_HELLO)
@@ -705,7 +720,7 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SESSION_TICKET)
             return Status.OK
 
-        if self.cipher().auth == Authentication.ANON:
+        if self.cipher_suite().auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_KEY_EXCHANGE)
             return Status.OK
 
@@ -720,12 +735,9 @@ class TLSHandshakeClient(TLSHandshake):
         certificate = self._process_certificate(
             message, session, allow_anon=False
         )
-        if self.context.verify_mode != VerifyMode.CERT_NONE:
-            if self.context.check_hostname:
-                hostname = self._hostname
-            else:
-                hostname = None
-            self._verify_x509(self.context, session, hostname)
+
+        if self._verify_mode != VerifyMode.CERT_NONE:
+            self._verify_x509(session, self._hostname)
 
         self.message_cb(Direction.READ, certificate)
         self._next_message()
@@ -760,7 +772,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_server_key_exchange(self) -> Status:
-        cipher_suite = self.cipher()
+        cipher_suite = self.cipher_suite()
         if cipher_suite.kea == KeyExchange.RSA:
             self._set_state(ClientState.READ_CERTIFICATE_REQUEST)
             return Status.OK
@@ -886,7 +898,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_certificate_request(self) -> Status:
-        if self.cipher().auth == Authentication.ANON:
+        if self.cipher_suite().auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_HELLO_DONE)
             return Status.OK
 
@@ -930,16 +942,17 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.OK
 
         version = self.protocol_version()
-        priv_key = self.context.private_key
-        x509_certs = self.context.x509_certs
         signature_algorithm: int | None = None
         cert_request = typing.cast(
             CertificateRequest | CertificateRequestTLS12,
             self._peer_cert_request,
         )
 
-        if priv_key is not None and x509_certs is not None:
-            x509_leaf = x509_certs[0]
+        if self._credential is not None:
+            private_key = self._credential.private_key
+            x509_certificates = tuple(self._credential.x509_certificates)
+            x509_leaf = x509_certificates[0]
+
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -971,11 +984,17 @@ class TLSHandshakeClient(TLSHandshake):
             ):
                 signature_algorithm = default_sigalg
 
+        else:
+            private_key = None
+            x509_certificates = None
+
         if signature_algorithm is not None:
-            x509_certs = typing.cast(tuple[x509.Certificate, ...], x509_certs)
-            certificate = self._create_certificate(x509_certs)
-            self._private_key = priv_key
-            self._x509_certs = x509_certs
+            assert x509_certificates is not None
+            assert private_key is not None
+
+            certificate = self._create_certificate(x509_certificates)
+            self._private_key = private_key
+            self._x509_certificates = x509_certificates
             self._signature_algorithm = signature_algorithm
         else:
             certificate = self._create_certificate(())
@@ -991,7 +1010,7 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertInternalError("session not set")
 
         version = self.protocol_version()
-        cipher_suite = self.cipher()
+        cipher_suite = self.cipher_suite()
         session = self._session
         writer = Writer()
 
@@ -1059,7 +1078,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_certificate_verify(self) -> Status:
-        if self._peer_cert_request is None or self._x509_certs is None:
+        if self._peer_cert_request is None or self._x509_certificates is None:
             self._set_state(ClientState.SEND_CLIENT_FINISHED)
             return Status.PACK_FLIGHT
 
@@ -1332,7 +1351,7 @@ class TLSHandshakeClient(TLSHandshake):
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
 
-        cipher_suite = self.cipher()
+        cipher_suite = self.cipher_suite()
         key_schedule = self._key_schedule
 
         if server_hello.random == TLS13_HRR_SENTINEL:
@@ -1494,7 +1513,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         if not self._early_data_offered:
             self.update_traffic_cb(Direction.WRITE, Epoch.HANDSHAKE)
-            if self.context.middlebox_compat:
+            if self.configuration.middlebox_compat:
                 self.add_ccs_cb()
 
         self._set_state(ClientState.READ_ENCRYPTED_EXTENSIONS_TLS13)
@@ -1611,18 +1630,17 @@ class TLSHandshakeClient(TLSHandshake):
             supported_compressions=self._certificate_compressions,
             allow_anon=False,
         )
-        if self.context.verify_mode != VerifyMode.CERT_NONE:
-            if not self.context.check_hostname:
-                hostname = None
-            elif (
+
+        if self._verify_mode != VerifyMode.CERT_NONE:
+            hostname = self._hostname
+
+            if (
                 self._selected_ech_config is not None
                 and self._ech_status == ECHStatus.REJECTED
             ):
                 hostname = self._selected_ech_config.public_name
-            else:
-                hostname = self._hostname
 
-            self._verify_x509(self.context, session, hostname)
+            self._verify_x509(session, hostname)
 
         self.message_cb(Direction.READ, certificate)
         self._next_message()
@@ -1740,7 +1758,7 @@ class TLSHandshakeClient(TLSHandshake):
             peer_cert_request = typing.cast(
                 CertificateRequestTLS13, self._peer_cert_request
             )
-            self._send_certificate_tlsv13(peer_cert_request)
+            self._send_certificate_tls13(peer_cert_request)
 
         self._set_state(ClientState.SEND_CLIENT_FINISHED_TLS13)
         return Status.OK
@@ -1777,7 +1795,7 @@ class TLSHandshakeClient(TLSHandshake):
             session.not_resumable = False
 
             if (
-                self._new_session_cb is not None
+                self.new_session_cb is not None
                 and session.protocol_version() <= TLSVersion.TLSv1_2
                 and (session.ticket or session.session_id)
             ):
@@ -1785,7 +1803,7 @@ class TLSHandshakeClient(TLSHandshake):
                     include_noauth=True, include_ticket=True
                 )
                 session.not_resumable = False
-                self._new_session_cb(session)
+                self.new_session_cb(session)
 
         self._session_establish = True
 
@@ -1827,7 +1845,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message.handshake_type == HandshakeType.NEWSESSION_TICKET:
             new_session_ticket = message.get_handshake(NewSessionTicketTLS13)
 
-            if self._new_session_cb is not None:
+            if self.new_session_cb is not None:
                 early_data_ext = new_session_ticket.get_extension(
                     EarlyDataExtension
                 )
@@ -1857,7 +1875,7 @@ class TLSHandshakeClient(TLSHandshake):
                 session.not_resumable = False
 
                 # Callback to user
-                self._new_session_cb(session)
+                self.new_session_cb(session)
 
             self.message_cb(Direction.READ, new_session_ticket)
             self._next_message(update_hash=False)
@@ -1872,7 +1890,7 @@ class TLSHandshakeClient(TLSHandshake):
             self.message_cb(Direction.READ, cert_request)
             self._next_message()
 
-            self._send_certificate_tlsv13(cert_request)
+            self._send_certificate_tls13(cert_request)
             cl_finished_key = key_schedule.finished_verify_data(
                 self._enc_secret[Epoch.APPLICATION_DATA], self._transcript
             )
@@ -2382,7 +2400,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _process_extensions(self, ext_map: dict[int, TLSExtension]) -> None:
         version = self.protocol_version()
-        cipher_suite = self.cipher()
+        cipher_suite = self.cipher_suite()
 
         # Renegotiation info extension
         ri_ext = typing.cast(
@@ -2399,7 +2417,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         elif (
             version <= TLSVersion.TLSv1_2
-            and not self.context.legacy_server_connect
+            and not self.configuration.legacy_server_connect
         ):
             raise AlertInsufficientSecurity(
                 "Peer doesn't support secure renegotiation"
@@ -2543,7 +2561,7 @@ class TLSHandshakeClient(TLSHandshake):
         if forbid_extensions.intersection(ext_map):
             raise AlertUnsupportedExtension("Unexpected extensions")
 
-    def _send_certificate_tlsv13(
+    def _send_certificate_tls13(
         self, cert_request: CertificateRequestTLS13
     ) -> None:
         comp_cert_ext = cert_request.get_extension(
@@ -2562,10 +2580,9 @@ class TLSHandshakeClient(TLSHandshake):
                 "Missing signature algorithms extension in certificate request"
             )
 
-        private_key = self.context.private_key
-        x509_certs = self.context.x509_certs
-
-        signature_algorithm = None
+        private_key: BasePrivateKey | None = None
+        x509_certificates: typing.Sequence[x509.Certificate] | None = None
+        signature_algorithm: int | None = None
 
         # draft-ietf-tls-esni 25 Section 6.1.7
         # If the server requests a client certificate, the client MUST
@@ -2574,11 +2591,13 @@ class TLSHandshakeClient(TLSHandshake):
         if self._ech_status == ECHStatus.REJECTED:
             pass
 
-        elif private_key is not None and x509_certs is not None:
+        elif self._credential is not None:
             if self._signature_algorithms is None:
                 raise AlertInternalError("signature_algorithms config not set")
 
-            x509_leaf = x509_certs[0]
+            private_key = self._credential.private_key
+            x509_certificates = self._credential.x509_certificates
+            x509_leaf = x509_certificates[0]
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -2595,12 +2614,14 @@ class TLSHandshakeClient(TLSHandshake):
             )
 
         if signature_algorithm is not None:
-            x509_certs = typing.cast(tuple[x509.Certificate, ...], x509_certs)
+            x509_certificates = typing.cast(
+                tuple[x509.Certificate, ...], x509_certificates
+            )
         else:
-            x509_certs = ()
+            x509_certificates = ()
 
         certificate = self._create_certificate_tls13(
-            x509_certs=x509_certs,
+            x509_certs=x509_certificates,
             context=cert_request.context,
             compression=compression,
         )

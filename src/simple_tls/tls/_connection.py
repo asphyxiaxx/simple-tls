@@ -25,9 +25,10 @@ import typing
 from ssl import MemoryBIO
 
 from simple_tls import x509
-from simple_tls.utils.math import bytes_to_str, int_to_bytes
+from simple_tls.utils.math import int_to_bytes
 
 from ._alert import AlertException
+from ._configuration import TLSConfiguration
 from ._constant import (
     AlertDescription,
     AlertLevel,
@@ -36,7 +37,6 @@ from ._constant import (
     KeyUpdateMessageType,
     TLSVersion,
 )
-from ._context import TLSContext
 from ._enum import Direction, ECHStatus, Epoch, Shutdown, Status
 from ._exception import (
     TLSEOFError,
@@ -48,11 +48,15 @@ from ._exception import (
 from ._extension import ECHConfig
 from ._handshake import TLSHandshake
 from ._handshake_client import NewSessionHandler, TLSHandshakeClient
-from ._handshake_server import TLSHandshakeServer
-from ._message import Alert, ChangeCipherSpec, HandshakeMessage
-from ._session import TLSSession
+from ._handshake_server import SNICallback, TLSHandshakeServer
+from ._message import HandshakeMessage
 from ._symmetric import InvalidTag, KeyMaterial, NullCipher, TLSCipher
 from ._utils import Buffer, WritableBuffer
+
+MessageCallback = typing.Callable[
+    ["TLSConnection", Direction, int, int, bytes], None
+]
+
 
 _HEADER_LENGTH = 5
 _MAX_EARLY_DATA_SKIPPED = 16384
@@ -82,51 +86,37 @@ class ConnectionState:
 class TLSConnection:
     def __init__(
         self,
-        context: TLSContext,
+        configuration: TLSConfiguration,
         inbio: MemoryBIO | None = None,
         outbio: MemoryBIO | None = None,
-        server_hostname: Buffer | None = None,
-        session: TLSSession | None = None,
         new_session_handler: NewSessionHandler | None = None,
+        sni_callback: SNICallback | None = None,
+        message_callback: MessageCallback | None = None,
     ) -> None:
-        handshake: TLSHandshakeClient | TLSHandshakeServer
-        if context.is_server:
-            if server_hostname:
-                raise ValueError(
-                    "server_hostname can only be specified in client mode"
-                )
-            if session is not None:
-                raise ValueError(
-                    "session can only be specified in client mode"
-                )
-            if new_session_handler is not None:
-                raise ValueError(
-                    "new_session_handler can only be specified in client mode"
-                )
+        self._message_callback = message_callback
 
-            handshake = TLSHandshakeServer(context=context)
-            handshake.sni_callback = self._do_sni_callback
+        handshake: TLSHandshakeClient | TLSHandshakeServer
+        if configuration.is_server:
+            handshake = TLSHandshakeServer(configuration)
+            handshake.sni_callback = sni_callback
         else:
-            handshake = TLSHandshakeClient(
-                context=context,
-                server_hostname=server_hostname,
-                session=session,
-                new_session_handler=new_session_handler,
-            )
+            handshake = TLSHandshakeClient(configuration)
+            handshake.new_session_cb = new_session_handler
 
         handshake.message_cb = self._do_hs_callback
         handshake.setup_traffic_cb = self._setup_traffic
         handshake.update_traffic_cb = self._update_traffic
         handshake.add_ccs_cb = self._add_ccs
 
-        self._handshake_status = Status.OK
         self._handshake = typing.cast(TLSHandshake, handshake)
-
+        """handshake object"""
+        self._handshake_status = Status.OK
+        """current handshake status"""
         self._send_record_limit = 2**14
         """send record limit"""
         self._recv_record_limit = 2**14
         """received record limit"""
-        self._max_early_data_size = context.max_early_data_size
+        self._max_early_data_size = configuration.max_early_data_size
         """max early data size allowed"""
 
         self._inbio = inbio or MemoryBIO()
@@ -165,14 +155,8 @@ class TLSConnection:
         }
 
     @property
-    def context(self) -> TLSContext:
-        return self._handshake.context
-
-    @context.setter
-    def context(self, value: TLSContext) -> None:
-        if not isinstance(value, TLSContext):
-            raise TypeError("context must be TLSContext object")
-        self._handshake.context = value
+    def configuration(self) -> TLSConfiguration:
+        return self._handshake.configuration
 
     @property
     def is_server(self) -> bool:
@@ -277,6 +261,7 @@ class TLSConnection:
         If 'buffer' is provided, read into this buffer and return the number of
         bytes read.
         """
+
         while not self._pending_app_data:
             if not (self._handshake.done or self._handshake.can_early_read):
                 self.do_handshake()
@@ -329,7 +314,6 @@ class TLSConnection:
         if buffer is not None:
             if len(buffer) < data_len:
                 raise ValueError("buffer too small")
-
             buffer[:data_len] = app_data
             del self._pending_app_data[:length]
             return data_len
@@ -468,34 +452,15 @@ class TLSConnection:
             self._write_shutdown = Shutdown.CLOSE_NOTIFY
 
     # Callbacks
-    def _do_sni_callback(self, sni: bytes) -> None:
-        callback = self.context.sni_cb
-        if callback is None:
-            return
-
-        sni_string = bytes_to_str(sni)
-        result = callback(self, sni_string)
-
-        if result is not None:
-            try:
-                description = AlertDescription(result)
-            except ValueError:
-                self._send_alert(
-                    AlertDescription.INTERNAL_ERROR,
-                    f"Unknown alert description '{result}'",
-                )
-            else:
-                self._send_alert(description)
-
     def _do_hs_callback(
         self, direction: Direction, message: HandshakeMessage
     ) -> None:
-        callback = self.context.msg_cb
-        if callback is not None:
-            version = self._handshake.version
-            content_type = ContentType.HANDSHAKE
-            data = message.serialize()
-            callback(self, direction, version, content_type, data)
+        if self._message_callback is None:
+            return
+        version = self._handshake.version
+        content_type = ContentType.HANDSHAKE
+        data = message.serialize()
+        self._message_callback(self, direction, version, content_type, data)
 
     # Record layer
     def _setup_traffic(
@@ -533,63 +498,19 @@ class TLSConnection:
             self._current_read_epoch = epoch
 
     def _add_ccs(self) -> None:
-        record_version = self._record_version()
-        css = ChangeCipherSpec(type=1)
-        css_data = css.serialize()
         header = self._get_header(
-            css.content_type, record_version, len(css_data)
+            content_type=ContentType.CHANGE_CIPHER_SPEC,
+            record_version=self._record_version(),
+            length=1,
         )
         self._pending_flight.extend(header)
-        self._pending_flight.extend(css_data)
+        self._pending_flight.extend(b"\x01")
 
     def _read_ccs(self, epoch: Epoch) -> None:
         content_type, _ = self._open_record()
         if content_type != ContentType.CHANGE_CIPHER_SPEC:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
         self._current_read_epoch = epoch
-
-    @typing.overload
-    def _send_alert(
-        self,
-        description: AlertDescription,
-        reason: typing.Any | None = ...,
-        fatal: typing.Literal[True] = ...,
-    ) -> typing.NoReturn: ...
-
-    @typing.overload
-    def _send_alert(
-        self,
-        description: AlertDescription,
-        reason: typing.Any | None = ...,
-        fatal: typing.Literal[False] = ...,
-    ) -> None: ...
-
-    @typing.overload
-    def _send_alert(
-        self,
-        description: AlertDescription,
-        reason: typing.Any | None = ...,
-        fatal: bool = ...,
-    ) -> None: ...
-
-    def _send_alert(
-        self,
-        description: AlertDescription,
-        reason: typing.Any | None = None,
-        fatal: bool = True,
-    ) -> None:
-        if self._write_shutdown == Shutdown.NONE:
-            if not fatal:
-                alert = Alert(description, AlertLevel.WARNING)
-                self._write(alert.content_type, alert.serialize())
-            else:
-                alert = Alert(description, AlertLevel.FATAL)
-                self._write(alert.content_type, alert.serialize())
-                self._write_shutdown = Shutdown.ERROR
-
-        if fatal:
-            raise TLSLocalAlert(description, reason)
-        return None
 
     def _read_handshake(self) -> None:
         content_type, data = self._open_record()
@@ -756,9 +677,13 @@ class TLSConnection:
         self._header = None
 
         if content_type == ContentType.CHANGE_CIPHER_SPEC:
-            ccs = ChangeCipherSpec.from_bytes(ciphertext)
+            if length != 1:
+                self._send_alert(
+                    AlertDescription.DECODE_ERROR, "Malformed CCS message"
+                )
+
             # RFC 8446 section 5
-            if ccs.type != 1:
+            if ciphertext != b"\x01":
                 self._send_alert(
                     AlertDescription.UNEXPECTED_MESSAGE, "Invalid CCS message"
                 )
@@ -861,31 +786,6 @@ class TLSConnection:
         if self._early_data_ignored >= _MAX_EARLY_DATA_SKIPPED:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
 
-    def _process_alert(self, data: Buffer) -> typing.NoReturn:
-        alert = Alert.from_bytes(data)  # type: ignore
-
-        if alert.level == AlertLevel.WARNING:
-            if alert.description == AlertDescription.CLOSE_NOTIFY:
-                self._read_shutdown = Shutdown.CLOSE_NOTIFY
-                raise TLSEOFError()
-
-            if (
-                self._has_final_version()
-                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
-                and alert.description != AlertDescription.USER_CANCELLED
-            ):
-                self._send_alert(AlertDescription.DECODE_ERROR)
-
-            raise SkipDataException()
-
-        if alert.level == AlertLevel.FATAL:
-            self._read_shutdown = Shutdown.ERROR
-            raise TLSRemoteAlert(alert.description)
-
-        self._send_alert(
-            AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type"
-        )
-
     def _record_version(self) -> int:
         if self._handshake.version == TLSVersion.UNSPECIFIED:
             return TLSVersion.TLSv1
@@ -908,6 +808,84 @@ class TLSConnection:
                 AlertDescription.UNEXPECTED_MESSAGE, "Missing content type"
             )
         return value, pos
+
+    @typing.overload
+    def _send_alert(
+        self,
+        description: AlertDescription,
+        reason: typing.Any | None = ...,
+        fatal: typing.Literal[True] = ...,
+    ) -> typing.NoReturn: ...
+
+    @typing.overload
+    def _send_alert(
+        self,
+        description: AlertDescription,
+        reason: typing.Any | None = ...,
+        fatal: typing.Literal[False] = ...,
+    ) -> None: ...
+
+    @typing.overload
+    def _send_alert(
+        self,
+        description: AlertDescription,
+        reason: typing.Any | None = ...,
+        fatal: bool = ...,
+    ) -> None: ...
+
+    def _send_alert(
+        self,
+        description: AlertDescription,
+        reason: typing.Any | None = None,
+        fatal: bool = True,
+    ) -> None:
+        if self._write_shutdown == Shutdown.NONE:
+            if not fatal:
+                self._write(
+                    ContentType.ALERT,
+                    bytes([AlertLevel.WARNING]) + bytes([description]),
+                )
+            else:
+                self._write(
+                    ContentType.ALERT,
+                    bytes([AlertLevel.FATAL]) + bytes([description]),
+                )
+                self._write_shutdown = Shutdown.ERROR
+
+        if fatal:
+            raise TLSLocalAlert(description, reason)
+        return None
+
+    def _process_alert(self, data: Buffer) -> typing.NoReturn:
+        if len(data) != 2:
+            self._send_alert(
+                AlertDescription.DECODE_ERROR, "Malformed alert message"
+            )
+
+        level = data[0]
+        description = data[1]
+
+        if level == AlertLevel.WARNING:
+            if description == AlertDescription.CLOSE_NOTIFY:
+                self._read_shutdown = Shutdown.CLOSE_NOTIFY
+                raise TLSEOFError()
+
+            if (
+                self._has_final_version()
+                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+                and description != AlertDescription.USER_CANCELLED
+            ):
+                self._send_alert(AlertDescription.DECODE_ERROR)
+
+            raise SkipDataException()
+
+        if level == AlertLevel.FATAL:
+            self._read_shutdown = Shutdown.ERROR
+            raise TLSRemoteAlert(description)
+
+        self._send_alert(
+            AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type"
+        )
 
     @staticmethod
     def _get_header(

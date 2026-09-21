@@ -25,10 +25,12 @@ import re
 import typing
 
 from simple_tls import x509
+from simple_tls.utils.math import bytes_to_str
 from simple_tls.x509.oid import ExtensionOID
 from simple_tls.x509.verification import Verifier
 
 from ._alert import AlertBadCertificate
+from ._utils import Buffer
 
 
 class Validator:
@@ -46,8 +48,8 @@ class Validator:
 class SANValidator(Validator):
     oid = ExtensionOID.SUBJECT_ALTERNATIVE_NAME
 
-    def __init__(self, server_hostname: str) -> None:
-        self._server_hostname = server_hostname
+    def __init__(self, server_hostname: Buffer) -> None:
+        self._server_hostname = bytes_to_str(server_hostname)
 
     def __call__(
         self,

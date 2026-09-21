@@ -5,13 +5,17 @@ from pathlib import Path
 
 import pytest
 
+from simple_tls import x509
 from simple_tls.tls import (
+    Protocol,
     Status,
-    TLSContext,
+    TLSConfiguration,
+    TLSCredential,
     TLSHandshakeClient,
     TLSHandshakeServer,
     VerifyMode,
 )
+from simple_tls.x509.verification import Store
 
 
 def format_path(*paths: str):
@@ -146,59 +150,35 @@ class TicketAEAD:
             return None
 
 
-def create_server_context(
-    context=None,
+def load_castore(cafile):
+    with open(cafile, "rb") as fp:
+        cadata = fp.read()
+    return Store(x509.load_pem_x509_certificates(cadata))
+
+
+def create_server(
     certfile=SERVER_RSA_CERTFILE,
     keyfile=SERVER_RSA_KEYFILE,
     **kwargs,
 ):
-    if context is None:
-        context = TLSContext(is_server=True)
-        context.load_cert_chain(certfile, keyfile)
-        context.ticket_aead = TicketAEAD()
-    else:
-        assert context.is_server
-
-    for name, value in kwargs.items():
-        setattr(context, name, value)
-
-    return context
-
-
-def create_server(context=None, **context_kwargs):
-    context = create_server_context(context, **context_kwargs)
-    return TLSHandshakeServer(context)
-
-
-def create_client_context(context=None, cafile=SERVER_CAFILE, **kwargs):
-    if context is None:
-        context = TLSContext(is_server=False)
-        context.load_verify_locations(cafile)
-    else:
-        assert not context.is_server
-
-    context.verify_mode = VerifyMode.CERT_REQUIRED
-    context.check_hostname = True
-
-    for name, value in kwargs.items():
-        setattr(context, name, value)
-
-    return context
-
-
-def create_client(
-    context=None,
-    session=None,
-    session_handler=None,
-    **context_kwargs,
-):
-    context = create_client_context(context, **context_kwargs)
-    return TLSHandshakeClient(
-        context=context,
-        server_hostname=b"localhost",
-        session=session,
-        new_session_handler=session_handler,
+    credential = TLSCredential.from_certfile(certfile, keyfile)
+    config = TLSConfiguration(
+        is_server=True,
+        protocol=Protocol.TLS,
+        credential=credential,
+        **kwargs,
     )
+    return TLSHandshakeServer(config)
+
+
+def create_client(cafile=SERVER_CAFILE, **kwargs):
+    kwargs.setdefault("server_hostname", b"localhost")
+    kwargs.setdefault("verify_mode", VerifyMode.CERT_REQUIRED)
+    kwargs.setdefault("check_hostname", True)
+
+    castore = load_castore(cafile)
+    config = TLSConfiguration(castore=castore, **kwargs)
+    return TLSHandshakeClient(config)
 
 
 def run_handshake(client, server, stop_condition=None):

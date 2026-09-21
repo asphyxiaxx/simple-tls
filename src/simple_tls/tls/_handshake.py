@@ -27,11 +27,12 @@ from simple_tls import x509
 from simple_tls.protocol.hpke import Context as HPKEContext
 from simple_tls.utils.codec import ParseError, Parser
 from simple_tls.utils.compression import UnsupportedCompression
-from simple_tls.utils.math import bytes_to_int, bytes_to_str
+from simple_tls.utils.math import bytes_to_int
 from simple_tls.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
 from simple_tls.x509.verification import (
     CertificateExpired,
     CertificateNotYetValid,
+    ExtensionPolicy,
     UntrustedRoot,
     VerificationError,
     Verifier,
@@ -48,6 +49,7 @@ from ._alert import (
     AlertInternalError,
     AlertUnknownCA,
 )
+from ._configuration import TLSConfiguration, TLSCredential
 from ._constant import (
     CLIENT_CONTEXT_STRING,
     SERVER_CONTEXT_STRING,
@@ -61,8 +63,7 @@ from ._constant import (
     SignatureScheme,
     TLSVersion,
 )
-from ._context import TLSContext
-from ._enum import Direction, ECHStatus, Epoch, Protocol, Status
+from ._enum import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
 from ._extension import CertStatusRequestExtension, ECHConfig, TLSExtension
 from ._key import (
     BasePublicKey,
@@ -120,14 +121,14 @@ class ECHConfigContent:
 class TLSHandshake:
     is_server: typing.ClassVar[bool]
 
-    def __init__(self, context: TLSContext) -> None:
+    def __init__(self, configuration: TLSConfiguration) -> None:
         # Callbacks
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
         self.update_traffic_cb: UpdateTrafficCallback = lambda d, e: None
         self.add_ccs_cb: AddCSSCallback = lambda: None
 
-        self.context = context
+        self._configuration: TLSConfiguration = configuration
         """asociated TLS context containing configuration"""
         self.skip_early_data: bool = False
         """instructs the record layer to discard unexpected early data messages
@@ -139,18 +140,20 @@ class TLSHandshake:
         """indicates whether the record layer is currently allowed to process
         incoming early data (0-RTT)"""
 
-        self._hs_state = 0
-        self._protocol: Protocol = context.protocol
+        self._hs_state: int = 0
+        self._protocol: Protocol = configuration.protocol
+        self._credential: TLSCredential | None = configuration.credential
+        self._verify_mode: VerifyMode = configuration.verify_mode
         self._session: TLSSession | None = None
         self._session_establish: bool = False
         self._session_reused: bool = False
         self._session_id: bytes = b""
         self._cipher_suite: CipherSuite | None = None
         self._minimum_version: int = version_from_wire(
-            self._protocol, context.minimum_version
+            self._protocol, configuration.minimum_version
         )
         self._maximum_version: int = version_from_wire(
-            self._protocol, context.maximum_version
+            self._protocol, configuration.maximum_version
         )
         self._version: int = TLSVersion.UNSPECIFIED
         self._is_early_version: bool = False
@@ -193,17 +196,8 @@ class TLSHandshake:
         return self._hs_state
 
     @property
-    def context(self) -> TLSContext:
-        return self._context
-
-    @context.setter
-    def context(self, context: TLSContext) -> None:
-        if not isinstance(context, TLSContext):
-            raise TypeError("context must be TLSContext object")
-        if self.is_server != context.is_server:
-            t = "server" if self.is_server else "client"
-            raise TypeError(f"expect {t} context")
-        self._context = context
+    def configuration(self) -> TLSConfiguration:
+        return self._configuration
 
     @property
     def session(self) -> TLSSession | None:
@@ -290,17 +284,9 @@ class TLSHandshake:
         assert self._version != TLSVersion.UNSPECIFIED
         return self._version
 
-    def cipher(self) -> CipherSuite:
+    def cipher_suite(self) -> CipherSuite:
         assert self._cipher_suite is not None
         return self._cipher_suite
-
-    @staticmethod
-    def _update_hash(
-        message: HandshakeMessage, transcript: Transcript
-    ) -> None:
-        handshake = Handshake(message.handshake_type, message.serialize())
-        handshake_data = handshake.serialize()
-        transcript.update_hash(handshake_data)
 
     def add_hs_data(self, data: Buffer) -> None:
         self._hs_buf.extend(data)
@@ -313,6 +299,14 @@ class TLSHandshake:
 
     def clear_flight(self) -> None:
         self._pending_hs_data.clear()
+
+    @staticmethod
+    def _update_hash(
+        message: HandshakeMessage, transcript: Transcript
+    ) -> None:
+        handshake = Handshake(message.handshake_type, message.serialize())
+        handshake_data = handshake.serialize()
+        transcript.update_hash(handshake_data)
 
     def _get_message(self) -> Handshake | None:
         if self._cache is not None:
@@ -844,28 +838,36 @@ class TLSHandshake:
         elif signature_algorihtm != default_verify_alg:
             raise AlertIllegalParameter("Wrong signature algorithm")
 
-    @classmethod
     def _verify_x509(
-        cls,
-        context: TLSContext,
-        session: TLSSession,
-        hostname: bytes | None = None,
+        self, session: TLSSession, hostname: bytes | None = None
     ) -> None:
         if session.x509_peer is None or session.x509_chain is None:
             raise AlertInternalError(
                 "Missing x509_peer or x509_chain in session"
             )
 
-        ee_policy = context.ee_policy
-        ca_policy = context.ca_policy
+        configuration = self.configuration
 
-        if cls.is_server:
+        if configuration.castore is None:
+            raise AlertUnknownCA("No CA Found")
+
+        if configuration.ee_policy is not None:
+            ee_policy = configuration.ee_policy
+        else:
+            ee_policy = ExtensionPolicy.defaults_ee()
+
+        if configuration.ca_policy is not None:
+            ca_policy = configuration.ca_policy
+        else:
+            ca_policy = ExtensionPolicy.defaults_ca()
+
+        if self.is_server:
             purpose = ExtendedKeyUsageOID.CLIENT_AUTH
         else:
             purpose = ExtendedKeyUsageOID.SERVER_AUTH
 
-            if hostname:
-                san_validator = SANValidator(bytes_to_str(hostname))
+            if configuration.check_hostname and hostname:
+                san_validator = SANValidator(hostname)
                 ee_policy = ee_policy.require_present(
                     san_validator.oid, san_validator
                 )
@@ -874,7 +876,7 @@ class TLSHandshake:
         ee_policy = ee_policy.require_present(eku_validator.oid, eku_validator)
 
         verifier = Verifier(
-            store=context.castore,
+            store=configuration.castore,
             allow_partial_chain=True,
             ee_policy=ee_policy,
             ca_policy=ca_policy,

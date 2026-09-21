@@ -16,7 +16,12 @@ from ._exception import (
     SSLWantWriteError,
 )
 from ._session import SSLSession
-from ._types import PeerCertRetDictType, ReadableBuffer, WritableBuffer
+from ._types import (
+    PeerCertRetDictType,
+    ReadableBuffer,
+    SrvnmeCbType,
+    WritableBuffer,
+)
 from ._util import parse_certificate, parse_cipher
 
 if typing.TYPE_CHECKING:
@@ -32,6 +37,7 @@ class SSLSocket(_ssl.SSLSocket):
     _connected: bool
     _closed: bool
     _pending_write: bytearray
+    _sni_callback: SrvnmeCbType | None
     server_side: bool
     server_hostname: str | None
     do_handshake_on_connect: bool
@@ -44,7 +50,7 @@ class SSLSocket(_ssl.SSLSocket):
         server_side: bool = False,
         do_handshake_on_connect: bool = True,
         suppress_ragged_eofs: bool = True,
-        server_hostname: str | bytes | None = None,
+        server_hostname: str | None = None,
         context: SSLContext | None = None,
         session: SSLSession | None = None,
     ) -> SSLSocket:
@@ -70,23 +76,44 @@ class SSLSocket(_ssl.SSLSocket):
         self._closed = False
         self._sslobj = None
         self._pending_write = bytearray()
+        self._sni_callback = context._sni_callback
         self.server_side = server_side
-        self.server_hostname = bytes_to_str(server_hostname)
+        self.server_hostname = server_hostname
         self.do_handshake_on_connect = do_handshake_on_connect
         self.suppress_ragged_eofs = suppress_ragged_eofs
 
-        tls_context = context._context
-
-        if tls_context.is_server and not server_side:
+        if context.protocol == _ssl.PROTOCOL_TLS_SERVER and not server_side:
             raise TypeError(
                 "Cannot create a client socket with a PROTOCOL_TLS_SERVER "
                 "context"
             )
-        if not tls_context.is_server and server_side:
+        if context.protocol == _ssl.PROTOCOL_TLS_CLIENT and server_side:
             raise TypeError(
                 "Cannot create a server socket with a PROTOCOL_TLS_CLIENT "
                 "context"
             )
+
+        if not server_side:
+            sni_callback = None
+            new_session_handler = self._new_session_handler
+            if session is not None:
+                tls_session = session.session
+            else:
+                tls_session = None
+        else:
+            sni_callback = self._do_sni_callback
+            new_session_handler = None
+            tls_session = None
+
+        if context.options & Options.OP_NO_TICKET:
+            new_session_handler = None
+
+        config = tls.TLSConfiguration(
+            is_server=server_side,
+            server_hostname=str_to_bytes(server_hostname),
+            session=tls_session,
+            **context._config_data(),
+        )
 
         try:
             # See if we are connected
@@ -139,26 +166,11 @@ class SSLSocket(_ssl.SSLSocket):
             self._connected = connected
 
             if connected:
-                if not server_side:
-                    new_session_handler = self._new_session_handler
-                    if session is not None:
-                        tls_session = session.session
-                    else:
-                        tls_session = None
-                else:
-                    new_session_handler = None
-                    tls_session = None
-
-                if context.options & Options.OP_NO_TICKET:
-                    new_session_handler = None
-
                 self._sslobj = tls.TLSConnection(
-                    context=tls_context,
-                    server_hostname=str_to_bytes(self.server_hostname),
-                    session=tls_session,
+                    configuration=config,
                     new_session_handler=new_session_handler,
+                    sni_callback=sni_callback,
                 )
-                setattr(self._sslobj, "_owner", self)
 
                 if do_handshake_on_connect:
                     timeout = self.gettimeout()
@@ -192,9 +204,6 @@ class SSLSocket(_ssl.SSLSocket):
             raise TypeError("Not SSLContext")
         if self._sslobj is None:
             raise TypeError("set context on closed socket")
-
-        tls_context = context._context
-        self._sslobj.context = tls_context
         self._context = context
 
     @property
@@ -223,94 +232,6 @@ class SSLSocket(_ssl.SSLSocket):
             # _connected being set, e.g. if connect() first returned
             # EAGAIN.
             self.getpeername()
-
-    def _new_session_handler(self, session: tls.TLSSession) -> None:
-        self._session = SSLSession(session)
-
-    def _drive_tls(
-        self, func: typing.Callable, *args: typing.Any
-    ) -> typing.Any:
-        """
-        Drive a TLS operation safely in non-blocking mode.
-        """
-        # Always flush pending ciphertext first
-        if self._pending_write:
-            self._tls_send()
-
-        assert not self._pending_write
-
-        while True:
-            try:
-                result = func(*args)
-                break
-            except tls.TLSWantReadError:
-                self._tls_send()
-                self._tls_recv()
-            except tls.TLSEOFError:
-                raise SSLEOFError from None
-            except tls.TLSError as exc:
-                self._tls_send()
-                raise SSLError(exc) from exc
-
-        # Flush any newly generated ciphertext
-        self._tls_send()
-
-        return result
-
-    def _tls_send(self) -> None:
-        """
-        Flush pending TLS ciphertext to the underlying socket.
-        Correctly handles partial writes.
-        """
-        sslobj = typing.cast(tls.TLSConnection, self._sslobj)
-
-        # Flush previously unsent ciphertext
-        while self._pending_write:
-            try:
-                sent = socket.send(self, self._pending_write)
-            except BlockingIOError:
-                raise SSLWantWriteError from None
-
-            if sent == 0:
-                raise SSLEOFError("socket closed during TLS write")
-
-            del self._pending_write[:sent]
-
-        # Drain new ciphertext from TLS BIO
-        while True:
-            try:
-                data = sslobj.bio_read(65535)
-            except tls.TLSWantReadError:
-                return
-
-            total_sent = 0
-            while total_sent < len(data):
-                try:
-                    sent = socket.send(self, data[total_sent:])
-                except BlockingIOError:
-                    # Store unsent portion
-                    self._pending_write.extend(data[total_sent:])
-                    raise SSLWantWriteError() from None
-
-                if sent == 0:
-                    raise SSLEOFError("socket closed during TLS write")
-
-                total_sent += sent
-
-    def _tls_recv(self) -> None:
-        """
-        Read raw TLS ciphertext from socket and feed it into SSL BIO.
-        """
-        sslobj = typing.cast(tls.TLSConnection, self._sslobj)
-        try:
-            data = socket.recv(self, 65535)
-        except BlockingIOError:
-            raise SSLWantReadError() from None
-
-        if not data:
-            raise SSLEOFError("connection closed")
-
-        sslobj.bio_write(data)
 
     @typing.overload  # type: ignore[override]
     def read(self, len: int = 1024, buffer: None = None) -> bytes: ...
@@ -568,18 +489,28 @@ class SSLSocket(_ssl.SSLSocket):
         if self._connected or self._sslobj is not None:
             raise ValueError("attempt to connect already-connected SSLSocket!")
 
-        if self._session is not None:
-            session = self._session.session
-        else:
-            session = None
+        server_hostname = str_to_bytes(self.server_hostname)
 
-        self._sslobj = tls.TLSConnection(
-            context=self._context._context,
-            server_hostname=str_to_bytes(self.server_hostname),
-            session=session,
-            new_session_handler=self._new_session_handler,
+        if self._session is not None:
+            tls_session = self._session.session
+        else:
+            tls_session = None
+
+        if self.context.options & Options.OP_NO_TICKET:
+            new_session_handler = None
+        else:
+            new_session_handler = self._new_session_handler
+
+        config = tls.TLSConfiguration(
+            is_server=self.server_side,
+            server_hostname=server_hostname,
+            session=tls_session,
+            **self.context._config_data(),
         )
-        setattr(self._sslobj, "_owner", self)
+        self._sslobj = tls.TLSConnection(
+            configuration=config,
+            new_session_handler=new_session_handler,
+        )
 
         try:
             if connect_ex:
@@ -634,3 +565,103 @@ class SSLSocket(_ssl.SSLSocket):
         if self._sslobj is not None:
             return self._sslobj.version()
         return None
+
+    def _new_session_handler(self, session: tls.TLSSession) -> None:
+        self._session = SSLSession(session)
+
+    def _do_sni_callback(
+        self, info: tls.ClientHelloInfo, context: tls.HandshakeContext
+    ) -> None:
+        if self._sni_callback is None:
+            return
+        sni = bytes_to_str(info.server_name)
+        alert_description = self._sni_callback(self, sni, self.context)
+        config = self.context._config_data()
+        context.alert_description = alert_description
+        context.credential = config.get("credential", context.credential)
+        context.verify_mode = config.get("verify_mode", context.verify_mode)
+
+    def _drive_tls(
+        self, func: typing.Callable, *args: typing.Any
+    ) -> typing.Any:
+        """
+        Drive a TLS operation safely in non-blocking mode.
+        """
+        # Always flush pending ciphertext first
+        if self._pending_write:
+            self._tls_send()
+
+        assert not self._pending_write
+
+        while True:
+            try:
+                result = func(*args)
+                break
+            except tls.TLSWantReadError:
+                self._tls_send()
+                self._tls_recv()
+            except tls.TLSEOFError:
+                raise SSLEOFError from None
+            except tls.TLSError as exc:
+                self._tls_send()
+                raise SSLError(exc) from exc
+
+        # Flush any newly generated ciphertext
+        self._tls_send()
+
+        return result
+
+    def _tls_send(self) -> None:
+        """
+        Flush pending TLS ciphertext to the underlying socket.
+        Correctly handles partial writes.
+        """
+        sslobj = typing.cast(tls.TLSConnection, self._sslobj)
+
+        # Flush previously unsent ciphertext
+        while self._pending_write:
+            try:
+                sent = socket.send(self, self._pending_write)
+            except BlockingIOError:
+                raise SSLWantWriteError from None
+
+            if sent == 0:
+                raise SSLEOFError("socket closed during TLS write")
+
+            del self._pending_write[:sent]
+
+        # Drain new ciphertext from TLS BIO
+        while True:
+            try:
+                data = sslobj.bio_read(65535)
+            except tls.TLSWantReadError:
+                return
+
+            total_sent = 0
+            while total_sent < len(data):
+                try:
+                    sent = socket.send(self, data[total_sent:])
+                except BlockingIOError:
+                    # Store unsent portion
+                    self._pending_write.extend(data[total_sent:])
+                    raise SSLWantWriteError() from None
+
+                if sent == 0:
+                    raise SSLEOFError("socket closed during TLS write")
+
+                total_sent += sent
+
+    def _tls_recv(self) -> None:
+        """
+        Read raw TLS ciphertext from socket and feed it into SSL BIO.
+        """
+        sslobj = typing.cast(tls.TLSConnection, self._sslobj)
+        try:
+            data = socket.recv(self, 65535)
+        except BlockingIOError:
+            raise SSLWantReadError() from None
+
+        if not data:
+            raise SSLEOFError("connection closed")
+
+        sslobj.bio_write(data)

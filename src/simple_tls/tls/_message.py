@@ -29,11 +29,8 @@ from simple_tls.utils.math import int_to_bytes
 
 from ._alert import AlertUnexpectedMessage
 from ._constant import (
-    AlertDescription,
-    AlertLevel,
     CertificateCompressionAlgorithm,
     CertificateStatusType,
-    ContentType,
     HandshakeType,
 )
 from ._extension import (
@@ -42,95 +39,17 @@ from ._extension import (
     SignatureAlgorithmsExtension,
 )
 
-_M = typing.TypeVar("_M", bound="Message")
-_HM = typing.TypeVar("_HM", bound="HandshakeMessage")
-
-
-class Message:
-    content_type: typing.ClassVar[int]
-
-    def __init__(self) -> None:
-        raise NotImplementedError
-
-    @classmethod
-    def from_bytes(cls: type[_M], data: bytes) -> _M:
-        raise NotImplementedError
-
-    def serialize(self) -> bytes:
-        raise NotImplementedError
-
-
-@dataclass(repr=False)
-class Alert(Message):
-    content_type: typing.ClassVar[int] = ContentType.ALERT
-    description: int
-    level: int = AlertLevel.FATAL
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Alert:
-        if not len(data) == 2:
-            raise ParseError("invalid structure")
-
-        level = data[0]
-        description = data[1]
-        return Alert(description, level)
-
-    def serialize(self) -> bytes:
-        writer = Writer()
-        writer.write_int(self.level, 1)
-        writer.write_int(self.description, 1)
-        return writer.tobytes()
-
-    def __repr__(self) -> str:
-        level: int | AlertLevel
-        description: int | AlertDescription
-        try:
-            level = AlertLevel(self.level)
-        except ValueError:
-            level = self.level
-        try:
-            description = AlertDescription(self.description)
-        except ValueError:
-            description = self.description
-        return f"<Alert(level={level}, description={description})>"
+_M = typing.TypeVar("_M", bound="HandshakeMessage")
 
 
 @dataclass
-class ApplicationData(Message):
-    content_type: typing.ClassVar[int] = ContentType.APPLICATION_DATA
-    data: bytes = b""
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> ApplicationData:
-        return ApplicationData(data)
-
-    def serialize(self) -> bytes:
-        return self.data
-
-
-@dataclass
-class ChangeCipherSpec(Message):
-    content_type: typing.ClassVar[int] = ContentType.CHANGE_CIPHER_SPEC
-    type: int = 1
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> ChangeCipherSpec:
-        if len(data) != 1:
-            raise ParseError("invalid payload")
-        return ChangeCipherSpec(type=data[0])
-
-    def serialize(self) -> bytes:
-        return int_to_bytes(self.type, 1)
-
-
-@dataclass
-class Handshake(Message):
-    content_type: typing.ClassVar[ContentType] = ContentType.HANDSHAKE
+class Handshake:
     handshake_type: int
     data: bytes
 
+    # cache
     _cache: typing.Any = field(
-        default=None, init=False, repr=False, compare=False
+        default=None, init=False, repr=False, compare=False,
     )
 
     @classmethod
@@ -150,7 +69,7 @@ class Handshake(Message):
         writer.write_prefixed_bytes(self.data, 3)
         return writer.tobytes()
 
-    def get_handshake(self, handshake_cls: type[_HM]) -> _HM:
+    def get_handshake(self, handshake_cls: type[_M]) -> _M:
         if handshake_cls.handshake_type != self.handshake_type:
             raise AlertUnexpectedMessage(
                 f"Unexpected message '{self.handshake_type}' "
@@ -160,14 +79,14 @@ class Handshake(Message):
         if self._cache is None or type(self._cache) is not handshake_cls:
             self._cache = handshake_cls.from_bytes(self.data)
 
-        return typing.cast(_HM, self._cache)
+        return typing.cast(_M, self._cache)
 
 
 class HandshakeMessage:
     handshake_type: typing.ClassVar[int]
 
     @classmethod
-    def from_bytes(cls: type[_HM], data: bytes) -> _HM:
+    def from_bytes(cls: type[_M], data: bytes) -> _M:
         raise NotImplementedError
 
     def serialize(self) -> bytes:
