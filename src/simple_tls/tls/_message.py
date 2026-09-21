@@ -49,7 +49,7 @@ class Handshake:
 
     # cache
     _cache: typing.Any = field(
-        default=None, init=False, repr=False, compare=False,
+        default=None, init=False, repr=False, compare=False
     )
 
     @classmethod
