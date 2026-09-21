@@ -7,7 +7,7 @@ from simple_tls import tls, x509
 from simple_tls.utils.math import bytes_to_str, str_to_bytes
 
 from ._constant import Options
-from ._exception import SSLEOFError, SSLError, SSLWantReadError
+from ._exception import SSLEOFError, SSLWantReadError
 from ._session import SSLSession
 from ._types import PeerCertRetDictType, ReadableBuffer, SrvnmeCbType
 from ._util import parse_certificate, parse_cipher
@@ -279,9 +279,7 @@ class SSLObject(_ssl.SSLObject):
         return self._sslobj.version()
 
     def verify_client_post_handshake(self) -> None:
-        if not self._sslobj.is_server:
-            raise SSLError("Not server")
-        return self._sslobj.verify_client_post_handshake()
+        raise NotImplementedError("Post handshake auth is not supported")
 
     def _new_session_handler(self, session: tls.TLSSession) -> None:
         self._session = SSLSession(session)

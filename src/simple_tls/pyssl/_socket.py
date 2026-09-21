@@ -449,7 +449,7 @@ class SSLSocket(_ssl.SSLSocket):
 
     def verify_client_post_handshake(self) -> None:
         if self._sslobj is not None:
-            return self._sslobj.verify_client_post_handshake()
+            raise NotImplementedError("Post handshake auth is not supported")
         else:
             raise ValueError("No SSL wrapper around " + str(self))
 

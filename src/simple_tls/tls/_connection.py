@@ -40,7 +40,6 @@ from ._constant import (
 from ._enum import Direction, ECHStatus, Epoch, Shutdown, Status
 from ._exception import (
     TLSEOFError,
-    TLSError,
     TLSLocalAlert,
     TLSRemoteAlert,
     TLSWantReadError,
@@ -223,11 +222,6 @@ class TLSConnection:
             except KeyError:
                 pass
         return "Unknown version"
-
-    def verify_client_post_handshake(self) -> None:
-        if not self.is_server:
-            raise TLSError("Not server")
-        raise NotImplementedError()
 
     def bio_write(self, data: Buffer) -> None:
         """
