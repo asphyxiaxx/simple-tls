@@ -93,8 +93,6 @@ class SSLObject(_ssl.SSLObject):
 
     @context.setter
     def context(self, context: SSLContext) -> None:
-        if not hasattr(context, "_context"):
-            raise TypeError("Not SSLContext")
         self._context = context
 
     @property
@@ -293,5 +291,5 @@ class SSLObject(_ssl.SSLObject):
         alert_description = self._sni_callback(self, sni, self.context)
         config = self.context._config_data()
         context.alert_description = alert_description
-        context.credential = config.get("credential", context.credential)
+        context.credential = config.get("credential", None)
         context.verify_mode = config.get("verify_mode", context.verify_mode)
