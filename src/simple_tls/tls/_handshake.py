@@ -595,7 +595,7 @@ class TLSHandshake:
         if cert_status is not None:
             ocsp_response = cert_status.response
         else:
-            ocsp_response = b""
+            ocsp_response = None
 
         session.x509_peer = x509_peer
         session.x509_chain = x509_chain
