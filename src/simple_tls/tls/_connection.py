@@ -192,15 +192,13 @@ class TLSConnection:
     def ech_retry_configs(
         self, binary_form: bool = True
     ) -> list[ECHConfig] | bytes | None:
-        ech_retry_config = self._handshake.ech_retry_configs
-        if ech_retry_config is None:
-            return None
-
-        if not binary_form:
+        ech_retry_config = self._handshake.peer_ech_retry_configs
+        if ech_retry_config is not None:
+            if binary_form:
+                body = b"".join(c.serialize() for c in ech_retry_config)
+                return int_to_bytes(len(body), 2) + body
             return ech_retry_config
-
-        body = b"".join(c.serialize() for c in ech_retry_config)
-        return int_to_bytes(len(body), 2) + body
+        return None
 
     def early_data_accepted(self) -> bool:
         return self._handshake.early_data_accepted

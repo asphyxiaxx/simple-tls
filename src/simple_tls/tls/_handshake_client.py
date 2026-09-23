@@ -369,28 +369,21 @@ class TLSHandshakeClient(TLSHandshake):
             | CertificateRequestTLS13
             | None
         ) = None
+        self._peer_ech_retry_configs: list[ECHConfig] | None = None
 
         ## Negotiated variable
-        self._ech_retry_configs: list[ECHConfig] | None = None
-        """retry configurations from encrypted extension"""
         self._ech_status: ECHStatus = ECHStatus.NONE
         """encrypted Client Hello status"""
         self._signature_algorithm: int | None = None
         """signature algorithm to be used with signing"""
-        self._secure_renegotiation: bool = False
-        """True when secure renegotiation accepted"""
-        self._extended_master_secret: bool = False
-        """True when extended master secret is negotiated"""
-        self._encrypt_then_mac: bool = False
-        """True when extended master secret is negotiated"""
 
     @property
     def done(self) -> bool:
         return self._hs_state == ClientState.DONE
 
     @property
-    def ech_retry_configs(self) -> list[ECHConfig] | None:
-        return self._ech_retry_configs
+    def peer_ech_retry_configs(self) -> list[ECHConfig] | None:
+        return self._peer_ech_retry_configs
 
     @property
     def ech_status(self) -> ECHStatus:
@@ -811,7 +804,6 @@ class TLSHandshakeClient(TLSHandshake):
                     "Empty key share in server key exchange"
                 )
 
-            session.group_id = group_id
             self._key_exchange = ECDHKeyExchange(group_id)
             self._peer_key = point
 
@@ -863,7 +855,6 @@ class TLSHandshakeClient(TLSHandshake):
                     signature_algorihtm=verify_alg,
                     supported_sigalgs=self._signature_algorithms,
                 )
-                session.peer_signature_algorithm = verify_alg
             else:
                 verify_alg = self._get_sigalg_tls1(
                     version=version,
@@ -1070,7 +1061,6 @@ class TLSHandshakeClient(TLSHandshake):
         )
         session.secret = master_secret
         session.extended_master_secret = self._extended_master_secret
-        session.encrypt_then_mac = self._encrypt_then_mac
 
         self._setup_traffic_key(session)
 
@@ -1477,8 +1467,6 @@ class TLSHandshakeClient(TLSHandshake):
                 )
             except ValueError as exc:
                 raise AlertIllegalParameter(str(exc)) from None
-
-            session.group_id = key_share.group
 
         elif (
             self._psk_kex_modes is not None
@@ -2470,7 +2458,7 @@ class TLSHandshakeClient(TLSHandshake):
                 ext_map.get(ExtensionType.ENCRYPTED_CLIENT_HELLO),
             )
             if ech_ext is not None:
-                self._ech_retry_configs = list(ech_ext.retry_configs)
+                self._peer_ech_retry_configs = list(ech_ext.retry_configs)
 
             # Early data extension
             early_data_ext = typing.cast(

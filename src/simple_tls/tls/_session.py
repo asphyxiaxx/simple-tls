@@ -49,14 +49,11 @@ class TLSSession:
     secret: bytes = b""
     """secret is master secret for TLSv1.2 below and resumption secret
     for TLSv1.3 above"""
+
     session_id: bytes = b""
     """session id"""
     ticket: bytes = b""
     """ticket"""
-    group_id: int | None = None
-    """ID of the ECDH group used to establish this session 0 if NA"""
-    peer_signature_algorithm: int | None = None
-    """signature algorithm used to authenticate the peer, None if NA"""
     early_alpn: bytes | None = None
     """Negotiated ALPN"""
     has_alps: bool = False
@@ -65,10 +62,16 @@ class TLSSession:
     """local ALPS"""
     peer_alps: bytes = b""
     """peer ALPS"""
-    encrypt_then_mac: bool = False
-    """encrypt then mac negotiated for TLSv1.2 below"""
     extended_master_secret: bool = False
     """extended master secret negotiated for TLSv1.2 below"""
+    ticket_max_early_data: int = 0
+    """Max early data size can be send after ClientHello for TLSv1.3"""
+    time: datetime = field(default_factory=utcnow)
+    """time issued"""
+    timeout: timedelta = field(default_factory=lambda: timedelta(days=2))
+    """timeout"""
+    ticket_age_add: int = 0
+    """age added"""
 
     x509_peer: x509.Certificate | None = None
     """peer's certificate"""
@@ -80,15 +83,6 @@ class TLSSession:
     """verified certificate chain sent by the peer, without leaf certificate"""
     ocsp_response: bytes | None = None
     """OCSP Response"""
-
-    time: datetime = field(default_factory=utcnow)
-    """time issued"""
-    timeout: timedelta = field(default_factory=lambda: timedelta(days=2))
-    """timeout"""
-    ticket_age_add: int = 0
-    """age added"""
-    ticket_max_early_data: int = 0
-    """Max early data size can be send after ClientHello for TLSv1.3"""
 
     def rebase_time(self) -> None:
         now = utcnow()
@@ -139,7 +133,6 @@ class TLSSession:
             version=self.version,
             secret=self.secret,
             cipher_suite=self.cipher_suite,
-            peer_signature_algorithm=self.peer_signature_algorithm,
             time=self.time,
             timeout=self.timeout,
             x509_peer=self.x509_peer,
@@ -150,11 +143,9 @@ class TLSSession:
         )
         if include_noauth:
             new.session_id = self.session_id
-            new.group_id = self.group_id
             new.ticket_age_add = self.ticket_age_add
             new.ticket_max_early_data = self.ticket_max_early_data
             new.extended_master_secret = self.extended_master_secret
-            new.encrypt_then_mac = self.encrypt_then_mac
             new.has_alps = self.has_alps
             new.early_alpn = self.early_alpn
             new.local_alps = self.local_alps
@@ -181,13 +172,10 @@ class TLSSession:
         ticket_age_add = parser.read_int(4)
         ticket_max_early_data = parser.read_int(4)
 
-        group_id = parser.read_int(2) or None
-        peer_signature_algorithm = parser.read_int(2) or None
         early_alpn = parser.read_prefixed_bytes(2) or None
         local_alps = parser.read_prefixed_bytes(2)
         peer_alps = parser.read_prefixed_bytes(2)
         has_alps = bool(parser.read_int(1))
-        encrypt_then_mac = bool(parser.read_int(1))
         extended_master_secret = bool(parser.read_int(1))
 
         return TLSSession(
@@ -199,13 +187,10 @@ class TLSSession:
             secret=secret,
             session_id=session_id,
             ticket=ticket,
-            group_id=group_id,
-            peer_signature_algorithm=peer_signature_algorithm,
             early_alpn=early_alpn,
             has_alps=has_alps,
             local_alps=local_alps,
             peer_alps=peer_alps,
-            encrypt_then_mac=encrypt_then_mac,
             extended_master_secret=extended_master_secret,
             time=time,
             timeout=timeout,
@@ -230,13 +215,10 @@ class TLSSession:
         writer.write_int(int(self.ticket_age_add), 4)
         writer.write_int(int(self.ticket_max_early_data), 4)
 
-        writer.write_int(self.group_id or 0, 2)
-        writer.write_int(self.peer_signature_algorithm or 0, 2)
         writer.write_prefixed_bytes(self.early_alpn or b"", 2)
         writer.write_prefixed_bytes(self.local_alps, 2)
         writer.write_prefixed_bytes(self.peer_alps, 2)
         writer.write_int(int(self.has_alps), 1)
-        writer.write_int(int(self.encrypt_then_mac), 1)
         writer.write_int(int(self.extended_master_secret), 1)
 
         return writer.tobytes()

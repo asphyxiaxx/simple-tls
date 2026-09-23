@@ -140,33 +140,39 @@ class TLSHandshake:
         """indicates whether the record layer is currently allowed to process
         incoming early data (0-RTT)"""
 
-        self._hs_state: int = 0
+        ## Dispatch function
+        self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
+
+        ## Configurations
         self._protocol: Protocol = configuration.protocol
         self._credential: TLSCredential | None = configuration.credential
         self._verify_mode: VerifyMode = configuration.verify_mode
-        self._session: TLSSession | None = None
-        self._session_establish: bool = False
-        self._session_reused: bool = False
-        self._session_id: bytes = b""
-        self._cipher_suite: CipherSuite | None = None
         self._minimum_version: int = version_from_wire(
             self._protocol, configuration.minimum_version
         )
         self._maximum_version: int = version_from_wire(
             self._protocol, configuration.maximum_version
         )
+
+        ## Temporary State
+        self._hs_state: int = 0
+        self._hostname: bytes | None = None
         self._version: int = TLSVersion.UNSPECIFIED
         self._is_early_version: bool = False
         self._client_version: int = TLSVersion.UNSPECIFIED
+        self._session: TLSSession | None = None
+        self._session_establish: bool = False
+        self._session_reused: bool = False
+        self._session_id: bytes = b""
+        self._cipher_suite: CipherSuite | None = None
         self._in_early_data: bool = False
         self._early_data_offered: bool = False
-        self._hostname: bytes | None = None
         self._early_data_accepted: bool = False
+        self._extended_master_secret: bool = False
+        self._encrypt_then_mac: bool = False
+        self._secure_renegotiation: bool = False
         self._npn_selected: bytes | None = None
         self._alpn_selected: bytes | None = None
-
-        # dispatch function handler
-        self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
 
         # Buffer
         self._hs_buf = bytearray()
@@ -255,7 +261,7 @@ class TLSHandshake:
         return None
 
     @property
-    def ech_retry_configs(self) -> list[ECHConfig] | None:
+    def peer_ech_retry_configs(self) -> list[ECHConfig] | None:
         return None
 
     @property
@@ -352,7 +358,7 @@ class TLSHandshake:
         version = session.protocol_version()
         cipher_suite = session.cipher_suite
         master_secret = session.secret
-        encrypt_then_mac = session.encrypt_then_mac
+        encrypt_then_mac = self._encrypt_then_mac
 
         key_len, iv_len = get_key_iv_len(version, cipher_suite)
         if cipher_suite.aead:
@@ -925,7 +931,6 @@ class TLSHandshake:
                 signature_algorihtm=verify_alg,
                 supported_sigalgs=supported_sigalgs,
             )
-            session.peer_signature_algorithm = verify_alg
         else:
             verify_alg = self._get_sigalg_tls1(
                 version=version,

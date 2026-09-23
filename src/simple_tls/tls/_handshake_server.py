@@ -287,16 +287,10 @@ class TLSHandshakeServer(TLSHandshake):
         """PSK index selected"""
         self._group_id: int | None = None
         """gorup id (TLSv1)"""
-        self._key_share_group_id: int | None = None
+        self._group_id_tls13: int | None = None
         """gorup id for key share (TLSv1.3)"""
         self._signature_algorithm: int | None = None
         """signature algorithm to be used with signing"""
-        self._secure_renegotiation: bool = False
-        """True when secure renegotiation accepted"""
-        self._extended_master_secret: bool = False
-        """True when extended master secret is negotiated"""
-        self._encrypt_then_mac: bool = False
-        """True when extended master secret is negotiated"""
         self._post_handshake_auth: bool = False
         """True when PHA negotiated"""
         self._certificate_compression: int | None = None
@@ -638,10 +632,6 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
             return Status.OK
 
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
-        session = self._session
         version = self.protocol_version()
         writer = Writer()
 
@@ -649,13 +639,11 @@ class TLSHandshakeServer(TLSHandshake):
             if self._group_id is None:
                 raise AlertInternalError("group_id not set")
 
-            group_id = self._group_id
-            session.group_id = group_id
-            self._key_exchange = ECDHKeyExchange(group_id)
+            self._key_exchange = ECDHKeyExchange(self._group_id)
             key_share = self._key_exchange.generate_key_share()
 
             writer.write_int(ECCurveType.NAMED_CURVE, 1)
-            writer.write_int(group_id, 2)
+            writer.write_int(self._group_id, 2)
             writer.write_prefixed_bytes(key_share, 1)
 
         elif cipher_suite.kea == KeyExchange.DHE:
@@ -822,7 +810,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         session = self._session
         session.extended_master_secret = self._extended_master_secret
-        session.encrypt_then_mac = self._encrypt_then_mac
 
         if self._extended_master_secret:
             label = b"extended master secret"
@@ -1102,11 +1089,11 @@ class TLSHandshakeServer(TLSHandshake):
             # and dh groups
             for key_share_group in self._supported_groups:
                 if key_share_group in shared_key_shares:
-                    self._key_share_group_id = key_share_group
+                    self._group_id_tls13 = key_share_group
                     self._peer_key = shared_key_shares[key_share_group]
                     break
                 if key_share_group in self._peer_supported_groups:
-                    self._key_share_group_id = key_share_group
+                    self._group_id_tls13 = key_share_group
                     hrr = True
                     break
             else:
@@ -1114,7 +1101,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         new_session.cipher_suite = self._cipher_suite
         new_session.early_alpn = self._alpn_selected
-        new_session.group_id = self._key_share_group_id
 
         alps_ext = client_hello.get_extension(ClientALPSExtension)
         if (
@@ -1192,8 +1178,8 @@ class TLSHandshakeServer(TLSHandshake):
             extensions.append(CookieExtension(self._cookie))
 
         # Selected key share group extension
-        if self._key_share_group_id is not None:
-            extensions.append(HRRKeyShareExtension(self._key_share_group_id))
+        if self._group_id_tls13 is not None:
+            extensions.append(HRRKeyShareExtension(self._group_id_tls13))
 
         if not extensions:
             # Currently still not support send cookie extension
@@ -1245,12 +1231,12 @@ class TLSHandshakeServer(TLSHandshake):
         ):
             raise AlertIllegalParameter()
 
-        if self._key_share_group_id is None and self._cookie is None:
+        if self._group_id_tls13 is None and self._cookie is None:
             raise AlertInternalError()
 
         key_share_ext = client_hello.get_extension(ClientKeyShareExtension)
-        if self._key_share_group_id is not None:
-            selected_ks_group = self._key_share_group_id
+        if self._group_id_tls13 is not None:
+            selected_ks_group = self._group_id_tls13
 
             if key_share_ext is None:
                 raise AlertMissingExtension("Missing key share extension")
@@ -1329,12 +1315,12 @@ class TLSHandshakeServer(TLSHandshake):
         if self._psk_index is not None:
             extensions.append(ServerPSKExtension(self._psk_index))
 
-        if self._key_share_group_id is not None:
+        if self._group_id_tls13 is not None:
             if self._peer_key is None:
                 raise AlertInternalError("peer_key not set")
 
             kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
-            ks_group = self._key_share_group_id
+            ks_group = self._group_id_tls13
             if ks_group in ECC_GROUPS:
                 kex = ECDHKeyExchange(ks_group)
             elif ks_group in FFDHE_GROUPS:

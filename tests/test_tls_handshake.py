@@ -351,8 +351,7 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert client.session is not None
-    assert client.session.peer_signature_algorithm == signature_algorithm
+    assert server._signature_algorithm == signature_algorithm
 
 
 def test_tls13_handshake_with_ec_secp256r1():
@@ -376,7 +375,6 @@ def test_tls13_handshake_with_ec_secp256r1():
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
     assert client.session is not None
-    assert client.session.peer_signature_algorithm == signature_algorithm
 
 
 def test_tls13_handshake_hello_retry_request(subtests):
@@ -404,10 +402,7 @@ def test_tls13_handshake_hello_retry_request(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._hello_retry_request_used
-        assert client.session is not None
-        assert client.session.group_id == NamedGroup.X25519
-        assert server.session is not None
-        assert server.session.group_id == NamedGroup.X25519
+        assert server._group_id_tls13 == NamedGroup.X25519
 
     with subtests.test(msg="Server priortize key_share_groups"):
         handshake(
