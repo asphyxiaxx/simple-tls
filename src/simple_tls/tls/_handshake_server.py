@@ -85,6 +85,7 @@ from ._extension import (
     ECPointFormatsExtension,
     EncryptThenMacExtension,
     ExtendedMasterSecretExtension,
+    Extension,
     ExtensionSource,
     HRRKeyShareExtension,
     KeyShareEntry,
@@ -99,7 +100,6 @@ from ._extension import (
     ServerSupportedVersionExtension,
     SessionTicketExtension,
     SignatureAlgorithmsExtension,
-    TLSExtension,
 )
 from ._handshake import TLSHandshake
 from ._key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
@@ -568,7 +568,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_hello(self) -> Status:
-        extensions: list[TLSExtension] = []
+        extensions: list[Extension] = []
 
         if self._secure_renegotiation:
             extensions.append(RenegotiationInfoExtension(b""))
@@ -1172,7 +1172,7 @@ class TLSHandshakeServer(TLSHandshake):
         version = self.protocol_version()
         cipher_suite = self.cipher_suite()
 
-        extensions: list[TLSExtension] = []
+        extensions: list[Extension] = []
 
         # Supported version extension
         extensions.append(ServerSupportedVersionExtension(version))
@@ -1308,7 +1308,7 @@ class TLSHandshakeServer(TLSHandshake):
         if not self._key_schedule.generation == 1:
             raise AlertInternalError()
 
-        extensions: list[TLSExtension] = []
+        extensions: list[Extension] = []
 
         # Server supported version extension
         extensions.append(
@@ -1382,7 +1382,7 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertInternalError("authentications not set")
 
         session = self._session
-        enc_extensions: list[TLSExtension] = []
+        enc_extensions: list[Extension] = []
 
         if self._early_data_accepted:
             enc_extensions.append(ServerEarlyDataExtension())
@@ -1404,7 +1404,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.OK
 
         if self.configuration.verify_mode != VerifyMode.CERT_NONE:
-            cert_extensions: list[TLSExtension] = []
+            cert_extensions: list[Extension] = []
 
             cert_extensions.append(
                 SignatureAlgorithmsExtension(self._signature_algorithms)
@@ -1657,7 +1657,7 @@ class TLSHandshakeServer(TLSHandshake):
         session = self._session
         session.rebase_time()
 
-        extensions: list[TLSExtension] = []
+        extensions: list[Extension] = []
 
         if self._enable_early_data and self._max_early_data_size > 0:
             extensions.append(EarlyDataExtension(self._max_early_data_size))
@@ -1825,7 +1825,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         raise AlertHandshakeFailure("No supported cipher suite")
 
-    def _process_extensions(self, ext_map: dict[int, TLSExtension]) -> None:
+    def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
         version = self.protocol_version()
         cipher_suite = self.cipher_suite()
 

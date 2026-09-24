@@ -107,6 +107,7 @@ from ._extension import (
     ECPointFormatsExtension,
     EncryptThenMacExtension,
     ExtendedMasterSecretExtension,
+    Extension,
     ExtensionSource,
     GenericExtension,
     HRRKeyShareExtension,
@@ -124,7 +125,6 @@ from ._extension import (
     ServerSupportedVersionExtension,
     SessionTicketExtension,
     SignatureAlgorithmsExtension,
-    TLSExtension,
 )
 from ._handshake import ECHConfigContent, TLSHandshake
 from ._key import (
@@ -1728,7 +1728,7 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertInternalError("session not set")
 
         session = self._session
-        extensions: list[TLSExtension] = []
+        extensions: list[Extension] = []
 
         if session.has_alps and not self._early_data_accepted:
             alps = ServerALPSExtension(session.local_alps)
@@ -2180,7 +2180,7 @@ class TLSHandshakeClient(TLSHandshake):
         hello_type: ClientHelloType = ClientHelloType.UNENCRYPTED,
         is_hrr: bool = False,
     ) -> list[tuple[int, bytes]]:
-        extensions: list[TLSExtension] = []
+        extensions: list[Extension] = []
 
         # Server Name Indicator Extension
         if hello_type == ClientHelloType.OUTER:
@@ -2388,7 +2388,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         return False
 
-    def _process_extensions(self, ext_map: dict[int, TLSExtension]) -> None:
+    def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
         version = self.protocol_version()
         cipher_suite = self.cipher_suite()
 

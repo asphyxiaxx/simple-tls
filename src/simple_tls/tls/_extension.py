@@ -34,7 +34,7 @@ from ._constant import (
     NameType,
 )
 
-_E = typing.TypeVar("_E", bound="TLSExtension")
+_E = typing.TypeVar("_E", bound="Extension")
 _PBE = typing.TypeVar("_PBE", bound="PrefixedBytesExtension")
 _PILE = typing.TypeVar("_PILE", bound="PrefixedIntListExtension")
 _IE = typing.TypeVar("_IE", bound="IntExtension")
@@ -49,7 +49,7 @@ class ExtensionSource(enum.IntEnum):
 
 
 @dataclass
-class TLSExtension:
+class Extension:
     extension_type: typing.ClassVar[int]
 
     @classmethod
@@ -71,7 +71,7 @@ class ExtensionsMessage:
         return i, None
 
     def get_extension(self, extclass: type[_E]) -> _E | None:
-        if not issubclass(extclass, TLSExtension):
+        if not issubclass(extclass, Extension):
             raise TypeError("extclass must be type of TLSExtension")
 
         for ext_type, ext_data in self.extensions:
@@ -82,8 +82,8 @@ class ExtensionsMessage:
 
     def extension_map(
         self, extension_source: ExtensionSource = ExtensionSource.NONE
-    ) -> dict[int, TLSExtension]:
-        ext_map: dict[int, TLSExtension] = {}
+    ) -> dict[int, Extension]:
+        ext_map: dict[int, Extension] = {}
         source = _EXTENSION_SOUCES[extension_source]
 
         for ext_type, ext_data in self.extensions:
@@ -151,7 +151,7 @@ class OptionalExtensionsMessage(ExtensionsMessage):
             super()._write_exts(writer)
 
 
-class EmptyExtension(TLSExtension):
+class EmptyExtension(Extension):
     @classmethod
     def from_bytes(cls: type[_E], data: bytes) -> _E:
         if data:
@@ -163,7 +163,7 @@ class EmptyExtension(TLSExtension):
 
 
 @dataclass
-class GenericExtension(TLSExtension):
+class GenericExtension(Extension):
     parsed_type: int
     data: bytes
 
@@ -180,7 +180,7 @@ class GenericExtension(TLSExtension):
 
 
 @dataclass
-class PrefixedBytesExtension(TLSExtension):
+class PrefixedBytesExtension(Extension):
     extension_type: typing.ClassVar[int]
     data: bytes
 
@@ -204,7 +204,7 @@ class PrefixedBytesExtension(TLSExtension):
 
 
 @dataclass
-class PrefixedIntListExtension(TLSExtension):
+class PrefixedIntListExtension(Extension):
     extension_type: typing.ClassVar[int]
     data: typing.Sequence[int]
 
@@ -253,7 +253,7 @@ class PrefixedIntListExtension(TLSExtension):
 
 
 @dataclass
-class IntExtension(TLSExtension):
+class IntExtension(Extension):
     extension_type: typing.ClassVar[int]
     data: int
 
@@ -294,7 +294,7 @@ class RenegotiationInfoExtension(PrefixedBytesExtension):
 
 
 @dataclass
-class SessionTicketExtension(TLSExtension):
+class SessionTicketExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.SESSION_TICKET
     ticket: bytes
 
@@ -352,7 +352,7 @@ class ECPointFormatsExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ClientHelloPaddingExtension(TLSExtension):
+class ClientHelloPaddingExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.CLIENT_HELLO_PADDING
     padding_length: int
 
@@ -387,7 +387,7 @@ class PSKKeyExchangeModesExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ClientALPSExtension(TLSExtension):
+class ClientALPSExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
     protocols: typing.Sequence[bytes]
 
@@ -426,7 +426,7 @@ class ClientALPSExtension(TLSExtension):
 
 
 @dataclass
-class ServerALPSExtension(TLSExtension):
+class ServerALPSExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
     settings: bytes
 
@@ -452,7 +452,7 @@ class ECHOuterExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ClientSNIExtension(TLSExtension):
+class ClientSNIExtension(Extension):
     """
     RFC 4366. Server Name Indication extension
     """
@@ -503,7 +503,7 @@ class ClientNPNExtension(EmptyExtension):
 
 
 @dataclass
-class ServerNPNExtension(TLSExtension):
+class ServerNPNExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTS_NPN
     protocols: typing.Sequence[bytes]
 
@@ -539,7 +539,7 @@ class ServerNPNExtension(TLSExtension):
 
 
 @dataclass
-class ClientALPNExtension(TLSExtension):
+class ClientALPNExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ALPN
     protocols: typing.Sequence[bytes]
 
@@ -578,7 +578,7 @@ class ClientALPNExtension(TLSExtension):
 
 
 @dataclass
-class ServerALPNExtension(TLSExtension):
+class ServerALPNExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ALPN
     protocol: bytes
 
@@ -608,7 +608,7 @@ class ServerALPNExtension(TLSExtension):
 
 
 @dataclass
-class ClientStatusRequestExtension(TLSExtension):
+class ClientStatusRequestExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
     responder_id_list: typing.Sequence[bytes] = ()
     request_extensions: bytes = b""
@@ -654,7 +654,7 @@ class ServerStatusRequestExtension(EmptyExtension):
 
 
 @dataclass
-class CertStatusRequestExtension(TLSExtension):
+class CertStatusRequestExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
     response: bytes
 
@@ -702,7 +702,7 @@ class KeyShareEntry:
 
 
 @dataclass
-class ClientKeyShareExtension(TLSExtension):
+class ClientKeyShareExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
     key_shares: typing.Sequence[KeyShareEntry]
 
@@ -732,7 +732,7 @@ class ClientKeyShareExtension(TLSExtension):
 
 
 @dataclass
-class ServerKeyShareExtension(TLSExtension):
+class ServerKeyShareExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
     key_share: KeyShareEntry
 
@@ -782,7 +782,7 @@ class PSKIdentity:
 
 
 @dataclass
-class ClientPSKExtension(TLSExtension):
+class ClientPSKExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.PRE_SHARED_KEY
     identities: typing.Sequence[PSKIdentity]
     binders: typing.Sequence[bytes]
@@ -975,7 +975,7 @@ class ECHConfig:
 
 
 @dataclass
-class ClientECHExtension(TLSExtension):
+class ClientECHExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     ech_client_hello_type: int
     hpke_kdf_id: int = 0
@@ -1028,7 +1028,7 @@ class ClientECHExtension(TLSExtension):
 
 
 @dataclass
-class ServerECHExtensions(TLSExtension):
+class ServerECHExtensions(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     retry_configs: typing.Sequence[ECHConfig]
 
@@ -1061,7 +1061,7 @@ class ServerECHExtensions(TLSExtension):
 
 
 @dataclass
-class HRRECHExtension(TLSExtension):
+class HRRECHExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     data: bytes
 
@@ -1093,7 +1093,7 @@ COMPRESSIBLE_EXTENSIONS = (
 )
 
 
-_UNIVERSAL_EXTENSIONS: dict[int, type[TLSExtension]] = {
+_UNIVERSAL_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
         CompressedCertificateExtension,
@@ -1103,7 +1103,7 @@ _UNIVERSAL_EXTENSIONS: dict[int, type[TLSExtension]] = {
 }
 
 
-_CLIENT_EXTENSION: dict[int, type[TLSExtension]] = {
+_CLIENT_EXTENSION: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
         ClientALPSExtension,
@@ -1133,7 +1133,7 @@ _CLIENT_EXTENSION: dict[int, type[TLSExtension]] = {
 }
 
 
-_SERVER_EXTENSIONS: dict[int, type[TLSExtension]] = {
+_SERVER_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
         ECPointFormatsExtension,
@@ -1156,7 +1156,7 @@ _SERVER_EXTENSIONS: dict[int, type[TLSExtension]] = {
 }
 
 
-_HRR_EXTENSIONS: dict[int, type[TLSExtension]] = {
+_HRR_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
         CookieExtension,
@@ -1167,12 +1167,12 @@ _HRR_EXTENSIONS: dict[int, type[TLSExtension]] = {
 }
 
 
-_CERTIFICATE_EXTENSIONS: dict[int, type[TLSExtension]] = {
+_CERTIFICATE_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e for e in (CertStatusRequestExtension,)
 }
 
 
-_EXTENSION_SOUCES: dict[ExtensionSource, dict[int, type[TLSExtension]]] = {
+_EXTENSION_SOUCES: dict[ExtensionSource, dict[int, type[Extension]]] = {
     ExtensionSource.NONE: _UNIVERSAL_EXTENSIONS,
     ExtensionSource.CERT: _CERTIFICATE_EXTENSIONS,
     ExtensionSource.CLIENT: _CLIENT_EXTENSION,

@@ -66,7 +66,7 @@ from ._constant import (
     TLSVersion,
 )
 from ._enum import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from ._extension import CertStatusRequestExtension, ECHConfig, TLSExtension
+from ._extension import CertStatusRequestExtension, ECHConfig, Extension
 from ._key import (
     BasePublicKey,
     DSAPublicKey,
@@ -524,7 +524,7 @@ class TLSHandshake:
 
     @staticmethod
     def _serialize_extensions(
-        extensions: typing.Iterable[TLSExtension],
+        extensions: typing.Iterable[Extension],
     ) -> list[tuple[int, bytes]]:
         return [(e.extension_type, e.serialize()) for e in extensions]
 

@@ -122,6 +122,7 @@ from ._extension import (
     EmptyExtension,
     EncryptThenMacExtension,
     ExtendedMasterSecretExtension,
+    Extension,
     ExtensionsMessage,
     ExtensionSource,
     GenericExtension,
@@ -148,7 +149,6 @@ from ._extension import (
     ServerSupportedVersionExtension,
     SessionTicketExtension,
     SignatureAlgorithmsExtension,
-    TLSExtension,
 )
 from ._handshake import TLSHandshake
 from ._handshake_client import TLSHandshakeClient
@@ -297,6 +297,7 @@ __all__ = [
     "EndOfEarlyData",
     "Epoch",
     "ExtendedMasterSecretExtension",
+    "Extension",
     "ExtensionSource",
     "ExtensionType",
     "ExtensionsMessage",
@@ -365,7 +366,6 @@ __all__ = [
     "TLSEOFError",
     "TLSEnum",
     "TLSError",
-    "TLSExtension",
     "TLSHandshake",
     "TLSHandshakeClient",
     "TLSHandshakeServer",
