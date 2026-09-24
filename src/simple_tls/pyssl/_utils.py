@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ssl as _ssl
 import sys
 import typing
 from collections.abc import Callable
@@ -172,6 +173,26 @@ def parse_cipher(cipher: tls.CipherSuite) -> tuple[str, str, int]:
     version = _VERSION_MAP.get(cipher.minimum_version, "Unknown version")
     secret_bits = _SECRET_BIT_MAP.get(cipher.symmetric, 0)
     return (name, version, secret_bits)
+
+
+def parse_cipher_string(cipher_str: str) -> list[tls.CipherSuite]:
+    """
+    Passes the string to the underlying OpenSSL engine via Python's ssl module
+    and returns the actual list of cryptographic suites that result from the
+    rules.
+    """
+    ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+    ctx.set_ciphers(cipher_str)
+
+    cipher_suites: list[tls.CipherSuite] = []
+    for cipher in ctx.get_ciphers():
+        cipher_iana_id = cipher["id"] & 0xFFFF
+        try:
+            cipher_suite = tls.CipherSuite(cipher_iana_id)
+        except ValueError:
+            continue
+        cipher_suites.append(cipher_suite)
+    return cipher_suites
 
 
 def create_default_context(

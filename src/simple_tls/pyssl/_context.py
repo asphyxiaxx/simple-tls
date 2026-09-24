@@ -13,7 +13,6 @@ from simple_tls import tls
 from simple_tls.crypto import verification
 from simple_tls.crypto.utils import str_to_bytes
 
-from ._cipher import parse_cipher_string
 from ._constant import (
     PROTOCOL_TLS,
     PROTOCOL_TLS_CLIENT,
@@ -35,6 +34,7 @@ from ._utils import (
     SrvnmeCbType,
     StrOrBytesPath,
     parse_certificate,
+    parse_cipher_string,
 )
 
 
