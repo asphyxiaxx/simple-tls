@@ -27,7 +27,7 @@ from ._constant import (
 from ._object import SSLObject
 from ._session import SSLSession, TicketAEAD
 from ._socket import SSLSocket
-from ._util import (
+from ._utils import (
     PeerCertRetDictType,
     PSKClientCbType,
     PSKServerCbType,

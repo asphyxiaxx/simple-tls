@@ -92,7 +92,7 @@ from ._exception import (
 from ._object import SSLObject
 from ._session import SSLSession
 from ._socket import SSLSocket
-from ._util import create_default_context
+from ._utils import create_default_context
 
 __all__ = [
     "ALERT_DESCRIPTION_ACCESS_DENIED",

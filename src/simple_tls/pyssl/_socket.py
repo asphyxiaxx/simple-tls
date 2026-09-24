@@ -18,7 +18,7 @@ from ._exception import (
     SSLWantWriteError,
 )
 from ._session import SSLSession
-from ._util import (
+from ._utils import (
     PeerCertRetDictType,
     ReadableBuffer,
     SrvnmeCbType,
