@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 
 import pytest
+from cryptography import x509
 
-from simple_tls import x509
+from simple_tls.crypto.verification import Store
 from simple_tls.tls import (
     Protocol,
     Status,
@@ -15,7 +16,6 @@ from simple_tls.tls import (
     TLSHandshakeServer,
     VerifyMode,
 )
-from simple_tls.x509.verification import Store
 
 
 def format_path(*paths: str):

@@ -25,15 +25,16 @@ import typing
 
 from cryptography import x509
 
-from simple_tls.protocol.hpke import SenderContext, create_suite
-from simple_tls.utils.codec import ParseError, Parser, Writer
-from simple_tls.utils.constant_time import compare_digest
-from simple_tls.utils.math import bytes_to_int, bytes_to_str, int_to_bytes
-from simple_tls.utils.misc import is_valid_sni, negotiate
-from simple_tls.utils.random import (
+from simple_tls.codec import ParseError, Parser, Writer
+from simple_tls.crypto.constant_time import compare_digest
+from simple_tls.crypto.hpke import SenderContext, create_suite
+from simple_tls.crypto.utils import (
+    bytes_to_int,
+    bytes_to_str,
     get_random_bits,
     get_random_bytes,
     get_random_int,
+    int_to_bytes,
 )
 
 from ._alert import (
@@ -169,7 +170,7 @@ from ._supported import (
     SUPPORTED_GROUPS,
 )
 from ._transcript import KeyDeriver, KeySchedule, Transcript
-from ._utils import filter
+from ._utils import filter, is_valid_sni, negotiate
 
 NewSessionHandler = typing.Callable[[TLSSession], None]
 

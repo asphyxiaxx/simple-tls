@@ -25,8 +25,12 @@ from cryptography.hazmat.primitives.asymmetric import dh, ec, x448, x25519
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from simple_tls._crypto import mlkem
-from simple_tls.utils.math import byte_length, bytes_to_int, int_to_bytes
-from simple_tls.utils.random import get_random_bytes
+from simple_tls.crypto.utils import (
+    byte_length,
+    bytes_to_int,
+    get_random_bytes,
+    int_to_bytes,
+)
 
 from ._alert import AlertDecodeError, AlertIllegalParameter, AlertInternalError
 from ._constant import NamedGroup

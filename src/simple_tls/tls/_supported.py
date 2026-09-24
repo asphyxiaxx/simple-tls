@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from simple_tls.utils.compression import ZLIB, ZSTD, Brotli
+from simple_tls.compression import ZLIB, ZSTD, Brotli
 
 from ._constant import (
     CertificateCompressionAlgorithm,

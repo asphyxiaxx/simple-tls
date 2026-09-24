@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from simple_tls.utils.constant_time import cbc_remove_pad_and_mac
+from simple_tls.crypto.constant_time import cbc_remove_pad_and_mac
 
 from .utils import load
 

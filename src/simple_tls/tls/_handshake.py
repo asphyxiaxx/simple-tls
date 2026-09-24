@@ -27,11 +27,11 @@ from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
 
-from simple_tls.protocol.hpke import Context as HPKEContext
-from simple_tls.utils.codec import ParseError, Parser
-from simple_tls.utils.compression import UnsupportedCompression
-from simple_tls.utils.math import bytes_to_int
-from simple_tls.x509.verification import (
+from simple_tls.codec import ParseError, Parser
+from simple_tls.compression import UnsupportedCompression
+from simple_tls.crypto.hpke import Context as HPKEContext
+from simple_tls.crypto.utils import bytes_to_int
+from simple_tls.crypto.verification import (
     CertificateExpired,
     CertificateNotYetValid,
     ExtensionPolicy,

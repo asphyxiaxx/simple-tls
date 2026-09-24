@@ -20,9 +20,10 @@
 
 from __future__ import annotations
 
+import secrets
 import typing
 
-from .._crypto import utils  # type: ignore
+from simple_tls._crypto import utils  # type: ignore
 
 _SupportBytes = typing.Union[bytes, bytearray, memoryview]
 _StrOrBytes = typing.Union[_SupportBytes, str]
@@ -93,3 +94,15 @@ def bytes_to_str(
 
 
 strxor = utils.strxor
+
+
+def get_random_bytes(n: int) -> bytes:
+    return secrets.token_bytes(n)
+
+
+def get_random_int(a: int, b: int) -> int:
+    return a + secrets.randbelow(b - a + 1)
+
+
+def get_random_bits(k: int) -> int:
+    return secrets.randbits(k)

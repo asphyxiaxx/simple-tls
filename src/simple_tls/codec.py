@@ -23,19 +23,16 @@ from __future__ import annotations
 import typing
 from contextlib import contextmanager
 
-from .math import bytes_to_int, int_to_bytes
+from simple_tls.crypto.utils import bytes_to_int, int_to_bytes
 
-ReadableBuffer = typing.TypeVar(
-    "ReadableBuffer",
-    bound=typing.Union[bytes, bytearray, memoryview],
-)
+_B = typing.TypeVar("_B", bound=typing.Union[bytes, bytearray, memoryview])
 
 
 class ParseError(Exception): ...
 
 
-class Parser(typing.Generic[ReadableBuffer]):
-    def __init__(self, data: ReadableBuffer) -> None:
+class Parser(typing.Generic[_B]):
+    def __init__(self, data: _B) -> None:
         self._data = data
         self._index = 0
         self._bookmark = 0
@@ -43,12 +40,10 @@ class Parser(typing.Generic[ReadableBuffer]):
     def set_bookmark(self) -> None:
         self._bookmark = self._index
 
-    def data_since_bookmark(self) -> ReadableBuffer:
-        return typing.cast(
-            ReadableBuffer, self._data[self._bookmark : self._index]
-        )
+    def data_since_bookmark(self) -> _B:
+        return typing.cast(_B, self._data[self._bookmark : self._index])
 
-    def read_bytes(self, size: int) -> ReadableBuffer:
+    def read_bytes(self, size: int) -> _B:
         if size < 0:
             raise ValueError("size cannot be negative")
 
@@ -59,14 +54,14 @@ class Parser(typing.Generic[ReadableBuffer]):
                 f"only '{len(self._data) - self._index}' bytes remaining"
             )
 
-        data = typing.cast(ReadableBuffer, self._data[self._index : end])
+        data = typing.cast(_B, self._data[self._index : end])
         self._index += size
         return data
 
     def read_int(self, size: int) -> int:
         return bytes_to_int(self.read_bytes(size), "big")
 
-    def read_prefixed_bytes(self, prefix_size: int) -> ReadableBuffer:
+    def read_prefixed_bytes(self, prefix_size: int) -> _B:
         length = self.read_int(prefix_size)
         return self.read_bytes(length)
 

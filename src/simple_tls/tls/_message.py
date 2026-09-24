@@ -23,9 +23,9 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field
 
-from simple_tls.utils.codec import ParseError, Parser, Writer
-from simple_tls.utils.compression import ZLIB, ZSTD, Brotli
-from simple_tls.utils.math import int_to_bytes
+from simple_tls.codec import ParseError, Parser, Writer
+from simple_tls.compression import ZLIB, ZSTD, Brotli
+from simple_tls.crypto.utils import int_to_bytes
 
 from ._alert import AlertUnexpectedMessage
 from ._constant import (

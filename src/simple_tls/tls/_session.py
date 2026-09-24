@@ -27,12 +27,11 @@ from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
 
-from simple_tls.utils.codec import Parser, Writer
-from simple_tls.utils.misc import utcnow
+from simple_tls.codec import Parser, Writer
 
 from ._constant import CipherSuite, TLSVersion
 from ._enum import Protocol
-from ._utils import Buffer
+from ._utils import Buffer, utcnow
 
 
 @dataclass

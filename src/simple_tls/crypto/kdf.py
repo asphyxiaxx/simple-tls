@@ -28,7 +28,7 @@ from hashlib import pbkdf2_hmac, scrypt
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf import hkdf
 
-from ..utils.math import strxor
+from .utils import strxor
 
 __all__ = [
     "PBKDF1",

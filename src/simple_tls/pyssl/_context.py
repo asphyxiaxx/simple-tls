@@ -10,8 +10,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from simple_tls import tls
-from simple_tls.utils.math import str_to_bytes
-from simple_tls.x509 import verification
+from simple_tls.crypto import verification
+from simple_tls.crypto.utils import str_to_bytes
 
 from ._cipher import parse_cipher_string
 from ._constant import (

@@ -22,13 +22,11 @@ from __future__ import annotations
 
 import typing
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.x509.oid import ExtensionOID
-
-from ..utils.misc import utcnow
 
 _T = typing.TypeVar("_T", contravariant=True, bound="x509.ExtensionType")
 
@@ -200,6 +198,10 @@ class ExtensionPolicy:
 
             if valitator is not None:
                 valitator(verifier, certificate, m_ext)
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Verifier:

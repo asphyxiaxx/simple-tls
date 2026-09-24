@@ -24,7 +24,7 @@ import typing
 from collections import deque
 from collections.abc import Hashable
 
-from simple_tls.utils.math import byte_length, int_to_bytes
+from simple_tls.crypto.utils import byte_length, int_to_bytes
 
 from ._codecs import PRIMITIC_CODECS
 from ._errors import (

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hmac
 
-from .._crypto import utils
+from simple_tls._crypto import utils
 
 cbc_remove_pad_and_mac = utils.cbc_remove_pad_and_mac
 

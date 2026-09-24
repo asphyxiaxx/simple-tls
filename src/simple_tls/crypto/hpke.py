@@ -30,8 +30,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, x448, x25519
 from cryptography.hazmat.primitives.ciphers import aead
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from ..protocol.kdf import hkdf_expand, hkdf_extract
-from ..utils.math import bytes_to_int, int_to_bytes, strxor
+from .kdf import hkdf_expand, hkdf_extract
+from .utils import bytes_to_int, int_to_bytes, strxor
 
 HPKEPrivateKeyType = typing.Union[
     ec.EllipticCurvePrivateKey,

@@ -27,8 +27,8 @@ from pathlib import Path
 
 from cryptography import x509
 
-from simple_tls.utils.math import str_to_bytes
-from simple_tls.x509.verification import ExtensionPolicy, Store
+from simple_tls.crypto.utils import str_to_bytes
+from simple_tls.crypto.verification import ExtensionPolicy, Store
 
 from ._constant import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
 from ._enum import Protocol, VerifyMode

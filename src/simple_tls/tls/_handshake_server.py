@@ -25,11 +25,13 @@ import typing
 from cryptography import x509
 from cryptography.x509.oid import PublicKeyAlgorithmOID
 
-from simple_tls.utils.codec import Parser, Writer
-from simple_tls.utils.constant_time import compare_digest
-from simple_tls.utils.math import bytes_to_int, int_to_bytes
-from simple_tls.utils.misc import negotiate
-from simple_tls.utils.random import get_random_bytes
+from simple_tls.codec import Parser, Writer
+from simple_tls.crypto.constant_time import compare_digest
+from simple_tls.crypto.utils import (
+    bytes_to_int,
+    get_random_bytes,
+    int_to_bytes,
+)
 
 from ._alert import (
     Alert,
@@ -136,7 +138,7 @@ from ._supported import (
     SUPPORTED_GROUPS,
 )
 from ._transcript import KeyDeriver, KeySchedule
-from ._utils import filter
+from ._utils import filter, negotiate
 
 SNICallback = typing.Callable[[ClientHelloInfo, HandshakeContext], None]
 

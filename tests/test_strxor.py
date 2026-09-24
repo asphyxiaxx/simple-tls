@@ -1,6 +1,6 @@
 import pytest
 
-from simple_tls.utils.math import strxor
+from simple_tls.crypto.utils import strxor
 
 
 def test_strxor_success():

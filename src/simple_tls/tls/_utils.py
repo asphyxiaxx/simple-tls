@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import typing
+from datetime import datetime, timezone
 from os import PathLike
 from typing import TypeAlias
 
@@ -35,6 +37,67 @@ WritableBuffer: TypeAlias = bytearray | memoryview
 StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
 
 _T = typing.TypeVar("_T")
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@typing.overload
+def negotiate(
+    supported: typing.Iterable[_T],
+    offered: typing.Iterable[typing.Any] | None,
+    exception: None = None,
+) -> _T | None: ...
+
+
+@typing.overload
+def negotiate(
+    supported: typing.Iterable[_T],
+    offered: typing.Iterable[typing.Any] | None,
+    exception: Exception = ...,
+) -> _T: ...
+
+
+def negotiate(
+    supported: typing.Iterable[_T],
+    offered: typing.Iterable[typing.Any] | None,
+    exception: Exception | None = None,
+) -> _T | None:
+    if offered is not None:
+        for item in supported:
+            if item in offered:
+                return item
+    if exception is not None:
+        raise exception
+    return None
+
+
+def is_valid_sni(server_hostname: str) -> bool:
+    # must be a non-empty string
+    if (
+        not server_hostname
+        or not isinstance(server_hostname, str)
+        or server_hostname.startswith(".")
+        or server_hostname.endswith(".")
+    ):
+        raise ValueError(
+            "server_hostname cannot be an empty or start with a leading dot."
+        )
+
+    # RFC 6066 explicitly forbids literal IP addresses in SNI
+    try:
+        ipaddress.ip_address(server_hostname)
+        # If this succeeds, it's an IP address, which is INVALID for SNI
+        return False
+    except ValueError:
+        pass  # Not an IP address, proceed to next checks
+
+    # max 253 characters for a domain name
+    if len(server_hostname) > 253:
+        raise ValueError("SNI hostname is too long")
+
+    return True
 
 
 @typing.overload

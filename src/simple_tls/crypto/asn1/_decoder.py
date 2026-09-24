@@ -24,7 +24,7 @@ import typing
 from collections.abc import Hashable
 from dataclasses import dataclass
 
-from simple_tls.utils.math import bytes_to_int
+from simple_tls.crypto.utils import bytes_to_int
 
 from ._codecs import PRIMITIC_CODECS
 from ._errors import (

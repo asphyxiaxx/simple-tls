@@ -3,7 +3,7 @@ from binascii import unhexlify
 import pytest
 
 from simple_tls._crypto import mlkem
-from simple_tls.utils.random import get_random_bytes
+from simple_tls.crypto.utils import get_random_bytes
 
 from .utils import wycheproof_tests
 

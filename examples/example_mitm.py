@@ -11,7 +11,7 @@ import dns.asyncresolver
 import dns.rdatatype
 import dns.rdtypes
 import dns.rdtypes.svcbbase
-from cryptography import x509 as cryptography_x509
+from cryptography import x509
 from mitmproxy import connection, ctx, tls
 from mitmproxy.addons import tlsconfig
 from mitmproxy.net import tls as net_tls
@@ -19,8 +19,7 @@ from OpenSSL import SSL
 from OpenSSL.crypto import X509 as OpenSSL_X509  # noqa: N811
 
 from simple_tls import tls as stls
-from simple_tls import x509
-from simple_tls.x509 import verification
+from simple_tls.crypto import verification
 
 
 async def resolve_ech(hostname: str) -> bytes | None:
@@ -47,16 +46,7 @@ def load_cert_chain(certfile: str) -> stls.TLSCredential:
 def load_castore(
     ca_path: str | None, ca_pemfile: str | None
 ) -> verification.Store:
-    store = verification.Store()
-    if ca_path:
-        with open(ca_path, "rb") as fp:
-            store.extend(x509.load_der_x509_certificates(fp.read()))
-
-    if ca_pemfile:
-        with open(ca_pemfile, "rb") as fp:
-            store.extend(x509.load_pem_x509_certificates(fp.read()))
-
-    return store
+    return stls.load_castore(capath=ca_path, cafile=ca_pemfile)
 
 
 class SSLConnection:
@@ -205,38 +195,28 @@ class SSLConnection:
 
     def get_peer_certificate(
         self, as_cryptography: bool = False
-    ) -> OpenSSL_X509 | cryptography_x509.Certificate | None:
+    ) -> OpenSSL_X509 | x509.Certificate | None:
         if self._conn is None:
             raise TypeError("connection state not set")
 
         chain = self._conn.get_unverified_chain()
         if chain:
-            cert_data = chain[0].public_bytes(x509.Encoding.DER)
-            cert = cryptography_x509.load_der_x509_certificate(cert_data)
-
+            certificate = chain[0]
             if as_cryptography:
-                return cert
-            return OpenSSL_X509.from_cryptography(cert)
-
+                return certificate
+            return OpenSSL_X509.from_cryptography(certificate)
         return None
 
     def get_peer_cert_chain(
         self, as_cryptography: bool = False
-    ) -> list[OpenSSL_X509] | list[cryptography_x509.Certificate]:
+    ) -> list[OpenSSL_X509] | list[x509.Certificate]:
         if self._conn is None:
             raise TypeError("connection state not set")
 
         chain = self._conn.get_unverified_chain()
-        certs = [
-            cryptography_x509.load_der_x509_certificate(
-                c.public_bytes(x509.Encoding.DER)
-            )
-            for c in chain
-        ]
-
         if as_cryptography:
-            return certs
-        return [OpenSSL_X509.from_cryptography(c) for c in certs]
+            return chain
+        return [OpenSSL_X509.from_cryptography(c) for c in chain]
 
     def get_alpn_proto_negotiated(self) -> bytes | None:
         if self._conn is None:

@@ -30,12 +30,11 @@ from cryptography.hazmat.primitives.ciphers import Cipher, CipherContext, aead
 from cryptography.hazmat.primitives.ciphers.algorithms import AES
 from cryptography.hazmat.primitives.ciphers.modes import CBC
 
-from simple_tls.utils.constant_time import (
+from simple_tls.crypto.constant_time import (
     cbc_remove_pad_and_mac,
     compare_digest,
 )
-from simple_tls.utils.math import strxor
-from simple_tls.utils.random import get_random_bytes
+from simple_tls.crypto.utils import get_random_bytes, strxor
 
 from ._constant import CipherSuite, Symmetric, TLSVersion
 from ._enum import Direction
