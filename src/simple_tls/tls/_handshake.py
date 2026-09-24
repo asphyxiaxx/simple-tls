@@ -23,12 +23,14 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass, field
 
-from simple_tls import x509
+from cryptography import x509
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
+
 from simple_tls.protocol.hpke import Context as HPKEContext
 from simple_tls.utils.codec import ParseError, Parser
 from simple_tls.utils.compression import UnsupportedCompression
 from simple_tls.utils.math import bytes_to_int
-from simple_tls.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
 from simple_tls.x509.verification import (
     CertificateExpired,
     CertificateNotYetValid,
@@ -613,7 +615,7 @@ class TLSHandshake:
     def _create_certificate(
         x509_certs: typing.Iterable[x509.Certificate],
     ) -> Certificate:
-        certificates = [c.public_bytes(x509.Encoding.DER) for c in x509_certs]
+        certificates = [c.public_bytes(Encoding.DER) for c in x509_certs]
         return Certificate(certificates=certificates)
 
     @staticmethod
@@ -623,7 +625,7 @@ class TLSHandshake:
         compression: int | None = None,
     ) -> CompressedCertificate | CertificateTLS13:
         cert_entries = [
-            CertificateEntry(certificate.public_bytes(x509.Encoding.DER))
+            CertificateEntry(certificate.public_bytes(Encoding.DER))
             for certificate in x509_certs
         ]
         certificate = CertificateTLS13(context, cert_entries)

@@ -24,7 +24,8 @@ import struct
 import typing
 from ssl import MemoryBIO
 
-from simple_tls import x509
+from cryptography import x509
+
 from simple_tls.utils.math import int_to_bytes
 
 from ._alert import AlertException

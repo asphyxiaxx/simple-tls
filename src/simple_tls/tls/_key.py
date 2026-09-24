@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import typing
 
-from cryptography import exceptions
+from cryptography import exceptions, x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import (
     dsa,
@@ -38,8 +38,6 @@ from cryptography.hazmat.primitives.asymmetric.types import (
     PrivateKeyTypes,
     PublicKeyTypes,
 )
-
-from simple_tls import x509
 
 from ._constant import UNSPECIFIED, HashAlgorithm, NamedGroup, SignatureScheme
 from ._supported import DSA_SIGNATURE_ALGORITHMS, ECDSA_SIGNATURE_ALGORITHMS

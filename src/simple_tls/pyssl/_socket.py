@@ -5,7 +5,9 @@ import ssl as _ssl
 import typing
 from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
 
-from simple_tls import tls, x509
+from cryptography.hazmat.primitives import serialization
+
+from simple_tls import tls
 from simple_tls.utils.math import bytes_to_str, str_to_bytes
 
 from ._constant import Options
@@ -16,13 +18,14 @@ from ._exception import (
     SSLWantWriteError,
 )
 from ._session import SSLSession
-from ._types import (
+from ._util import (
     PeerCertRetDictType,
     ReadableBuffer,
     SrvnmeCbType,
     WritableBuffer,
+    parse_certificate,
+    parse_cipher,
 )
-from ._util import parse_certificate, parse_cipher
 
 if typing.TYPE_CHECKING:
     from socket import _Address, _RetAddress
@@ -302,22 +305,20 @@ class SSLSocket(_ssl.SSLSocket):
         if peercert is None:
             return None
         if binary_form:
-            return peercert.public_bytes(x509.Encoding.DER)
+            return peercert.public_bytes(serialization.Encoding.DER)
         return parse_certificate(peercert)
 
     def get_verified_chain(self) -> list[bytes]:
         if self._sslobj is None:
             return []
-
         chain = self._sslobj.get_verified_chain()
-        return [c.public_bytes(x509.Encoding.DER) for c in chain]
+        return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def get_unverified_chain(self) -> list[bytes]:
         if self._sslobj is None:
             return []
-
         chain = self._sslobj.get_unverified_chain()
-        return [c.public_bytes(x509.Encoding.DER) for c in chain]
+        return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:
         self._checkClosed()

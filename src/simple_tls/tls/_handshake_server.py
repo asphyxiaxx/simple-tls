@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import typing
 
-from simple_tls import x509
+from cryptography import x509
+from cryptography.x509.oid import PublicKeyAlgorithmOID
+
 from simple_tls.utils.codec import Parser, Writer
 from simple_tls.utils.constant_time import compare_digest
 from simple_tls.utils.math import bytes_to_int, int_to_bytes
 from simple_tls.utils.misc import negotiate
 from simple_tls.utils.random import get_random_bytes
-from simple_tls.x509.oid import PublicKeyAlgorithmOID
 
 from ._alert import (
     Alert,

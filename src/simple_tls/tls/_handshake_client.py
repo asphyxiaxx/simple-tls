@@ -23,7 +23,8 @@ from __future__ import annotations
 import random
 import typing
 
-from simple_tls import x509
+from cryptography import x509
+
 from simple_tls.protocol.hpke import SenderContext, create_suite
 from simple_tls.utils.codec import ParseError, Parser, Writer
 from simple_tls.utils.constant_time import compare_digest

@@ -44,7 +44,7 @@ from ._alert import (
     AlertUnsupportedExtension,
 )
 from ._callback import ClientHelloInfo, HandshakeContext, TicketContext
-from ._configuration import TLSConfiguration, TLSCredential
+from ._configuration import TLSConfiguration, TLSCredential, load_castore
 from ._connection import ConnectionState, TLSConnection
 from ._constant import (
     AlertDescription,
@@ -379,6 +379,7 @@ __all__ = [
     "Transcript",
     "Validator",
     "VerifyMode",
+    "load_castore",
     "load_certificate_public_key",
     "load_pem_parameters",
     "load_pem_private_key",

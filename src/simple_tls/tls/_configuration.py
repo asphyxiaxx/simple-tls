@@ -20,10 +20,13 @@
 
 from __future__ import annotations
 
+import os
 import typing
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from simple_tls import x509
+from cryptography import x509
+
 from simple_tls.utils.math import str_to_bytes
 from simple_tls.x509.verification import ExtensionPolicy, Store
 
@@ -33,6 +36,45 @@ from ._key import BasePrivateKey, load_pem_private_key
 from ._keyexchange import DHParameters
 from ._session import TicketAEAD, TLSSession
 from ._utils import Buffer, StrOrBytesPath
+
+
+def _ensure_str_path(path_input: str | bytes | os.PathLike) -> str:
+    if isinstance(path_input, bytes):
+        return path_input.decode("utf-8")
+    return os.fspath(path_input)
+
+
+def load_castore(
+    cafile: StrOrBytesPath | None = None,
+    capath: StrOrBytesPath | None = None,
+    cadata: Buffer | None = None,
+) -> Store:
+    certs: list[x509.Certificate] = []
+
+    if cafile:
+        with open(cafile, "rb") as fp:
+            pem_data = fp.read()
+        certs.extend(x509.load_pem_x509_certificates(pem_data))
+
+    if capath:
+        path = Path(_ensure_str_path(capath))
+        if path.is_dir():
+            for file_path in path.iterdir():
+                if not file_path.is_file():
+                    continue
+                try:
+                    with open(file_path, "rb") as fp:
+                        pem_data = fp.read()
+                    certs.extend(x509.load_pem_x509_certificates(pem_data))
+                except Exception:
+                    pass
+
+    if cadata:
+        if not isinstance(cadata, bytes):
+            cadata = bytes(cadata)
+        certs.append(x509.load_der_x509_certificate(cadata))
+
+    return Store(certs)
 
 
 @dataclass(frozen=True)

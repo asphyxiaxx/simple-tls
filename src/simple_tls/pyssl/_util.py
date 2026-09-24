@@ -1,15 +1,15 @@
-import typing
-from ssl import (
-    DER_cert_to_PEM_cert,
-    PEM_cert_to_DER_cert,
-    cert_time_to_seconds,
-    get_default_verify_paths,
-    get_protocol_name,
-    get_server_certificate,
-)
+from __future__ import annotations
 
-from simple_tls import tls, x509
-from simple_tls.x509.oid import AuthorityInformationAccessOID
+import sys
+import typing
+from collections.abc import Callable
+from os import PathLike
+from typing import TYPE_CHECKING, TypeAlias, Union
+
+from cryptography import x509
+from cryptography.x509.oid import AuthorityInformationAccessOID
+
+from simple_tls import tls
 
 from ._constant import (
     CERT_NONE,
@@ -20,20 +20,37 @@ from ._constant import (
     Purpose,
     TLSVersion,
 )
-from ._types import ReadableBuffer, StrOrBytesPath
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from ._context import SSLContext
+    from ._object import SSLObject
+    from ._socket import SSLSocket
+
+if sys.version_info < (3, 12):
+    from typing_extensions import Buffer
+else:
+    from collections.abc import Buffer
 
 
-__all__ = [
-    "DER_cert_to_PEM_cert",
-    "PEM_cert_to_DER_cert",
-    "cert_time_to_seconds",
-    "create_default_context",
-    "get_default_verify_paths",
-    "get_protocol_name",
-    "get_server_certificate",
+ReadableBuffer: TypeAlias = Buffer
+WritableBuffer: TypeAlias = Buffer
+StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
+
+PCTRTT: TypeAlias = tuple[tuple[str, str], ...]
+PCTRTTT: TypeAlias = tuple[PCTRTT, ...]
+PeerCertRetDictType: TypeAlias = dict[str, str | PCTRTTT | PCTRTT]
+
+PSKClientCbType: TypeAlias = Callable[
+    [str | None],
+    tuple[str | None, bytes],
+]
+PSKServerCbType: TypeAlias = Callable[
+    [str | None],
+    bytes,
+]
+SrvnmeCbType: TypeAlias = Callable[
+    [Union["SSLSocket", "SSLObject"], str | None, "SSLContext"],
+    int | None,
 ]
 
 
@@ -163,7 +180,7 @@ def create_default_context(
     cafile: StrOrBytesPath | None = None,
     capath: StrOrBytesPath | None = None,
     cadata: str | ReadableBuffer | None = None,
-) -> "SSLContext":
+) -> SSLContext:
     if not isinstance(purpose, ASN1Object):  # type: ignore[misc]
         raise TypeError(purpose)
 

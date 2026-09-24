@@ -3,14 +3,21 @@ from __future__ import annotations
 import ssl as _ssl
 import typing
 
-from simple_tls import tls, x509
+from cryptography.hazmat.primitives import serialization
+
+from simple_tls import tls
 from simple_tls.utils.math import bytes_to_str, str_to_bytes
 
 from ._constant import Options
 from ._exception import SSLEOFError, SSLWantReadError
 from ._session import SSLSession
-from ._types import PeerCertRetDictType, ReadableBuffer, SrvnmeCbType
-from ._util import parse_certificate, parse_cipher
+from ._util import (
+    PeerCertRetDictType,
+    ReadableBuffer,
+    SrvnmeCbType,
+    parse_certificate,
+    parse_cipher,
+)
 
 if typing.TYPE_CHECKING:
     from ._context import SSLContext
@@ -178,7 +185,7 @@ class SSLObject(_ssl.SSLObject):
         if peercert is None:
             return None
         if binary_form:
-            return peercert.public_bytes(x509.Encoding.DER)
+            return peercert.public_bytes(serialization.Encoding.DER)
         return parse_certificate(peercert)
 
     def get_verified_chain(self) -> list[bytes]:
@@ -190,14 +197,14 @@ class SSLObject(_ssl.SSLObject):
         ``SSLSocket.get_unverified_chain``.
         """
         chain = self._sslobj.get_verified_chain()
-        return [c.public_bytes(x509.Encoding.DER) for c in chain]
+        return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def get_unverified_chain(self) -> list[bytes]:
         """Returns raw certificate chain provided by the other
         end of the SSL channel as a list of DER-encoded bytes.
         """
         chain = self._sslobj.get_unverified_chain()
-        return [c.public_bytes(x509.Encoding.DER) for c in chain]
+        return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:
         """

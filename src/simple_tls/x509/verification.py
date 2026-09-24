@@ -24,29 +24,19 @@ import typing
 from collections import deque
 from datetime import datetime, timedelta
 
+from cryptography import x509
 from cryptography.exceptions import InvalidSignature
+from cryptography.x509.oid import ExtensionOID
 
 from ..utils.misc import utcnow
-from ._base import Certificate
-from ._extensions import (
-    AuthorityKeyIdentifier,
-    BasicConstraints,
-    Extension,
-    ExtensionNotFound,
-    ExtensionType,
-    KeyUsage,
-    SubjectKeyIdentifier,
-)
-from ._name import Name
-from .oid import ExtensionOID, ObjectIdentifier
 
-_T = typing.TypeVar("_T", contravariant=True, bound="ExtensionType")
+_T = typing.TypeVar("_T", contravariant=True, bound="x509.ExtensionType")
 
-_MaybeExtCallback = typing.Callable[
-    ["Verifier", Certificate, Extension | None], None
+_MaybeExtensionCallback = typing.Callable[
+    ["Verifier", x509.Certificate, x509.Extension | None], None
 ]
-_PresentExtCallback = typing.Callable[
-    ["Verifier", Certificate, Extension], None
+_PresentExtensionCallback = typing.Callable[
+    ["Verifier", x509.Certificate, x509.Extension], None
 ]
 
 
@@ -69,46 +59,48 @@ class UntrustedRoot(VerificationError): ...
 
 
 class Store:
-    def __init__(self, certs: list[Certificate] | None = None):
+    def __init__(self, certs: list[x509.Certificate] | None = None):
         if certs is None:
             certs = []
 
         self._certs = certs
         # trust map: subject -> list of certs with that subject
-        self._trust_map: dict[Name, list[Certificate]] = {}
+        self._trust_map: dict[x509.Name, list[x509.Certificate]] = {}
 
         for c in self._certs:
             self._trust_map.setdefault(c.subject, []).append(c)
 
-    def __iter__(self) -> typing.Iterator[Certificate]:
+    def __iter__(self) -> typing.Iterator[x509.Certificate]:
         return iter(self._certs)
 
     def __len__(self) -> int:
         return len(self._certs)
 
     @typing.overload
-    def get(self, key: Name, default: _T = ...) -> list[Certificate] | _T: ...
+    def get(
+        self, key: x509.Name, default: _T = ...
+    ) -> list[x509.Certificate] | _T: ...
 
     @typing.overload
     def get(
-        self, key: Name, default: None = ...
-    ) -> list[Certificate] | None: ...
+        self, key: x509.Name, default: None = ...
+    ) -> list[x509.Certificate] | None: ...
 
     def get(
-        self, key: Name, default: _T | None = None
-    ) -> list[Certificate] | _T | None:
+        self, key: x509.Name, default: _T | None = None
+    ) -> list[x509.Certificate] | _T | None:
         return self._trust_map.get(key, default)
 
-    def append(self, certificate: Certificate) -> None:
+    def append(self, certificate: x509.Certificate) -> None:
         self._certs.append(certificate)
         self._trust_map.setdefault(certificate.subject, []).append(certificate)
 
-    def extend(self, certificates: list[Certificate]) -> None:
+    def extend(self, certificates: typing.Iterable[x509.Certificate]) -> None:
         self._certs.extend(certificates)
         for c in certificates:
             self._trust_map.setdefault(c.subject, []).append(c)
 
-    def get_trust_map(self) -> dict[Name, list[Certificate]]:
+    def get_trust_map(self) -> dict[x509.Name, list[x509.Certificate]]:
         return self._trust_map.copy()
 
 
@@ -116,10 +108,12 @@ class ExtensionPolicy:
     def __init__(
         self,
         *,
-        _may_be_present: dict[ObjectIdentifier, _MaybeExtCallback | None]
-        | None = None,
-        _require_present: dict[ObjectIdentifier, _PresentExtCallback | None]
-        | None = None,
+        _may_be_present: typing.Union[
+            dict[x509.ObjectIdentifier, _MaybeExtensionCallback | None], None
+        ] = None,
+        _require_present: typing.Union[
+            dict[x509.ObjectIdentifier, _PresentExtensionCallback | None], None
+        ] = None,
     ) -> None:
         self._may_be_present = (
             _may_be_present.copy() if _may_be_present else {}
@@ -142,10 +136,10 @@ class ExtensionPolicy:
 
     def may_be_present(
         self,
-        extension_oid: ObjectIdentifier,
-        validator: _MaybeExtCallback | None = None,
+        extension_oid: x509.ObjectIdentifier,
+        validator: _MaybeExtensionCallback | None = None,
     ) -> ExtensionPolicy:
-        if not isinstance(extension_oid, ObjectIdentifier):
+        if not isinstance(extension_oid, x509.ObjectIdentifier):
             raise TypeError("extension_oid must be ObjectIdentifier object")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable")
@@ -163,10 +157,10 @@ class ExtensionPolicy:
 
     def require_present(
         self,
-        extension_oid: ObjectIdentifier,
-        validator: _PresentExtCallback | None = None,
+        extension_oid: x509.ObjectIdentifier,
+        validator: _PresentExtensionCallback | None = None,
     ) -> ExtensionPolicy:
-        if not isinstance(extension_oid, ObjectIdentifier):
+        if not isinstance(extension_oid, x509.ObjectIdentifier):
             raise TypeError("extension_oid must be ObjectIdentifier object")
         if validator is not None and not callable(validator):
             raise TypeError("validator must be callable")
@@ -182,13 +176,15 @@ class ExtensionPolicy:
             _require_present=require_present,
         )
 
-    def verify(self, verifier: Verifier, certificate: Certificate) -> None:
+    def verify(
+        self, verifier: Verifier, certificate: x509.Certificate
+    ) -> None:
         exts = certificate.extensions
 
         for oid, valitator in self._require_present.items():
             try:
                 r_ext = exts.get_extension_for_oid(oid)
-            except ExtensionNotFound:
+            except x509.ExtensionNotFound:
                 raise PolicyViolationError(
                     f"Extension '{oid}' required not found in {certificate}"
                 ) from None
@@ -199,7 +195,7 @@ class ExtensionPolicy:
         for oid, valitator in self._may_be_present.items():
             try:
                 m_ext = exts.get_extension_for_oid(oid)
-            except ExtensionNotFound:
+            except x509.ExtensionNotFound:
                 m_ext = None
 
             if valitator is not None:
@@ -239,8 +235,10 @@ class Verifier:
         return self._allow_partial_chain
 
     def verify(
-        self, leaf: Certificate, intermediates: typing.Sequence[Certificate]
-    ) -> tuple[Certificate, ...]:
+        self,
+        leaf: x509.Certificate,
+        intermediates: typing.Sequence[x509.Certificate],
+    ) -> tuple[x509.Certificate, ...]:
         chains = self._build_candidate_chains(leaf, intermediates)
         if not chains:
             raise UntrustedRoot("No trusted root found")
@@ -253,9 +251,9 @@ class Verifier:
 
     def _build_candidate_chains(
         self,
-        leaf: Certificate,
-        intermediates: typing.Sequence[Certificate],
-    ) -> list[list[Certificate]]:
+        leaf: x509.Certificate,
+        intermediates: typing.Sequence[x509.Certificate],
+    ) -> list[list[x509.Certificate]]:
         """
         Build possible chains starting at leaf. Each chain is
         [leaf, iss1, iss2, ..., trust_anchor_candidate]
@@ -267,12 +265,12 @@ class Verifier:
         for c in intermediates:
             candidates_by_subject.setdefault(c.subject, []).append(c)
 
-        chains: list[list[Certificate]] = []
-        q: deque[list[Certificate]] = deque()
+        chains: list[list[x509.Certificate]] = []
+        q: deque[list[x509.Certificate]] = deque()
         q.append([leaf])
 
         # avoid repeating same (subject, issuer, serial) loops
-        seen_sigpairs: set[tuple[Name, Name, int]] = set()
+        seen_sigpairs: set[tuple[x509.Name, x509.Name, int]] = set()
 
         while q:
             chain = q.popleft()
@@ -321,7 +319,7 @@ class Verifier:
         # (if store contains that intermediate by subject)
         return chains
 
-    def _verify_chain(self, chain: typing.Sequence[Certificate]) -> None:
+    def _verify_chain(self, chain: typing.Sequence[x509.Certificate]) -> None:
         """
         Verify chain top-down: for i in range(len(chain)-1):
             verify chain[i] signed by chain[i+1] (parent)
@@ -359,9 +357,9 @@ class Verifier:
             # Basic constraint
             try:
                 bc = issuer.extensions.get_extension_for_class(
-                    BasicConstraints
+                    x509.BasicConstraints
                 ).value
-            except ExtensionNotFound:
+            except x509.ExtensionNotFound:
                 raise PolicyViolationError(
                     f"{child} at index '{i}' has no basic constraint extension"
                     f" which is required for CA certificate"
@@ -372,7 +370,6 @@ class Verifier:
                     f"{child} at index '{i}' violated path len constraint "
                     f"[{ca_count_below} > {bc.path_length}]"
                 )
-
             if not bc.ca:
                 raise PolicyViolationError(
                     f"{child} at index '{i}' is not a CA certificate"
@@ -381,9 +378,9 @@ class Verifier:
             if i == 0:
                 try:
                     child_bc = child.extensions.get_extension_for_class(
-                        BasicConstraints
+                        x509.BasicConstraints
                     ).value
-                except ExtensionNotFound:
+                except x509.ExtensionNotFound:
                     pass
 
             # increment ca_count_below if child is CA and not self-issued
@@ -401,9 +398,7 @@ class Verifier:
 
     @staticmethod
     def _verify_signature(
-        index: int,
-        child: Certificate,
-        issuer: Certificate,
+        index: int, child: x509.Certificate, issuer: x509.Certificate
     ) -> None:
         try:
             child.verify_directly_issued_by(issuer)
@@ -418,7 +413,7 @@ class Verifier:
 
     @staticmethod
     def _verify_validity_now(
-        index: int, child: Certificate, now: datetime, skew: int = 300
+        index: int, child: x509.Certificate, now: datetime, skew: int = 300
     ) -> None:
         """
         Return VerificationError if cert not valid wrt now +/- skew seconds.
@@ -439,28 +434,22 @@ class Verifier:
             )
 
     @staticmethod
-    def _is_self_issued(cert: Certificate) -> bool:
-        """
-        Check if the certificate is self-issued (subject == issuer).
-        RFC 5280 section 4.2.1.9
-        """
-        return cert.subject == cert.issuer
-
-    @staticmethod
-    def _aki_ski_compatible(issuer: Certificate, cert: Certificate) -> bool:
+    def _aki_ski_compatible(
+        issuer: x509.Certificate, cert: x509.Certificate
+    ) -> bool:
         # If AKI present in cert and SKI present in issuer, match them.
         try:
             aki = cert.extensions.get_extension_for_class(
-                AuthorityKeyIdentifier
+                x509.AuthorityKeyIdentifier
             ).value
-        except ExtensionNotFound:
+        except x509.ExtensionNotFound:
             aki = None
 
         try:
             ski = issuer.extensions.get_extension_for_class(
-                SubjectKeyIdentifier
+                x509.SubjectKeyIdentifier
             ).value
-        except ExtensionNotFound:
+        except x509.ExtensionNotFound:
             ski = None
 
         if aki is not None and ski is not None:
@@ -468,14 +457,22 @@ class Verifier:
         else:
             return True  # if either missing, don't exclude
 
+    @staticmethod
+    def _is_self_issued(certificate: x509.Certificate) -> bool:
+        """
+        Check if the certificate is self-issued (subject == issuer).
+        RFC 5280 section 4.2.1.9
+        """
+        return certificate.subject == certificate.issuer
+
 
 # Default extension policy implementations
 
 
 def verify_ca_key_usage(
     verifier: Verifier,
-    ca: Certificate,
-    extension: Extension[KeyUsage] | None,
+    ca: x509.Certificate,
+    extension: x509.Extension[x509.KeyUsage] | None,
 ) -> None:
     if extension is None:
         return

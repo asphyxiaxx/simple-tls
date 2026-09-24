@@ -6,7 +6,10 @@ import typing
 import warnings
 from socket import socket
 
-from simple_tls import tls, x509
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+
+from simple_tls import tls
 from simple_tls.utils.math import str_to_bytes
 from simple_tls.x509 import verification
 
@@ -24,15 +27,15 @@ from ._constant import (
 from ._object import SSLObject
 from ._session import SSLSession, TicketAEAD
 from ._socket import SSLSocket
-from ._types import (
+from ._util import (
     PeerCertRetDictType,
     PSKClientCbType,
     PSKServerCbType,
     ReadableBuffer,
     SrvnmeCbType,
     StrOrBytesPath,
+    parse_certificate,
 )
-from ._util import parse_certificate
 
 
 class SSLContext:
@@ -211,8 +214,6 @@ class SSLContext:
             return
 
         enum_certificates = _ssl.enum_certificates
-        certs = bytearray()
-
         try:
             for cert, encoding, trust in enum_certificates(storename):
                 # CA certs are never PKCS#7 encoded
@@ -220,16 +221,12 @@ class SSLContext:
                     if trust is False:
                         continue
                     if trust is True or purpose.oid in trust:
-                        certs.extend(cert)
-
+                        self.load_verify_locations(cadata=cert)
         except PermissionError:
             warnings.warn(
                 "unable to enumerate Windows certificate store",
                 stacklevel=2,
             )
-
-        if certs:
-            self.load_verify_locations(cadata=bytes(certs))
 
     def cert_store_stats(self) -> dict[str, int]:
         data = {"x509": 0, "crl": 0, "x509_ca": 0}
@@ -268,7 +265,7 @@ class SSLContext:
         castore = self._castore
         if not binary_form:
             return [parse_certificate(c) for c in castore]
-        return [c.public_bytes(x509.Encoding.DER) for c in castore]
+        return [c.public_bytes(serialization.Encoding.DER) for c in castore]
 
     def load_cert_chain(
         self,
@@ -289,23 +286,12 @@ class SSLContext:
         capath: StrOrBytesPath | None = None,
         cadata: ReadableBuffer | None = None,
     ) -> None:
-        if cafile:
-            with open(cafile, "rb") as fp:
-                pem_data = fp.read()
-            certificates = x509.load_pem_x509_certificates(pem_data)
-            self._castore.extend(certificates)
-
-        if capath:
-            with open(capath, "rb") as fp:
-                pem_data = fp.read()
-            certificates = x509.load_pem_x509_certificates(pem_data)
-            self._castore.extend(certificates)
-
-        if cadata:
-            if not isinstance(cadata, bytes):
-                cadata = bytes(cadata)
-            certificates = x509.load_pem_x509_certificates(cadata)
-            self._castore.extend(certificates)
+        castore = tls.load_castore(
+            cafile=cafile,
+            capath=capath,
+            cadata=cadata,  # type: ignore
+        )
+        self._castore.extend(castore)
 
     def load_default_certs(
         self, purpose: Purpose = Purpose.SERVER_AUTH

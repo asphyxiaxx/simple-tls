@@ -25,7 +25,8 @@ import typing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from simple_tls import x509
+from cryptography import x509
+
 from simple_tls.utils.codec import Parser, Writer
 from simple_tls.utils.misc import utcnow
 

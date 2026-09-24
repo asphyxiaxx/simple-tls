@@ -24,9 +24,10 @@ import ipaddress
 import re
 import typing
 
-from simple_tls import x509
+from cryptography import x509
+from cryptography.x509.oid import ExtensionOID
+
 from simple_tls.utils.math import bytes_to_str
-from simple_tls.x509.oid import ExtensionOID
 from simple_tls.x509.verification import Verifier
 
 from ._alert import AlertBadCertificate
