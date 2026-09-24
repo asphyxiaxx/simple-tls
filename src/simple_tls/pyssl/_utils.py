@@ -249,3 +249,11 @@ _SECRET_BIT_MAP: dict[tls.Symmetric, int] = {
     tls.Symmetric.RC4_128: 128,
     tls.Symmetric.NULL: 0,
 }
+
+
+class SSLConnection(tls.TLSConnection):
+    def selected_alpn_protocol(self) -> str | None:  # type: ignore
+        protocol = super().selected_alpn_protocol()
+        if protocol is not None:
+            return protocol.decode()
+        return None

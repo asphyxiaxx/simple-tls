@@ -22,6 +22,7 @@ from ._utils import (
     PeerCertRetDictType,
     ReadableBuffer,
     SrvnmeCbType,
+    SSLConnection,
     WritableBuffer,
     parse_certificate,
     parse_cipher,
@@ -35,7 +36,7 @@ if typing.TYPE_CHECKING:
 
 class SSLSocket(_ssl.SSLSocket):
     _context: SSLContext
-    _sslobj: tls.TLSConnection | None
+    _sslobj: SSLConnection | None
     _session: SSLSession | None
     _connected: bool
     _closed: bool
@@ -169,7 +170,7 @@ class SSLSocket(_ssl.SSLSocket):
             self._connected = connected
 
             if connected:
-                self._sslobj = tls.TLSConnection(
+                self._sslobj = SSLConnection(
                     configuration=config,
                     new_session_handler=new_session_handler,
                     sni_callback=sni_callback,
@@ -506,7 +507,7 @@ class SSLSocket(_ssl.SSLSocket):
             session=tls_session,
             **self.context._config_data(),
         )
-        self._sslobj = tls.TLSConnection(
+        self._sslobj = SSLConnection(
             configuration=config,
             new_session_handler=new_session_handler,
         )
@@ -615,7 +616,7 @@ class SSLSocket(_ssl.SSLSocket):
         Flush pending TLS ciphertext to the underlying socket.
         Correctly handles partial writes.
         """
-        sslobj = typing.cast(tls.TLSConnection, self._sslobj)
+        sslobj = typing.cast(SSLConnection, self._sslobj)
 
         # Flush previously unsent ciphertext
         while self._pending_write:
@@ -654,7 +655,7 @@ class SSLSocket(_ssl.SSLSocket):
         """
         Read raw TLS ciphertext from socket and feed it into SSL BIO.
         """
-        sslobj = typing.cast(tls.TLSConnection, self._sslobj)
+        sslobj = typing.cast(SSLConnection, self._sslobj)
         try:
             data = socket.recv(self, 65535)
         except BlockingIOError:

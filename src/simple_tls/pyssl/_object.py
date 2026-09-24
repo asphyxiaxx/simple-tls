@@ -15,6 +15,7 @@ from ._utils import (
     PeerCertRetDictType,
     ReadableBuffer,
     SrvnmeCbType,
+    SSLConnection,
     parse_certificate,
     parse_cipher,
 )
@@ -25,7 +26,7 @@ if typing.TYPE_CHECKING:
 
 class SSLObject(_ssl.SSLObject):
     _context: SSLContext
-    _sslobj: tls.TLSConnection
+    _sslobj: SSLConnection
     _session: SSLSession | None
     _sni_callback: SrvnmeCbType | None
     _server_hostname: str | None
@@ -79,7 +80,7 @@ class SSLObject(_ssl.SSLObject):
             session=tls_session,
             **context._config_data(),
         )
-        sslobj = tls.TLSConnection(
+        sslobj = SSLConnection(
             configuration=config,
             inbio=incoming,
             outbio=outgoing,
