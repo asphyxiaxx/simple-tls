@@ -102,9 +102,9 @@ from ._utils import Buffer, get_algorithm, version_from_wire
 from ._x509_validator import EKUValidator, SANValidator
 
 MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
-SetupTrafficCallback = typing.Callable[[Direction, Epoch, KeyMaterial], None]
-UpdateTrafficCallback = typing.Callable[[Direction, Epoch], None]
-AddCSSCallback = typing.Callable[[], None]
+SetupTrafficCallback = typing.Callable[
+    [Direction, Epoch, KeyMaterial | None], None
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,8 +127,6 @@ class TLSHandshake:
         # Callbacks
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
-        self.update_traffic_cb: UpdateTrafficCallback = lambda d, e: None
-        self.add_ccs_cb: AddCSSCallback = lambda: None
 
         self._configuration: TLSConfiguration = configuration
         """asociated TLS context containing configuration"""
@@ -184,6 +182,8 @@ class TLSHandshake:
         # Transcript and secrets
         self._client_random: bytes = b""
         self._server_random: bytes = b""
+        self._write_keys: dict[Epoch, KeyMaterial] = {}
+        self._read_keys: dict[Epoch, KeyMaterial] = {}
         self._enc_secret: dict[Epoch, bytes] = {}
         self._dec_secret: dict[Epoch, bytes] = {}
         self._transcript: Transcript = Transcript()
@@ -351,6 +351,17 @@ class TLSHandshake:
         # print("TLS {} -> {}".format(self.hs_state, state))
         self._hs_state = state
 
+    def _setup_traffic(self, direction: Direction, epoch: Epoch) -> None:
+        if epoch != Epoch.INITIAL:
+            if direction == Direction.READ:
+                key_material = self._read_keys[epoch]
+            else:
+                key_material = self._write_keys[epoch]
+        else:
+            key_material = None
+
+        self.setup_traffic_cb(direction, epoch, key_material)
+
     def _setup_traffic_key(self, session: TLSSession) -> None:
         if self._key_deriver is None:
             raise AlertInternalError("key_deriver not set")
@@ -404,9 +415,7 @@ class TLSHandshake:
             fixed_iv=read_iv,
             encrypt_then_mac=encrypt_then_mac,
         )
-        self.setup_traffic_cb(
-            Direction.READ, Epoch.APPLICATION_DATA, read_material
-        )
+        self._read_keys[Epoch.APPLICATION_DATA] = read_material
 
         write_material = KeyMaterial(
             direction=Direction.WRITE,
@@ -417,9 +426,7 @@ class TLSHandshake:
             fixed_iv=write_iv,
             encrypt_then_mac=encrypt_then_mac,
         )
-        self.setup_traffic_cb(
-            Direction.WRITE, Epoch.APPLICATION_DATA, write_material
-        )
+        self._write_keys[Epoch.APPLICATION_DATA] = write_material
 
     def _setup_traffic_key_tls13(
         self,
@@ -461,7 +468,7 @@ class TLSHandshake:
             self._dec_secret[epoch] = new_secret
 
         self._set_traffic_key_tls13(session, direction, epoch, new_secret)
-        self.update_traffic_cb(direction, epoch)
+        self._setup_traffic(direction, epoch)
 
     def _set_traffic_key_tls13(
         self,
@@ -484,7 +491,7 @@ class TLSHandshake:
         fixed_nonce = self._key_schedule.hkdf_expand_label(
             secret, b"iv", b"", iv_len
         )
-        cipher = KeyMaterial(
+        key_material = KeyMaterial(
             direction=direction,
             version=version,
             cipher_suite=cipher_suite,
@@ -492,7 +499,11 @@ class TLSHandshake:
             mac_key=b"",
             fixed_iv=fixed_nonce,
         )
-        self.setup_traffic_cb(direction, epoch, cipher)
+
+        if direction == Direction.READ:
+            self._read_keys[epoch] = key_material
+        else:
+            self._write_keys[epoch] = key_material
 
     def _write_key_update(self, message_type: KeyUpdateMessageType) -> None:
         if message_type not in (

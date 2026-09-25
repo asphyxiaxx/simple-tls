@@ -83,6 +83,10 @@ class ConnectionState:
         return ConnectionState(Epoch.INITIAL, cipher)
 
 
+_NULL_WRITE_STATE = ConnectionState.create_initial(Direction.WRITE)
+_NULL_READ_STATE = ConnectionState.create_initial(Direction.READ)
+
+
 class TLSConnection:
     def __init__(
         self,
@@ -105,8 +109,6 @@ class TLSConnection:
 
         handshake.message_cb = self._do_hs_callback
         handshake.setup_traffic_cb = self._setup_traffic
-        handshake.update_traffic_cb = self._update_traffic
-        handshake.add_ccs_cb = self._add_ccs
 
         self._handshake = typing.cast(TLSHandshake, handshake)
         """handshake object"""
@@ -140,19 +142,13 @@ class TLSConnection:
         self._pending_app_data = bytearray()
         """unconsumed decrypted application data"""
 
-        self._early_data_ignored = 0
-        self._early_data_processed = 0
-
         self._write_shutdown = Shutdown.NONE
         self._read_shutdown = Shutdown.NONE
-        self._current_write_epoch = Epoch.INITIAL
-        self._current_read_epoch = Epoch.INITIAL
-        self._write_states = {
-            Epoch.INITIAL: ConnectionState.create_initial(Direction.WRITE)
-        }
-        self._read_states = {
-            Epoch.INITIAL: ConnectionState.create_initial(Direction.READ)
-        }
+        self._write_state = _NULL_WRITE_STATE
+        self._read_state = _NULL_READ_STATE
+        self._early_data_ignored = 0
+        self._early_data_processed = 0
+        self._ccs_sent = False
 
     @property
     def configuration(self) -> TLSConfiguration:
@@ -460,35 +456,48 @@ class TLSConnection:
         self,
         direction: Direction,
         epoch: Epoch,
-        key_material: KeyMaterial,
+        key_material: KeyMaterial | None,
     ) -> None:
-        cipher = TLSCipher(key_material)
-        state = ConnectionState(epoch, cipher)
-        version = self._handshake.protocol_version()
-        max_seal_overhead = _HEADER_LENGTH
-        max_seal_overhead += cipher.max_overhead()
+        state = None
 
-        if version < TLSVersion.TLSv1_1 and cipher.is_block_cipher():
-            state.record_splitting = True
-            max_seal_overhead *= 2
+        if key_material is not None:
+            cipher = TLSCipher(key_material)
+            state = ConnectionState(epoch, cipher)
+            version = self._handshake.protocol_version()
+            max_seal_overhead = _HEADER_LENGTH
+            max_seal_overhead += cipher.max_overhead()
 
-        if version >= TLSVersion.TLSv1_3:
-            state.hide_content_type = True
-            max_seal_overhead += 1
+            if version < TLSVersion.TLSv1_1 and cipher.is_block_cipher():
+                state.record_splitting = True
+                max_seal_overhead *= 2
 
-        state.max_seal_overhead = max_seal_overhead
+            if version >= TLSVersion.TLSv1_3:
+                state.hide_content_type = True
+                max_seal_overhead += 1
 
-        if direction == Direction.WRITE:
-            self._write_states[epoch] = state
-        else:
-            self._read_states[epoch] = state
+            state.max_seal_overhead = max_seal_overhead
 
-    def _update_traffic(self, direction: Direction, epoch: Epoch) -> None:
         if direction == Direction.WRITE:
             assert len(self._handshake.pending_flight()) == 0
-            self._current_write_epoch = epoch
+
+            if self._handshake.version <= TLSVersion.TLSv1_2:
+                assert epoch == Epoch.APPLICATION_DATA
+                self._add_ccs()
+            elif (
+                self._handshake.configuration.middlebox_compat
+                and not self._ccs_sent
+            ):
+                self._add_ccs()
+
+            self._ccs_sent = True
+
+            if state is None:
+                state = _NULL_WRITE_STATE
+            self._write_state = state
         else:
-            self._current_read_epoch = epoch
+            if state is None:
+                state = _NULL_READ_STATE
+            self._read_state = state
 
     def _add_ccs(self) -> None:
         header = self._get_header(
@@ -553,8 +562,7 @@ class TLSConnection:
         self._outbio.write(record_data)
 
     def _seal_record(self, content_type: int, plaintext: Buffer) -> memoryview:
-        epoch = self._current_write_epoch
-        state = self._write_states[epoch]
+        state = self._write_state
         original_buf = self._write_buf
         buf = original_buf
         written = 0
@@ -578,9 +586,7 @@ class TLSConnection:
     ) -> int:
         assert len(plaintext) <= self._send_record_limit
 
-        epoch = self._current_write_epoch
-        state = self._write_states[epoch]
-
+        state = self._write_state
         data_buf = buf[_HEADER_LENGTH:]
 
         if state.hide_content_type:
@@ -625,8 +631,7 @@ class TLSConnection:
         if self._read_shutdown != Shutdown.NONE:
             raise TLSEOFError()
 
-        epoch = self._current_read_epoch
-        state = self._read_states[epoch]
+        state = self._read_state
         out = self._read_buf
         inbio = self._inbio
 
@@ -723,7 +728,7 @@ class TLSConnection:
 
             self._send_alert(
                 AlertDescription.BAD_RECORD_MAC,
-                f"Invalid tag ({epoch}): {exc}",
+                f"Payload decryption failed: {exc}",
             )
         else:
             state.sequence_number += 1

@@ -539,12 +539,9 @@ class TLSHandshakeClient(TLSHandshake):
             label=b"c e traffic",
             transcript=transcript,
         )
-        self.update_traffic_cb(Direction.WRITE, Epoch.ZERO_RTT)
+        self._setup_traffic(Direction.WRITE, Epoch.ZERO_RTT)
         self._in_early_data = True
         self.can_early_write = True
-
-        if self.configuration.middlebox_compat:
-            self.add_ccs_cb()
 
         self._set_state(ClientState.READ_SERVER_HELLO)
         return Status.EARLY_RETURN
@@ -1099,8 +1096,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_client_finished(self) -> Status:
-        self.update_traffic_cb(Direction.WRITE, Epoch.APPLICATION_DATA)
-        self.add_ccs_cb()
+        self._setup_traffic(Direction.WRITE, Epoch.APPLICATION_DATA)
 
         if self._npn_selected is not None:
             npn = NextProtocol(self._npn_selected)
@@ -1160,7 +1156,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.READ_CHANGE_CIPHER_SPEC
 
     def _do_process_change_cipher_spec(self) -> Status:
-        self.update_traffic_cb(Direction.READ, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.READ, Epoch.APPLICATION_DATA)
         self._set_state(ClientState.READ_SERVER_FINISHED)
         return Status.OK
 
@@ -1305,7 +1301,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         if self._in_early_data:
             self._close_early_data()
-            self.update_traffic_cb(Direction.WRITE, Epoch.INITIAL)
+            self._setup_traffic(Direction.WRITE, Epoch.INITIAL)
 
         self._set_state(ClientState.SEND_SECOND_CLIENT_HELLO_TLS13)
         return Status.OK
@@ -1499,12 +1495,10 @@ class TLSHandshakeClient(TLSHandshake):
             epoch=Epoch.HANDSHAKE,
             label=b"c hs traffic",
         )
-        self.update_traffic_cb(Direction.READ, Epoch.HANDSHAKE)
+        self._setup_traffic(Direction.READ, Epoch.HANDSHAKE)
 
         if not self._early_data_offered:
-            self.update_traffic_cb(Direction.WRITE, Epoch.HANDSHAKE)
-            if self.configuration.middlebox_compat:
-                self.add_ccs_cb()
+            self._setup_traffic(Direction.WRITE, Epoch.HANDSHAKE)
 
         self._set_state(ClientState.READ_ENCRYPTED_EXTENSIONS_TLS13)
         return Status.OK
@@ -1548,7 +1542,7 @@ class TLSHandshakeClient(TLSHandshake):
             session.peer_alps = offered_session.peer_alps
 
         elif self._early_data_offered:
-            self.update_traffic_cb(Direction.WRITE, Epoch.HANDSHAKE)
+            self._setup_traffic(Direction.WRITE, Epoch.HANDSHAKE)
 
         alps_ext = typing.cast(
             ServerALPSExtension | None,
@@ -1722,7 +1716,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _do_send_client_encrypted_extensions_tls13(self) -> Status:
         if self._early_data_accepted:
-            self.update_traffic_cb(Direction.WRITE, Epoch.HANDSHAKE)
+            self._setup_traffic(Direction.WRITE, Epoch.HANDSHAKE)
 
         if self._session is None:
             raise AlertInternalError("session not set")
@@ -1768,8 +1762,8 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.FLUSH_MESSAGE
 
     def _do_complete_second_flight_tls13(self) -> Status:
-        self.update_traffic_cb(Direction.READ, Epoch.APPLICATION_DATA)
-        self.update_traffic_cb(Direction.WRITE, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.READ, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.WRITE, Epoch.APPLICATION_DATA)
 
         self._set_state(ClientState.FINISH_CLIENT_HANDSHAKE)
         return Status.OK

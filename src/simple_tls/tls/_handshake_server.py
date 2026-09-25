@@ -865,7 +865,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.READ_CHANGE_CIPHER_SPEC
 
     def _do_process_change_cipher_spec(self) -> Status:
-        self.update_traffic_cb(Direction.READ, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.READ, Epoch.APPLICATION_DATA)
         self._set_state(ServerState.READ_NEXT_PROTO)
         return Status.OK
 
@@ -939,8 +939,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_server_finished(self) -> Status:
-        self.update_traffic_cb(Direction.WRITE, Epoch.APPLICATION_DATA)
-        self.add_ccs_cb()
+        self._setup_traffic(Direction.WRITE, Epoch.APPLICATION_DATA)
 
         if self._session is None:
             raise AlertInternalError("session not set")
@@ -1368,7 +1367,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_encrypted_extensions_tls13(self) -> Status:
-        self.update_traffic_cb(Direction.WRITE, Epoch.HANDSHAKE)
+        self._setup_traffic(Direction.WRITE, Epoch.HANDSHAKE)
 
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
@@ -1481,10 +1480,10 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.FLUSH_MESSAGE
 
     def _do_read_second_client_flight_tls13(self) -> Status:
-        self.update_traffic_cb(Direction.WRITE, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.WRITE, Epoch.APPLICATION_DATA)
 
         if self._early_data_accepted:
-            self.update_traffic_cb(Direction.READ, Epoch.ZERO_RTT)
+            self._setup_traffic(Direction.READ, Epoch.ZERO_RTT)
             self.can_early_write = True
             self.can_early_read = True
             self._in_early_data = True
@@ -1511,7 +1510,7 @@ class TLSHandshakeServer(TLSHandshake):
             self.message_cb(Direction.READ, end_of_early_data)
             self._next_message()
 
-        self.update_traffic_cb(Direction.READ, Epoch.HANDSHAKE)
+        self._setup_traffic(Direction.READ, Epoch.HANDSHAKE)
 
         self._set_state(ServerState.READ_CLIENT_ENCRYPTED_EXTENSIONS_TLS13)
         return Status.OK
@@ -1633,7 +1632,7 @@ class TLSHandshakeServer(TLSHandshake):
         self.message_cb(Direction.READ, finished)
         self._next_message()
 
-        self.update_traffic_cb(Direction.READ, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.READ, Epoch.APPLICATION_DATA)
 
         self._set_state(ServerState.SEND_NEWSESSION_TICKET_TLS13)
         return Status.OK
