@@ -377,9 +377,6 @@ class _Cipher:
         prf_hash: HashAlgorithm,
         kea: KeyExchange,
         auth: Authentication,
-        handshake_sigs: tuple[
-            HashAlgorithm, ...
-        ],  # TLS 1.2: list; TLS 1.3: negotiated separately
     ):
         self.id = id
         self.name = name
@@ -393,7 +390,6 @@ class _Cipher:
         self.prf_hash = prf_hash
         self.kea = kea
         self.auth = auth
-        self.handshake_sigs = handshake_sigs
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -503,7 +499,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_NULL_SHA = _Cipher(
@@ -519,7 +514,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_NULL_SHA256 = _Cipher(
@@ -535,7 +529,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_RC4_128_MD5 = _Cipher(
@@ -551,7 +544,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_RC4_128_SHA = _Cipher(
@@ -567,7 +559,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_3DES_EDE_CBC_SHA = _Cipher(
@@ -583,7 +574,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_128_CBC_SHA = _Cipher(
@@ -599,7 +589,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_256_CBC_SHA = _Cipher(
@@ -615,7 +604,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_128_CBC_SHA256 = _Cipher(
@@ -631,7 +619,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_256_CBC_SHA256 = _Cipher(
@@ -647,7 +634,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_128_CCM = _Cipher(
@@ -663,7 +649,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_256_CCM = _Cipher(
@@ -679,7 +664,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_128_CCM_8 = _Cipher(
@@ -695,7 +679,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_256_CCM_8 = _Cipher(
@@ -711,7 +694,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_128_GCM_SHA256 = _Cipher(
@@ -727,7 +709,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_RSA_WITH_AES_256_GCM_SHA384 = _Cipher(
@@ -743,7 +724,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.RSA,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA = _Cipher(
@@ -759,7 +739,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_AES_128_CBC_SHA = _Cipher(
@@ -775,7 +754,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_AES_256_CBC_SHA = _Cipher(
@@ -791,7 +769,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_AES_128_CBC_SHA256 = _Cipher(
@@ -807,7 +784,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_AES_256_CBC_SHA256 = _Cipher(
@@ -823,7 +799,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_AES_128_GCM_SHA256 = _Cipher(
@@ -839,7 +814,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_DSS_WITH_AES_256_GCM_SHA384 = _Cipher(
@@ -855,7 +829,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA = _Cipher(
@@ -871,7 +844,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_128_CBC_SHA = _Cipher(
@@ -887,7 +859,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_256_CBC_SHA = _Cipher(
@@ -903,7 +874,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_128_CBC_SHA256 = _Cipher(
@@ -919,7 +889,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 = _Cipher(
@@ -935,7 +904,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_128_CCM = _Cipher(
@@ -951,7 +919,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_256_CCM = _Cipher(
@@ -967,7 +934,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_128_CCM_8 = _Cipher(
@@ -983,7 +949,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_256_CCM_8 = _Cipher(
@@ -999,7 +964,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_128_GCM_SHA256 = _Cipher(
@@ -1015,7 +979,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_AES_256_GCM_SHA384 = _Cipher(
@@ -1031,7 +994,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = _Cipher(
@@ -1047,7 +1009,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_DHE_RSA_WITH_CHACHA20_POLY1305_draft_00 = _Cipher(
@@ -1063,7 +1024,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_NULL_SHA = _Cipher(
@@ -1079,7 +1039,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_RC4_128_SHA = _Cipher(
@@ -1095,7 +1054,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA = _Cipher(
@@ -1111,7 +1069,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA = _Cipher(
@@ -1127,7 +1084,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA = _Cipher(
@@ -1143,7 +1099,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 = _Cipher(
@@ -1159,7 +1114,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 = _Cipher(
@@ -1175,7 +1129,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 = _Cipher(
@@ -1191,7 +1144,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 = _Cipher(
@@ -1207,7 +1159,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_draft_00 = _Cipher(
@@ -1223,7 +1174,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = _Cipher(
@@ -1239,7 +1189,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_NULL_SHA = _Cipher(
@@ -1255,7 +1204,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_RC4_128_SHA = _Cipher(
@@ -1271,7 +1219,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA = _Cipher(
@@ -1287,7 +1234,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA = _Cipher(
@@ -1303,7 +1249,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA = _Cipher(
@@ -1319,7 +1264,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 = _Cipher(
@@ -1335,7 +1279,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 = _Cipher(
@@ -1351,7 +1294,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_128_CCM = _Cipher(
@@ -1367,7 +1309,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_256_CCM = _Cipher(
@@ -1383,7 +1324,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8 = _Cipher(
@@ -1399,7 +1339,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8 = _Cipher(
@@ -1415,7 +1354,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = _Cipher(
@@ -1431,7 +1369,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = _Cipher(
@@ -1447,7 +1384,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_draft_00 = _Cipher(
@@ -1463,7 +1399,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 = _Cipher(
@@ -1479,7 +1414,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
-        handshake_sigs=(),
     )
 
     TLS_FALLBACK_SCSV = _Cipher(
@@ -1495,7 +1429,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
     TLS_EMPTY_RENEGOTIATION_INFO_SCSV = _Cipher(
@@ -1511,7 +1444,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
     TLS_AES_128_GCM_SHA256 = _Cipher(
@@ -1527,7 +1459,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
     TLS_AES_256_GCM_SHA384 = _Cipher(
@@ -1543,7 +1474,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
     TLS_CHACHA20_POLY1305_SHA256 = _Cipher(
@@ -1559,7 +1489,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
     TLS_AES_128_CCM_SHA256 = _Cipher(
@@ -1575,7 +1504,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
     TLS_AES_128_CCM_8_SHA256 = _Cipher(
@@ -1591,7 +1519,6 @@ class CipherSuite(TLSEnum):
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.NONE,
         auth=Authentication.NONE,
-        handshake_sigs=(),
     )
 
 
