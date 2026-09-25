@@ -832,9 +832,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         if cipher_suite.auth != Authentication.ANON:
             if session.x509_peer is None:
-                raise AlertInternalError(
-                    "Missing x509_peer in current_session"
-                )
+                raise AlertInternalError("Missing x509_peer in session")
 
             x509_peer = session.x509_peer
             try:
@@ -1009,7 +1007,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             x509_peer = session.x509_peer
             if x509_peer is None:
-                raise AlertInternalError("Missing x509_peer in new_session")
+                raise AlertInternalError("Missing x509_peer in session")
 
             try:
                 peer_public_key = load_certificate_public_key(x509_peer)
