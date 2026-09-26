@@ -374,8 +374,6 @@ class TLSHandshakeClient(TLSHandshake):
         self._peer_ech_retry_configs: list[ECHConfig] | None = None
 
         ## Negotiated variable
-        self._ech_status: ECHStatus = ECHStatus.NONE
-        """encrypted Client Hello status"""
         self._signature_algorithm: int | None = None
         """signature algorithm to be used with signing"""
 
@@ -386,10 +384,6 @@ class TLSHandshakeClient(TLSHandshake):
     @property
     def peer_ech_retry_configs(self) -> list[ECHConfig] | None:
         return self._peer_ech_retry_configs
-
-    @property
-    def ech_status(self) -> ECHStatus:
-        return self._ech_status
 
     def trigger_post_handshake(self) -> None:
         if not self.done:

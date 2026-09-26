@@ -188,6 +188,7 @@ class TLSHandshake:
         self._secure_renegotiation: bool = False
         self._npn_selected: bytes | None = None
         self._alpn_selected: bytes | None = None
+        self._ech_status: ECHStatus = ECHStatus.NONE
 
         # Buffer
         self._hs_buf = bytearray()
@@ -282,7 +283,7 @@ class TLSHandshake:
 
     @property
     def ech_status(self) -> ECHStatus:
-        return ECHStatus.NONE
+        return self._ech_status
 
     def do_handshake(self) -> Status:
         ret = Status.OK
