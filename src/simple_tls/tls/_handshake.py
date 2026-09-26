@@ -363,7 +363,7 @@ class TLSHandshake:
         self._cache = None
 
     def _set_state(self, state: int) -> None:
-        # print("TLS {} -> {}".format(self.hs_state, state))
+        # print("TLS {} -> {}".format(self.state, state))
         self._state = state
 
     def _setup_traffic(self, direction: Direction) -> None:

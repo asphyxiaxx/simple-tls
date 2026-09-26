@@ -714,10 +714,10 @@ def test_tls13_server_send_key_update(subtests):
 
 def server_fail_hello(client, server):
     def stop_after_client_send_hello(c, s):
-        return c.hs_state == ClientState.ENTER_EARLY_DATA
+        return c.state == ClientState.ENTER_EARLY_DATA
 
     run_handshake(client, server, stop_after_client_send_hello)
-    assert server.hs_state == ServerState.READ_CLIENT_HELLO
+    assert server.state == ServerState.READ_CLIENT_HELLO
 
     flight = client.pending_flight()
     server.add_hs_data(flight)
