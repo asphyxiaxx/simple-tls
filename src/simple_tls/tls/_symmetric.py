@@ -62,16 +62,16 @@ _AEADCipherType: typing.TypeAlias = typing.Union[
 ]
 
 
-def get_key_iv_len(version: int, cipher_suite: CipherSuite) -> tuple[int, int]:
+def get_key_iv_lens(cipher_suite: CipherSuite) -> tuple[int, int]:
     spec: _Cipher | _AEADCipher
     if cipher_suite.aead:
         spec = _AEAD_CIPHERS[cipher_suite.symmetric]
-        if version >= TLSVersion.TLSv1_3:
+        if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
             iv_len = 12
         else:
             iv_len = spec.iv_length
     else:
-        if version >= TLSVersion.TLSv1_3:
+        if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
             raise ValueError("cipher suite is not supported for TLSv1.3")
         spec = _CIPHERS[cipher_suite.symmetric]
         iv_len = spec.iv_length
@@ -79,19 +79,17 @@ def get_key_iv_len(version: int, cipher_suite: CipherSuite) -> tuple[int, int]:
     return (spec.key_length, iv_len)
 
 
-@dataclass
-class KeyMaterial:
-    direction: Direction
-    version: int
-    cipher_suite: CipherSuite
-    enc_key: bytes
-    mac_key: bytes
-    fixed_iv: bytes
-    encrypt_then_mac: bool = False
-
-
 class TLSCipher:
-    def __init__(self, key_material: KeyMaterial) -> None:
+    def __init__(
+        self,
+        direction: Direction,
+        version: int,
+        cipher_suite: CipherSuite,
+        enc_key: bytes,
+        fixed_iv: bytes,
+        mac_key: bytes,
+        encrypt_then_mac: bool = False,
+    ) -> None:
         self.open: typing.Callable[
             [int, int, Buffer, int, bytes, WritableBuffer], int
         ]
@@ -108,21 +106,14 @@ class TLSCipher:
         self._variable_nonce_included_in_record: bool = False
         self._xor_fixed_nonce: bool = False
         self._aad_is_header: bool = False
-        self._is_etm: bool = key_material.encrypt_then_mac
-
-        direction = key_material.direction
-        cipher_suite = key_material.cipher_suite
-        version = key_material.version
-        enc_key = key_material.enc_key
-        mac_key = key_material.mac_key
-        fixed_iv = key_material.fixed_iv
+        self._is_etm: bool = encrypt_then_mac
 
         if cipher_suite.aead:
-            if self._is_etm:
+            if encrypt_then_mac:
                 raise ValueError(
                     "encrypt-then-mac is not supported for this cipher suite"
                 )
-            if mac_key:
+            if len(mac_key) != 0:
                 raise ValueError("mac_key must be empty for aead cipher suite")
 
             aead_spec = _AEAD_CIPHERS[cipher_suite.symmetric]
@@ -136,12 +127,12 @@ class TLSCipher:
                 iv_len = aead_spec.iv_length
 
             if len(enc_key) != key_len:
-                raise ValueError("Incorrect enc_key length")
+                raise ValueError("incorrect enc_key length")
             if len(fixed_iv) != iv_len:
-                raise ValueError("Incorrect fixed_iv length")
+                raise ValueError("incorrect fixed_iv length")
 
             if (
-                version >= TLSVersion.TLSv1_3
+                cipher_suite.minimum_version >= TLSVersion.TLSv1_3
                 or cipher_suite.symmetric == Symmetric.CHACHA20_POLY1305
             ):
                 self._xor_fixed_nonce = True
@@ -168,7 +159,7 @@ class TLSCipher:
                 self.open = self._decrypt_aead
 
         else:
-            if version >= TLSVersion.TLSv1_3:
+            if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
                 raise ValueError("cipher suite is not supported for TLSv1.3")
             if cipher_suite.digest is None:
                 raise ValueError("cipher suite is not supported")
@@ -178,9 +169,9 @@ class TLSCipher:
             iv_len = spec.iv_length
 
             if len(enc_key) != key_len:
-                raise ValueError("Incorrect enc_key length")
+                raise ValueError("incorrect enc_key length")
             if len(fixed_iv) != iv_len:
-                raise ValueError("Incorrect fixed_iv length")
+                raise ValueError("incorrect fixed_iv length")
 
             algorithm = get_algorithm(cipher_suite.digest)
             cipher = spec.create(enc_key, fixed_iv)

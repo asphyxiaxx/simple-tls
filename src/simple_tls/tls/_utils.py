@@ -26,7 +26,11 @@ from datetime import datetime, timezone
 from os import PathLike
 from typing import TypeAlias
 
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, hmac
+
+from simple_tls.codec import Writer
+from simple_tls.crypto.kdf import hkdf_expand
+from simple_tls.crypto.utils import strxor
 
 from ._constant import UNSPECIFIED, HashAlgorithm
 from ._enum import Protocol
@@ -165,6 +169,44 @@ def get_hash(
     return hashobj
 
 
+def prf(
+    secret: bytes,
+    label: bytes,
+    seed: bytes,
+    length: int,
+    algorithm: hashes.HashAlgorithm | None,
+) -> bytes:
+    seed = label + seed
+
+    if algorithm is None:
+        secret_len = len(secret)
+        s1 = secret[: ((secret_len + 1) // 2)]
+        s2 = secret[(secret_len // 2) :]
+        p_md5 = _prf_hash(s1, seed, length, hashes.MD5())
+        p_sha1 = _prf_hash(s2, seed, length, hashes.SHA1())
+        return strxor(p_md5, p_sha1)
+    else:
+        return _prf_hash(secret, seed, length, algorithm)
+
+
+def hkdf_expand_label(
+    secret: bytes,
+    label: bytes,
+    data: bytes,
+    length: int,
+    algorithm: hashes.HashAlgorithm,
+) -> bytes:
+    """
+    TLS 1.3 key derivation function (HKDF-Expand-Label).
+    """
+    hkdf_label = Writer()
+    hkdf_label.write_int(length, 2)
+    hkdf_label.write_prefixed_bytes(b"tls13 " + label, 1)
+    hkdf_label.write_prefixed_bytes(data, 1)
+    info = hkdf_label.tobytes()
+    return hkdf_expand(secret, info, length, algorithm)
+
+
 # Internal
 
 
@@ -196,6 +238,33 @@ class _MD5SHA1Hash:
         new.__md5 = self.__md5.copy()
         new.__sha1 = self.__sha1.copy()
         return new
+
+
+def _prf_hash(
+    secret: bytes,
+    seed: bytes,
+    length: int,
+    algorithm: hashes.HashAlgorithm,
+) -> bytes:
+    out = []
+    prev = seed
+    index = 0
+    mac = hmac.HMAC(secret, algorithm)
+    while index < length:
+        a_func = mac.copy()
+        a_func.update(prev)
+        prev = a_func.finalize()
+
+        m = mac.copy()
+        m.update(prev)
+        m.update(seed)
+        digest = m.finalize()
+
+        n = min(length - index, len(digest))
+        out.append(digest[:n])
+        index += n
+
+    return b"".join(out)
 
 
 _HASH_ALGORITHMS: dict[int, hashes.HashAlgorithm] = {

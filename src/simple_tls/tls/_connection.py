@@ -46,12 +46,12 @@ from ._exception import (
     TLSWantReadError,
 )
 from ._extension import ECHConfig
-from ._handshake import TLSHandshake
+from ._handshake import TLSHandshake, TrafficContext
 from ._handshake_client import NewSessionHandler, TLSHandshakeClient
 from ._handshake_server import SNICallback, TLSHandshakeServer
 from ._message import HandshakeMessage
-from ._symmetric import InvalidTag, KeyMaterial, NullCipher, TLSCipher
-from ._utils import Buffer, WritableBuffer
+from ._symmetric import InvalidTag, NullCipher, TLSCipher, get_key_iv_lens
+from ._utils import Buffer, WritableBuffer, get_algorithm, hkdf_expand_label
 
 MessageCallback = typing.Callable[
     ["TLSConnection", Direction, int, int, bytes], None
@@ -456,22 +456,55 @@ class TLSConnection:
         self,
         direction: Direction,
         epoch: Epoch,
-        key_material: KeyMaterial | None,
+        context: TrafficContext | None,
     ) -> None:
         state = None
 
-        if key_material is not None:
-            cipher = TLSCipher(key_material)
+        if context is not None:
+            version = context.version
+            cipher_suite = context.cipher_suite
+
+            if version >= TLSVersion.TLSv1_3:
+                assert context.secret is not None
+                algorithm = get_algorithm(cipher_suite.prf_hash)
+                key_len, iv_len = get_key_iv_lens(cipher_suite)
+                enc_key = hkdf_expand_label(
+                    context.secret, b"key", b"", key_len, algorithm
+                )
+                fixed_iv = hkdf_expand_label(
+                    context.secret, b"iv", b"", iv_len, algorithm
+                )
+                mac_key = b""
+            else:
+                assert context.enc_key is not None
+                assert context.mac_key is not None
+                assert context.fixed_iv is not None
+                enc_key = context.enc_key
+                fixed_iv = context.fixed_iv
+                mac_key = context.mac_key
+
+            cipher = TLSCipher(
+                direction=direction,
+                version=version,
+                cipher_suite=cipher_suite,
+                enc_key=enc_key,
+                fixed_iv=fixed_iv,
+                mac_key=mac_key,
+                encrypt_then_mac=context.encrypt_then_mac,
+            )
             state = ConnectionState(epoch, cipher)
-            version = self._handshake.protocol_version()
+
             max_seal_overhead = _HEADER_LENGTH
             max_seal_overhead += cipher.max_overhead()
 
-            if version < TLSVersion.TLSv1_1 and cipher.is_block_cipher():
+            if (
+                context.version < TLSVersion.TLSv1_1
+                and cipher.is_block_cipher()
+            ):
                 state.record_splitting = True
                 max_seal_overhead *= 2
 
-            if version >= TLSVersion.TLSv1_3:
+            if context.version >= TLSVersion.TLSv1_3:
                 state.hide_content_type = True
                 max_seal_overhead += 1
 
@@ -721,14 +754,12 @@ class TLSConnection:
                 header,
                 out,
             )
-        except InvalidTag as exc:
+        except InvalidTag:
             if self._handshake.skip_early_data:
                 self._skip_early_data(len(ciphertext))
                 raise SkipDataException() from None
-
             self._send_alert(
-                AlertDescription.BAD_RECORD_MAC,
-                f"Payload decryption failed: {exc}",
+                AlertDescription.BAD_RECORD_MAC, "Payload decryption failed"
             )
         else:
             state.sequence_number += 1

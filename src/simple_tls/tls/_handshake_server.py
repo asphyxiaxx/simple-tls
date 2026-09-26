@@ -137,7 +137,7 @@ from ._supported import (
     SIGNATURE_ALGORITHMS,
     SUPPORTED_GROUPS,
 )
-from ._transcript import KeyDeriver, KeySchedule
+from ._transcript import KeySchedule
 from ._utils import filter, negotiate
 
 SNICallback = typing.Callable[[ClientHelloInfo, HandshakeContext], None]
@@ -462,6 +462,21 @@ class TLSHandshakeServer(TLSHandshake):
         version = self.protocol_version()
         cipher_suite = self.cipher_suite()
 
+        if (
+            version == TLSVersion.TLSv1_2
+            and self._maximum_version >= TLSVersion.TLSv1_3
+        ):
+            self._server_random = (
+                self._server_random[:24] + TLS12_DOWNGRADE_SENTINEL
+            )
+        elif (
+            version <= TLSVersion.TLSv1_1
+            and self._maximum_version >= TLSVersion.TLSv1_2
+        ):
+            self._server_random = (
+                self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
+            )
+
         if self._x509_certificates is not None:
             x509_leaf = self._x509_certificates[0]
             try:
@@ -517,10 +532,13 @@ class TLSHandshakeServer(TLSHandshake):
                 session = None
 
         if session is not None:
+            assert session.secret
             self._session_reused = True
             self._ticket_expected = False
             self._session_id = client_hello.session_id
+            self._derive_key(session.secret)
         else:
+            self._session_reused = False
             self._ticket_expected = (
                 ticket_ext is not None
                 and self.configuration.ticket_aead is not None
@@ -528,38 +546,13 @@ class TLSHandshakeServer(TLSHandshake):
             self._session_id = get_random_bytes(32)
             session = self._get_new_session()
             session.session_id = self._session_id
-
-        if (
-            version == TLSVersion.TLSv1_2
-            and self._maximum_version >= TLSVersion.TLSv1_3
-        ):
-            self._server_random = (
-                self._server_random[:24] + TLS12_DOWNGRADE_SENTINEL
-            )
-        elif (
-            version <= TLSVersion.TLSv1_1
-            and self._maximum_version >= TLSVersion.TLSv1_2
-        ):
-            self._server_random = (
-                self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
-            )
-
-        self._key_deriver = KeyDeriver(
-            version=version,
-            cipher_suite=cipher_suite,
-            client_random=self._client_random,
-            server_random=self._server_random,
-        )
-        self._session = session
-
-        if self._session_reused:
-            self._setup_traffic_key(session)
-        else:
             session.cipher_suite = cipher_suite
             self._certificate_requested = (
                 self.configuration.verify_mode != VerifyMode.CERT_NONE
                 and cipher_suite.auth != Authentication.ANON
             )
+
+        self._session = session
 
         self.message_cb(Direction.READ, client_hello)
         self._next_message()
@@ -808,11 +801,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._session is None:
             raise AlertInternalError("session not set")
-        if self._key_deriver is None:
-            raise AlertInternalError("key_deriver not set")
-
-        session = self._session
-        session.extended_master_secret = self._extended_master_secret
 
         if self._extended_master_secret:
             label = b"extended master secret"
@@ -821,11 +809,12 @@ class TLSHandshakeServer(TLSHandshake):
             label = b"master secret"
             transcript = None
 
-        master_secret = self._key_deriver.derive_master_secret(
+        session = self._session
+        session.extended_master_secret = self._extended_master_secret
+        session.secret = self._derive_secret(
             premaster_secret, label, transcript
         )
-        session.secret = master_secret
-        self._setup_traffic_key(session)
+        self._derive_key(session.secret)
 
         self._set_state(ServerState.READ_CLIENT_CERTIFICATE_VERIFY)
         return Status.OK
@@ -865,7 +854,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.READ_CHANGE_CIPHER_SPEC
 
     def _do_process_change_cipher_spec(self) -> Status:
-        self._setup_traffic(Direction.READ, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.READ)
         self._set_state(ServerState.READ_NEXT_PROTO)
         return Status.OK
 
@@ -902,12 +891,10 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._session is None:
             raise AlertInternalError("session not set")
-        if self._key_deriver is None:
-            raise AlertInternalError("key_deriver not set")
 
         master_secret = self._session.secret
-        expected_verify_data = self._key_deriver.finished_verify_data(
-            master_secret, b"client finished", self._transcript
+        expected_verify_data = self._derive_finished_verify_data(
+            master_secret, b"client finished"
         )
         if not compare_digest(finished.verify_data, expected_verify_data):
             raise AlertDecryptError("Incorect finished verify data")
@@ -939,16 +926,14 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_server_finished(self) -> Status:
-        self._setup_traffic(Direction.WRITE, Epoch.APPLICATION_DATA)
+        self._setup_traffic(Direction.WRITE)
 
         if self._session is None:
             raise AlertInternalError("session not set")
-        if self._key_deriver is None:
-            raise AlertInternalError("key_deriver not set")
 
         master_secret = self._session.secret
-        verify_data = self._key_deriver.finished_verify_data(
-            master_secret, b"server finished", self._transcript
+        verify_data = self._derive_finished_verify_data(
+            master_secret, b"server finished"
         )
         finished = Finished(verify_data)
         self.message_cb(Direction.WRITE, finished)
@@ -1146,11 +1131,11 @@ class TLSHandshakeServer(TLSHandshake):
                     new_session.peer_alps = session.peer_alps
 
                 # Install the 0-RTT decryption key
-                self._setup_traffic_key_tls13(
-                    session=new_session,
+                self._derive_secret_tls13(
                     direction=Direction.READ,
                     epoch=Epoch.ZERO_RTT,
                     label=b"c e traffic",
+                    transcript=self._transcript,
                 )
 
             else:
@@ -1350,24 +1335,24 @@ class TLSHandshakeServer(TLSHandshake):
         self.message_cb(Direction.WRITE, server_hello)
         self._add_message(server_hello)
 
-        self._setup_traffic_key_tls13(
-            session=self._session,
+        self._derive_secret_tls13(
             direction=Direction.WRITE,
             epoch=Epoch.HANDSHAKE,
             label=b"s hs traffic",
+            transcript=self._transcript,
         )
-        self._setup_traffic_key_tls13(
-            session=self._session,
+        self._derive_secret_tls13(
             direction=Direction.READ,
             epoch=Epoch.HANDSHAKE,
             label=b"c hs traffic",
+            transcript=self._transcript,
         )
 
         self._set_state(ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13)
         return Status.PACK_FLIGHT
 
     def _do_send_encrypted_extensions_tls13(self) -> Status:
-        self._setup_traffic(Direction.WRITE, Epoch.HANDSHAKE)
+        self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
@@ -1463,27 +1448,27 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertInternalError()
 
         self._key_schedule.extract(None)
-        self._setup_traffic_key_tls13(
-            session=self._session,
+        self._derive_secret_tls13(
             direction=Direction.WRITE,
             epoch=Epoch.APPLICATION_DATA,
             label=b"s ap traffic",
+            transcript=self._transcript,
         )
-        self._setup_traffic_key_tls13(
-            session=self._session,
+        self._derive_secret_tls13(
             direction=Direction.READ,
             epoch=Epoch.APPLICATION_DATA,
             label=b"c ap traffic",
+            transcript=self._transcript,
         )
 
         self._set_state(ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13)
         return Status.FLUSH_MESSAGE
 
     def _do_read_second_client_flight_tls13(self) -> Status:
-        self._setup_traffic(Direction.WRITE, Epoch.APPLICATION_DATA)
+        self._setup_traffic_tls13(Direction.WRITE, Epoch.APPLICATION_DATA)
 
         if self._early_data_accepted:
-            self._setup_traffic(Direction.READ, Epoch.ZERO_RTT)
+            self._setup_traffic_tls13(Direction.READ, Epoch.ZERO_RTT)
             self.can_early_write = True
             self.can_early_read = True
             self._in_early_data = True
@@ -1510,7 +1495,7 @@ class TLSHandshakeServer(TLSHandshake):
             self.message_cb(Direction.READ, end_of_early_data)
             self._next_message()
 
-        self._setup_traffic(Direction.READ, Epoch.HANDSHAKE)
+        self._setup_traffic_tls13(Direction.READ, Epoch.HANDSHAKE)
 
         self._set_state(ServerState.READ_CLIENT_ENCRYPTED_EXTENSIONS_TLS13)
         return Status.OK
@@ -1632,7 +1617,7 @@ class TLSHandshakeServer(TLSHandshake):
         self.message_cb(Direction.READ, finished)
         self._next_message()
 
-        self._setup_traffic(Direction.READ, Epoch.APPLICATION_DATA)
+        self._setup_traffic_tls13(Direction.READ, Epoch.APPLICATION_DATA)
 
         self._set_state(ServerState.SEND_NEWSESSION_TICKET_TLS13)
         return Status.OK
@@ -1720,7 +1705,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_complete_update_traffic(self) -> Status:
-        self._update_traffic_key_tls13(Direction.WRITE)
+        self._derive_upd_secret_tls13(Direction.WRITE)
         self._set_state(ServerState.DONE)
         return Status.OK
 
@@ -1744,7 +1729,7 @@ class TLSHandshakeServer(TLSHandshake):
             self.message_cb(Direction.READ, key_update)
             self._next_message(update_hash=False)
 
-            self._update_traffic_key_tls13(Direction.READ)
+            self._derive_upd_secret_tls13(Direction.READ)
 
             if message_type == KeyUpdateMessageType.UPDATE_REQUESTED:
                 self._write_key_update(

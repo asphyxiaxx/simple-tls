@@ -96,14 +96,14 @@ from ._supported import (
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
 )
-from ._symmetric import KeyMaterial, get_key_iv_len
-from ._transcript import KeyDeriver, KeySchedule, Transcript
-from ._utils import Buffer, get_algorithm, version_from_wire
+from ._symmetric import get_key_iv_lens
+from ._transcript import KeySchedule, Transcript
+from ._utils import Buffer, get_algorithm, prf, version_from_wire
 from ._x509_validator import EKUValidator, SANValidator
 
 MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
 SetupTrafficCallback = typing.Callable[
-    [Direction, Epoch, KeyMaterial | None], None
+    [Direction, Epoch, typing.Optional["TrafficContext"]], None
 ]
 
 
@@ -118,6 +118,21 @@ class ECHConfigContent:
     maximum_name_length: int
     enc: bytes = b""
     extensions: list[tuple[int, bytes]] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class TrafficContext:
+    version: int
+    cipher_suite: CipherSuite
+
+    # --- Used for TLS 1.3 / QUIC ---
+    secret: bytes | None = None
+
+    # --- Used for TLS 1.2 and below ---
+    enc_key: bytes | None = None
+    mac_key: bytes | None = None
+    fixed_iv: bytes | None = None
+    encrypt_then_mac: bool = False
 
 
 class TLSHandshake:
@@ -182,12 +197,11 @@ class TLSHandshake:
         # Transcript and secrets
         self._client_random: bytes = b""
         self._server_random: bytes = b""
-        self._write_keys: dict[Epoch, KeyMaterial] = {}
-        self._read_keys: dict[Epoch, KeyMaterial] = {}
+        self._write_traffic: TrafficContext | None = None
+        self._read_traffic: TrafficContext | None = None
         self._enc_secret: dict[Epoch, bytes] = {}
         self._dec_secret: dict[Epoch, bytes] = {}
         self._transcript: Transcript = Transcript()
-        self._key_deriver: KeyDeriver | None = None
         self._key_schedule: KeySchedule | None = None
 
         if self._minimum_version > self._maximum_version:
@@ -351,46 +365,121 @@ class TLSHandshake:
         # print("TLS {} -> {}".format(self.hs_state, state))
         self._hs_state = state
 
-    def _setup_traffic(self, direction: Direction, epoch: Epoch) -> None:
-        if epoch != Epoch.INITIAL:
-            if direction == Direction.READ:
-                key_material = self._read_keys[epoch]
-            else:
-                key_material = self._write_keys[epoch]
+    def _setup_traffic(self, direction: Direction) -> None:
+        if direction == Direction.READ:
+            traffic = self._read_traffic
         else:
-            key_material = None
+            traffic = self._write_traffic
+        assert traffic is not None
+        self.setup_traffic_cb(direction, Epoch.APPLICATION_DATA, traffic)
 
-        self.setup_traffic_cb(direction, epoch, key_material)
+    def _setup_traffic_tls13(self, direction: Direction, epoch: Epoch) -> None:
+        if epoch != Epoch.INITIAL:
+            if self._session is None:
+                raise ValueError("session not set")
 
-    def _setup_traffic_key(self, session: TLSSession) -> None:
-        if self._key_deriver is None:
-            raise AlertInternalError("key_deriver not set")
-        if session.cipher_suite is None:
-            raise AlertInternalError("Missing cipher_suite in session")
+            session = self._session
+            if session.cipher_suite is None:
+                raise ValueError("Missing cipher suite in session")
 
-        version = session.protocol_version()
-        cipher_suite = session.cipher_suite
-        master_secret = session.secret
+            version = session.protocol_version()
+            cipher_suite = session.cipher_suite
+
+            if direction == Direction.READ:
+                secret = self._dec_secret[epoch]
+            else:
+                secret = self._enc_secret[epoch]
+
+            traffic = TrafficContext(version, cipher_suite, secret)
+        else:
+            traffic = None
+
+        self.setup_traffic_cb(direction, epoch, traffic)
+
+    def _derive_secret(
+        self,
+        premaster_secret: bytes,
+        label: bytes,
+        transcript: Transcript | None = None,
+    ) -> bytes:
+        cipher_suite = self.cipher_suite()
+
+        if self.version == TLSVersion.TLSv1_2:
+            hash_algorithm = typing.cast(int, cipher_suite.prf_hash)
+            algorithm = get_algorithm(hash_algorithm)
+        else:
+            hash_algorithm = UNSPECIFIED
+            algorithm = None
+
+        if transcript is None:
+            seed = self._client_random + self._server_random
+        else:
+            # seed for Extended Master Secret
+            seed = transcript.digest(hash_algorithm)
+
+        return prf(
+            secret=premaster_secret,
+            label=label,
+            seed=seed,
+            length=48,
+            algorithm=algorithm,
+        )
+
+    def _derive_finished_verify_data(
+        self, secret: bytes, label: bytes
+    ) -> bytes:
+        if self.version == TLSVersion.TLSv1_2:
+            cipher_suite = self.cipher_suite()
+            hash_algorithm = typing.cast(int, cipher_suite.prf_hash)
+            algorithm = get_algorithm(hash_algorithm)
+        else:
+            hash_algorithm = UNSPECIFIED
+            algorithm = None
+
+        seed = self._transcript.digest(hash_algorithm)
+
+        return prf(
+            secret=secret,
+            label=label,
+            seed=seed,
+            length=12,
+            algorithm=algorithm,
+        )
+
+    def _derive_key(self, secret: bytes) -> None:
+        version = self.protocol_version()
+        cipher_suite = self.cipher_suite()
         encrypt_then_mac = self._encrypt_then_mac
+        seed = self._server_random + self._client_random
 
-        key_len, iv_len = get_key_iv_len(version, cipher_suite)
+        if version == TLSVersion.TLSv1_2:
+            algorithm = get_algorithm(cipher_suite.prf_hash)
+        else:
+            algorithm = None
+
+        key_len, iv_len = get_key_iv_lens(cipher_suite)
         if cipher_suite.aead:
-            mac_size = 0
+            mac_len = 0
         else:
             if cipher_suite.digest is None:
                 raise AlertInternalError("Unexpected cipher_suite provided")
             digest_algorithm = get_algorithm(cipher_suite.digest)
-            mac_size = digest_algorithm.digest_size
+            mac_len = digest_algorithm.digest_size
 
         # Parse Keys (STRICT PROTOCOL ORDER: Client first, then Server)
         # RFC 5246 Section 6.3
         # client_write_MAC_key, server_write_MAC_key, client_write_key...
-        out_len = (mac_size * 2) + (key_len * 2) + (iv_len * 2)
-        key_block = self._key_deriver.derive_key(master_secret, out_len)
+        out_len = (mac_len * 2) + (key_len * 2) + (iv_len * 2)
+        key_block = prf(
+            secret=secret,
+            label=b"key expansion",
+            seed=seed,
+            length=out_len,
+            algorithm=algorithm,
+        )
         key_parser = Parser(key_block)
-
-        cl_mac = key_parser.read_bytes(mac_size)
-        sv_mac = key_parser.read_bytes(mac_size)
+        cl_mac = key_parser.read_bytes(mac_len)
+        sv_mac = key_parser.read_bytes(mac_len)
         cl_key = key_parser.read_bytes(key_len)
         sv_key = key_parser.read_bytes(key_len)
         cl_iv = key_parser.read_bytes(iv_len)
@@ -406,19 +495,15 @@ class TLSHandshake:
             read_mac, read_key, read_iv = sv_mac, sv_key, sv_iv
             write_mac, write_key, write_iv = cl_mac, cl_key, cl_iv
 
-        read_material = KeyMaterial(
-            direction=Direction.READ,
+        self._read_traffic = TrafficContext(
             version=version,
             cipher_suite=cipher_suite,
             enc_key=read_key,
             mac_key=read_mac,
             fixed_iv=read_iv,
-            encrypt_then_mac=encrypt_then_mac,
+            encrypt_then_mac=self._encrypt_then_mac,
         )
-        self._read_keys[Epoch.APPLICATION_DATA] = read_material
-
-        write_material = KeyMaterial(
-            direction=Direction.WRITE,
+        self._write_traffic = TrafficContext(
             version=version,
             cipher_suite=cipher_suite,
             enc_key=write_key,
@@ -426,20 +511,16 @@ class TLSHandshake:
             fixed_iv=write_iv,
             encrypt_then_mac=encrypt_then_mac,
         )
-        self._write_keys[Epoch.APPLICATION_DATA] = write_material
 
-    def _setup_traffic_key_tls13(
+    def _derive_secret_tls13(
         self,
-        session: TLSSession,
         direction: Direction,
         epoch: Epoch,
         label: bytes,
-        transcript: Transcript | None = None,
+        transcript: Transcript,
     ) -> None:
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
-        if transcript is None:
-            transcript = self._transcript
 
         secret = self._key_schedule.derive_secret(label, transcript)
         if direction == Direction.WRITE:
@@ -447,16 +528,11 @@ class TLSHandshake:
         else:
             self._dec_secret[epoch] = secret
 
-        self._set_traffic_key_tls13(session, direction, epoch, secret)
-
-    def _update_traffic_key_tls13(self, direction: Direction) -> None:
+    def _derive_upd_secret_tls13(self, direction: Direction) -> None:
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
-        if self._session is None:
-            raise AlertInternalError("session not set")
 
         epoch = Epoch.APPLICATION_DATA
-        session = self._session
 
         if direction == Direction.WRITE:
             secret = self._enc_secret[epoch]
@@ -467,43 +543,7 @@ class TLSHandshake:
             new_secret = self._key_schedule.upd_secret(secret)
             self._dec_secret[epoch] = new_secret
 
-        self._set_traffic_key_tls13(session, direction, epoch, new_secret)
-        self._setup_traffic(direction, epoch)
-
-    def _set_traffic_key_tls13(
-        self,
-        session: TLSSession,
-        direction: Direction,
-        epoch: Epoch,
-        secret: bytes,
-    ) -> None:
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
-        if session.cipher_suite is None:
-            raise AlertInternalError("Missing cipher_suite in session")
-
-        version = session.protocol_version()
-        cipher_suite = session.cipher_suite
-        key_len, iv_len = get_key_iv_len(version, cipher_suite)
-        key = self._key_schedule.hkdf_expand_label(
-            secret, b"key", b"", key_len
-        )
-        fixed_nonce = self._key_schedule.hkdf_expand_label(
-            secret, b"iv", b"", iv_len
-        )
-        key_material = KeyMaterial(
-            direction=direction,
-            version=version,
-            cipher_suite=cipher_suite,
-            enc_key=key,
-            mac_key=b"",
-            fixed_iv=fixed_nonce,
-        )
-
-        if direction == Direction.READ:
-            self._read_keys[epoch] = key_material
-        else:
-            self._write_keys[epoch] = key_material
+        self._setup_traffic_tls13(direction, epoch)
 
     def _write_key_update(self, message_type: KeyUpdateMessageType) -> None:
         if message_type not in (

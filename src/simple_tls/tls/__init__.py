@@ -150,7 +150,7 @@ from ._extension import (
     SessionTicketExtension,
     SignatureAlgorithmsExtension,
 )
-from ._handshake import TLSHandshake
+from ._handshake import TLSHandshake, TrafficContext
 from ._handshake_client import TLSHandshakeClient
 from ._handshake_server import TLSHandshakeServer
 from ._key import load_certificate_public_key, load_pem_private_key
@@ -199,8 +199,8 @@ from ._supported import (
     SUPPORTED_GROUPS,
     TLS_VERSIONS,
 )
-from ._symmetric import KeyMaterial, NullCipher, TLSCipher
-from ._transcript import KeyDeriver, KeySchedule, Transcript
+from ._symmetric import NullCipher, TLSCipher
+from ._transcript import KeySchedule, Transcript
 from ._x509_validator import Validator
 
 __all__ = [
@@ -315,9 +315,7 @@ __all__ = [
     "HpkeKdfId",
     "HpkeKemId",
     "IntExtension",
-    "KeyDeriver",
     "KeyExchange",
-    "KeyMaterial",
     "KeySchedule",
     "KeyShareEntry",
     "KeyUpdate",
@@ -376,6 +374,7 @@ __all__ = [
     "TLSWantReadError",
     "TicketAEAD",
     "TicketContext",
+    "TrafficContext",
     "Transcript",
     "Validator",
     "VerifyMode",
