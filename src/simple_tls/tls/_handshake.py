@@ -170,7 +170,7 @@ class TLSHandshake:
         )
 
         ## Temporary State
-        self._hs_state: int = 0
+        self._state: int = 0
         self._hostname: bytes | None = None
         self._version: int = TLSVersion.UNSPECIFIED
         self._is_early_version: bool = False
@@ -214,8 +214,8 @@ class TLSHandshake:
         raise NotImplementedError()
 
     @property
-    def hs_state(self) -> int:
-        return self._hs_state
+    def state(self) -> int:
+        return self._state
 
     @property
     def configuration(self) -> TLSConfiguration:
@@ -287,7 +287,7 @@ class TLSHandshake:
     def do_handshake(self) -> Status:
         ret = Status.OK
         while not self.done:
-            f = self._handle_dispatch[self.hs_state]
+            f = self._handle_dispatch[self.state]
             try:
                 ret = f()
             except ParseError as exc:
@@ -363,7 +363,7 @@ class TLSHandshake:
 
     def _set_state(self, state: int) -> None:
         # print("TLS {} -> {}".format(self.hs_state, state))
-        self._hs_state = state
+        self._state = state
 
     def _setup_traffic(self, direction: Direction) -> None:
         if direction == Direction.READ:

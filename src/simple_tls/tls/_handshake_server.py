@@ -266,7 +266,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._cookie: bytes | None = None
 
         ## Temporary State
-        self._hs_state = ServerState.START_ACCEPT
+        self._state = ServerState.START_ACCEPT
         self._extensions_recv: set[int] = set()
         self._npn_expected: bool = False
         self._ticket_expected: bool = False
@@ -301,7 +301,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     @property
     def done(self) -> bool:
-        return self._hs_state == ServerState.DONE
+        return self._state == ServerState.DONE
 
     @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:

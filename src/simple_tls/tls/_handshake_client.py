@@ -332,7 +332,7 @@ class TLSHandshakeClient(TLSHandshake):
         # ruff: enable[E501]
 
         ## Temporary State
-        self._hs_state = ClientState.START_CONNECT
+        self._state = ClientState.START_CONNECT
         self._extension_order: list[int] | None = None
         self._extensions_sent: set[int] = set()
         self._session_ticket: bytes | None = None
@@ -381,7 +381,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     @property
     def done(self) -> bool:
-        return self._hs_state == ClientState.DONE
+        return self._state == ClientState.DONE
 
     @property
     def peer_ech_retry_configs(self) -> list[ECHConfig] | None:
