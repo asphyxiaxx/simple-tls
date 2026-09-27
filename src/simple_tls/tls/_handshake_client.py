@@ -703,7 +703,10 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SESSION_TICKET)
             return Status.OK
 
-        if self.cipher_suite().auth == Authentication.ANON:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
+        if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_KEY_EXCHANGE)
             return Status.OK
 
@@ -755,7 +758,11 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_server_key_exchange(self) -> Status:
-        cipher_suite = self.cipher_suite()
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
+        cipher_suite = self._cipher_suite
+
         if cipher_suite.kea == KeyExchange.RSA:
             self._set_state(ClientState.READ_CERTIFICATE_REQUEST)
             return Status.OK
@@ -877,7 +884,10 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_certificate_request(self) -> Status:
-        if self.cipher_suite().auth == Authentication.ANON:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
+        if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_HELLO_DONE)
             return Status.OK
 
@@ -985,11 +995,13 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_key_exchange(self) -> Status:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
         if self._session is None:
             raise AlertInternalError("session not set")
 
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
         session = self._session
         writer = Writer()
 
@@ -1314,10 +1326,12 @@ class TLSHandshakeClient(TLSHandshake):
 
         if self.has_unprocessed_hs_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
 
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
         key_schedule = self._key_schedule
 
         if server_hello.random == TLS13_HRR_SENTINEL:
@@ -2362,8 +2376,11 @@ class TLSHandshakeClient(TLSHandshake):
         return False
 
     def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
 
         # Renegotiation info extension
         ri_ext = typing.cast(

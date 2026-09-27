@@ -364,10 +364,7 @@ class TLSConnection:
         return self._handshake.alpn_selected
 
     def cipher(self) -> CipherSuite | None:
-        session = self._handshake.session
-        if session is not None:
-            return session.cipher_suite
-        return None
+        return self._handshake.cipher_suite
 
     def shared_ciphers(self) -> list[CipherSuite] | None:
         if self._handshake.peer_cipher_suites is not None:

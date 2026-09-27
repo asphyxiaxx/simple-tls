@@ -459,8 +459,12 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_MESSAGE
 
         client_hello = message.get_handshake(ClientHello)
+
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
 
         if (
             version == TLSVersion.TLSv1_2
@@ -563,6 +567,9 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_server_hello(self) -> Status:
         extensions: list[Extension] = []
 
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
         if self._secure_renegotiation:
             extensions.append(RenegotiationInfoExtension(b""))
 
@@ -592,7 +599,7 @@ class TLSHandshakeServer(TLSHandshake):
             version=self.protocol_version(),
             random=self._server_random,
             session_id=self._session_id,
-            cipher_suite=self.cipher_suite().id,
+            cipher_suite=self._cipher_suite.id,
             compression_method=Compression.NULL,
             extensions=self._serialize_extensions(extensions),
         )
@@ -607,7 +614,10 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_certificate(self) -> Status:
-        if self.cipher_suite().auth == Authentication.ANON:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
+        if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ServerState.SEND_SERVER_KEY_EXCHANGE)
             return Status.OK
 
@@ -622,7 +632,10 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_key_exchange(self) -> Status:
-        cipher_suite = self.cipher_suite()
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
+        cipher_suite = self._cipher_suite
 
         if cipher_suite.kea == KeyExchange.RSA:
             self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
@@ -750,10 +763,12 @@ class TLSHandshakeServer(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        cke = message.get_handshake(ClientKeyExchange)
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
 
+        cke = message.get_handshake(ClientKeyExchange)
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
         parser = Parser(cke.data)
 
         # Derive premaster secret
@@ -952,6 +967,8 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self.has_unprocessed_hs_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
 
         client_hello = message.get_handshake(ClientHello)
 
@@ -987,7 +1004,7 @@ class TLSHandshakeServer(TLSHandshake):
             PSKKeyExchangeModesExtension
         )
 
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
         session = None
         key_schedule = None
         psk_kex_mode = None
@@ -1154,8 +1171,11 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_hello_retry_request_tls13(self) -> Status:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
 
         extensions: list[Extension] = []
 
@@ -1196,10 +1216,10 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self.has_unprocessed_hs_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
-
-        cipher_suite = self.cipher_suite()
 
         supported_version_ext = client_hello.get_extension(
             ClientSupportedVersionsExtension
@@ -1215,7 +1235,7 @@ class TLSHandshakeServer(TLSHandshake):
             client_hello.random != self._client_random
             or client_hello.session_id != self._session_id
             or Compression.NULL not in client_hello.compression_methods
-            or cipher_suite not in client_hello.cipher_suites
+            or self._cipher_suite not in client_hello.cipher_suites
         ):
             raise AlertIllegalParameter()
 
@@ -1283,12 +1303,12 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_hello_tls13(self) -> Status:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
         if self._key_schedule is None:
             raise AlertInternalError("key_schedule not set")
         if self._session is None:
             raise AlertInternalError("session not set")
-
-        cipher_suite = self.cipher_suite()
 
         if not self._key_schedule.generation == 1:
             raise AlertInternalError()
@@ -1329,7 +1349,7 @@ class TLSHandshakeServer(TLSHandshake):
             version=TLSVersion.TLSv1_2,
             random=self._server_random,
             session_id=self._session_id,
-            cipher_suite=cipher_suite.id,
+            cipher_suite=self._cipher_suite.id,
             compression_method=Compression.NULL,
             extensions=self._serialize_extensions(extensions),
         )
@@ -1811,8 +1831,11 @@ class TLSHandshakeServer(TLSHandshake):
         raise AlertHandshakeFailure("No supported cipher suite")
 
     def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
+        if self._cipher_suite is None:
+            raise AlertInternalError("cipher_suite not set")
+
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
 
         self._extensions_recv.update(ext_map)
 

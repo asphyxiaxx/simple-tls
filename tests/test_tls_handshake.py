@@ -89,7 +89,8 @@ def test_handshake_with_rsa_pkcs1(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher_suite().auth == Authentication.RSA
+    assert client._cipher_suite is not None
+    assert client._cipher_suite.auth == Authentication.RSA
 
 
 @pytest.mark.parametrize(
@@ -126,7 +127,8 @@ def test_handshake_with_dsa(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher_suite().auth == Authentication.DSS
+    assert client._cipher_suite is not None
+    assert client._cipher_suite.auth == Authentication.DSS
 
 
 @pytest.mark.parametrize(
@@ -166,7 +168,8 @@ def test_handshake_with_ec_secp256r1(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher_suite().auth == Authentication.ECDSA
+    assert client._cipher_suite is not None
+    assert client._cipher_suite.auth == Authentication.ECDSA
 
 
 @pytest.mark.parametrize(

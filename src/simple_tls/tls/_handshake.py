@@ -266,6 +266,10 @@ class TLSHandshake:
         return self._early_data_offered
 
     @property
+    def cipher_suite(self) -> CipherSuite | None:
+        return self._cipher_suite
+
+    @property
     def npn_selected(self) -> bytes | None:
         return self._npn_selected
 
@@ -337,10 +341,6 @@ class TLSHandshake:
     def protocol_version(self) -> int:
         assert self._version != TLSVersion.UNSPECIFIED
         return self._version
-
-    def cipher_suite(self) -> CipherSuite:
-        assert self._cipher_suite is not None
-        return self._cipher_suite
 
     def add_hs_data(self, data: Buffer) -> None:
         self._incoming_data.extend(data)
@@ -435,10 +435,10 @@ class TLSHandshake:
         label: bytes,
         transcript: Transcript | None = None,
     ) -> bytes:
-        cipher_suite = self.cipher_suite()
+        assert self._cipher_suite is not None
 
         if self.version == TLSVersion.TLSv1_2:
-            hash_algorithm = typing.cast(int, cipher_suite.prf_hash)
+            hash_algorithm = typing.cast(int, self._cipher_suite.prf_hash)
             algorithm = get_algorithm(hash_algorithm)
         else:
             hash_algorithm = UNSPECIFIED
@@ -462,8 +462,8 @@ class TLSHandshake:
         self, secret: bytes, label: bytes
     ) -> bytes:
         if self.version == TLSVersion.TLSv1_2:
-            cipher_suite = self.cipher_suite()
-            hash_algorithm = typing.cast(int, cipher_suite.prf_hash)
+            assert self._cipher_suite is not None
+            hash_algorithm = typing.cast(int, self._cipher_suite.prf_hash)
             algorithm = get_algorithm(hash_algorithm)
         else:
             hash_algorithm = UNSPECIFIED
@@ -480,8 +480,10 @@ class TLSHandshake:
         )
 
     def _derive_key(self, secret: bytes) -> None:
+        assert self._cipher_suite is not None
+
         version = self.protocol_version()
-        cipher_suite = self.cipher_suite()
+        cipher_suite = self._cipher_suite
         encrypt_then_mac = self._encrypt_then_mac
         seed = self._server_random + self._client_random
 
