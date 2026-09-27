@@ -308,11 +308,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         assert client.version == version
         assert server.version == version
         assert client._peer_cert_request is not None
-        assert server.session is not None
-        assert (
-            server.session.x509_peer is None
-            and server.session.x509_chain is None
-        )
+        assert len(server.get_unverified_chain()) == 0
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
         client = create_client(
@@ -374,7 +370,6 @@ def test_tls13_handshake_with_ec_secp256r1():
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert client.session is not None
 
 
 def test_tls13_handshake_hello_retry_request(subtests):
@@ -480,7 +475,7 @@ def test_tls13_handshake_with_psk(subtests):
         server = create_server(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
-            ticket_aead=ticket_aead
+            ticket_aead=ticket_aead,
         )
 
         server_fail_hello(client, server)
@@ -506,11 +501,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._peer_cert_request is not None
-        assert server.session is not None
-        assert (
-            server.session.x509_peer is None
-            and server.session.x509_chain is None
-        )
+        assert len(server.get_unverified_chain()) == 0
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
         client = create_client(

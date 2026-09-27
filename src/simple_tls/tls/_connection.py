@@ -118,8 +118,6 @@ class TLSConnection:
         """send record limit"""
         self._recv_record_limit = 2**14
         """received record limit"""
-        self._max_early_data_size = configuration.max_early_data_size
-        """max early data size allowed"""
 
         self._inbio = inbio or MemoryBIO()
         """incoming encrypted bytes"""
@@ -250,22 +248,23 @@ class TLSConnection:
         If 'buffer' is provided, read into this buffer and return the number of
         bytes read.
         """
+        hs = self._handshake
 
         while not self._pending_app_data:
-            if not (self._handshake.done or self._handshake.can_early_read):
+            if not (hs.done or hs.can_early_read):
                 self.do_handshake()
 
             content_type, data = self._open_record()
 
             if content_type != ContentType.APPLICATION_DATA:
                 if content_type == ContentType.HANDSHAKE:
-                    self._handshake.add_hs_data(data)
+                    hs.add_hs_data(data)
 
-                    if not self._handshake.done:
-                        assert self._handshake.can_early_read
-                        self._handshake.can_early_read = False
+                    if not hs.done:
+                        assert hs.can_early_read
+                        hs.can_early_read = False
                     else:
-                        self._handshake.trigger_post_handshake()
+                        hs.trigger_post_handshake()
                 else:
                     self._send_alert(
                         AlertDescription.UNEXPECTED_MESSAGE,
@@ -274,12 +273,10 @@ class TLSConnection:
 
                 continue
 
-            is_early_data_read = (
-                self._handshake.is_server and self._handshake.in_early_data
-            )
+            is_early_data_read = hs.is_server and hs.in_early_data
             if is_early_data_read:
                 self._early_data_processed += len(data)
-                if self._early_data_processed >= self._max_early_data_size:
+                if self._early_data_processed >= hs.max_early_data:
                     self._send_alert(
                         AlertDescription.UNEXPECTED_MESSAGE,
                         "Too much early data",
@@ -311,27 +308,26 @@ class TLSConnection:
             return bytes(app_data)
 
     def write(self, data: Buffer) -> int:
-        if not (self._handshake.done or self._handshake.can_early_write):
+        hs = self._handshake
+
+        if not (hs.done or hs.can_early_write):
             self.do_handshake()
 
         if self._write_shutdown != Shutdown.NONE:
             raise TLSEOFError("protocol is shutdown")
 
-        hs = self._handshake
         max_send_frament = self._send_record_limit
         is_early_data_write = (
             not self.is_server and hs.in_early_data and hs.can_early_write
         )
 
         if is_early_data_write:
-            assert hs.session is not None
-
-            if self._early_data_processed >= hs.session.ticket_max_early_data:
+            if self._early_data_processed >= hs.max_early_data:
                 hs.can_early_write = False
 
             max_send_frament = min(
                 max_send_frament,
-                hs.session.ticket_max_early_data - self._early_data_processed,
+                hs.max_early_data - self._early_data_processed,
             )
 
         if len(data) > max_send_frament:
@@ -353,30 +349,13 @@ class TLSConnection:
         self._handshake.send_key_update(message_type)
 
     def getpeercert(self) -> x509.Certificate | None:
-        session = self._handshake.session
-        if session is not None and session.verified_x509_peer is not None:
-            return session.verified_x509_peer
-        return None
+        return self._handshake.getpeercert()
 
     def get_verified_chain(self) -> list[x509.Certificate]:
-        session = self._handshake.session
-        chain: list[x509.Certificate] = []
-        if session is not None:
-            if session.verified_x509_peer is not None:
-                chain.append(session.verified_x509_peer)
-            if session.verified_x509_chain is not None:
-                chain.extend(session.verified_x509_chain)
-        return chain
+        return self._handshake.get_verified_chain()
 
     def get_unverified_chain(self) -> list[x509.Certificate]:
-        session = self._handshake.session
-        chain: list[x509.Certificate] = []
-        if session is not None:
-            if session.x509_peer is not None:
-                chain.append(session.x509_peer)
-            if session.x509_chain is not None:
-                chain.extend(session.x509_chain)
-        return chain
+        return self._handshake.get_unverified_chain()
 
     def selected_npn_protocol(self) -> bytes | None:
         return self._handshake.npn_selected

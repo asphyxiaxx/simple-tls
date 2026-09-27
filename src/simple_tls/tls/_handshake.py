@@ -181,6 +181,7 @@ class TLSHandshake:
         self._session_id: bytes = b""
         self._cipher_suite: CipherSuite | None = None
         self._in_early_data: bool = False
+        self._max_early_data: int = 0
         self._early_data_offered: bool = False
         self._early_data_accepted: bool = False
         self._extended_master_secret: bool = False
@@ -253,6 +254,10 @@ class TLSHandshake:
         return self._in_early_data
 
     @property
+    def max_early_data(self) -> int:
+        return self._max_early_data
+
+    @property
     def early_data_accepted(self) -> bool:
         return self._early_data_accepted
 
@@ -284,6 +289,32 @@ class TLSHandshake:
     @property
     def ech_status(self) -> ECHStatus:
         return self._ech_status
+
+    def getpeercert(self) -> x509.Certificate | None:
+        session = self._session
+        if session is not None and session.verified_x509_peer is not None:
+            return session.verified_x509_peer
+        return None
+
+    def get_verified_chain(self) -> list[x509.Certificate]:
+        session = self._session
+        chain: list[x509.Certificate] = []
+        if session is not None:
+            if session.verified_x509_peer is not None:
+                chain.append(session.verified_x509_peer)
+            if session.verified_x509_chain is not None:
+                chain.extend(session.verified_x509_chain)
+        return chain
+
+    def get_unverified_chain(self) -> list[x509.Certificate]:
+        session = self._session
+        chain: list[x509.Certificate] = []
+        if session is not None:
+            if session.x509_peer is not None:
+                chain.append(session.x509_peer)
+            if session.x509_chain is not None:
+                chain.extend(session.x509_chain)
+        return chain
 
     def do_handshake(self) -> Status:
         ret = Status.OK
@@ -561,6 +592,7 @@ class TLSHandshake:
     def _close_early_data(self) -> None:
         assert self._in_early_data
 
+        self._max_early_data = 0
         self._in_early_data = False
         self.can_early_write = False
 

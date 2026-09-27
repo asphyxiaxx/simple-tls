@@ -238,8 +238,8 @@ class TLSHandshakeServer(TLSHandshake):
         # Early data
         self._enable_early_data: bool = configuration.early_data
 
-        # Max early data size
-        self._max_early_data_size: int = configuration.max_early_data_size
+        # Ticket max early data
+        self._ticket_max_early_data: int = configuration.max_early_data_size
 
         # ALPN protocols
         self._alpn_protocols: tuple[bytes, ...] | None = (
@@ -1032,6 +1032,7 @@ class TLSHandshakeServer(TLSHandshake):
 
                     self._session_reused = True
                     self._psk_index = index
+                    self._max_early_data = session.ticket_max_early_data
                     # Store in case of HRR
                     self._pre_shared_key = (identity, binder_key)
                     break
@@ -1643,9 +1644,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         extensions: list[Extension] = []
 
-        if self._enable_early_data and self._max_early_data_size > 0:
-            extensions.append(EarlyDataExtension(self._max_early_data_size))
-            session.ticket_max_early_data = self._max_early_data_size
+        if self._enable_early_data and self._ticket_max_early_data > 0:
+            extensions.append(EarlyDataExtension(self._ticket_max_early_data))
+            session.ticket_max_early_data = self._ticket_max_early_data
 
         for i in range(2):
             new_session = session.copy(include_noauth=True)

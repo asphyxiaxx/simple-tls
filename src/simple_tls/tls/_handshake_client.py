@@ -536,6 +536,7 @@ class TLSHandshakeClient(TLSHandshake):
             transcript=transcript,
         )
         self._setup_traffic_tls13(Direction.WRITE, Epoch.ZERO_RTT)
+        self._max_early_data = self._session.ticket_max_early_data
         self._in_early_data = True
         self.can_early_write = True
 
