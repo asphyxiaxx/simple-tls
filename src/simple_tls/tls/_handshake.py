@@ -333,10 +333,10 @@ class TLSHandshake:
         return ret
 
     def trigger_post_handshake(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError("abstract class")
 
     def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
-        raise NotImplementedError
+        raise NotImplementedError("abstract class")
 
     def protocol_version(self) -> int:
         assert self._version != TLSVersion.UNSPECIFIED
@@ -414,16 +414,11 @@ class TLSHandshake:
             secret = self._enc_secret.get(epoch, None)
 
         if secret is not None:
+            assert self._session is not None
             session = self._session
-            if session is None:
-                raise ValueError("session not set")
-
-            cipher_suite = session.cipher_suite
-            if cipher_suite is None:
-                raise ValueError("Missing cipher suite in session")
-
+            assert session.cipher_suite is not None
             version = session.protocol_version()
-            traffic = TrafficContext(version, cipher_suite, secret)
+            traffic = TrafficContext(version, session.cipher_suite, secret)
         else:
             traffic = None
 
