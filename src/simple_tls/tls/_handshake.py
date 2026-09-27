@@ -375,22 +375,21 @@ class TLSHandshake:
         self.setup_traffic_cb(direction, Epoch.APPLICATION_DATA, traffic)
 
     def _setup_traffic_tls13(self, direction: Direction, epoch: Epoch) -> None:
-        if epoch != Epoch.INITIAL:
-            if self._session is None:
+        if direction == Direction.READ:
+            secret = self._dec_secret.get(epoch, None)
+        else:
+            secret = self._enc_secret.get(epoch, None)
+
+        if secret is not None:
+            session = self._session
+            if session is None:
                 raise ValueError("session not set")
 
-            session = self._session
-            if session.cipher_suite is None:
+            cipher_suite = session.cipher_suite
+            if cipher_suite is None:
                 raise ValueError("Missing cipher suite in session")
 
             version = session.protocol_version()
-            cipher_suite = session.cipher_suite
-
-            if direction == Direction.READ:
-                secret = self._dec_secret[epoch]
-            else:
-                secret = self._enc_secret[epoch]
-
             traffic = TrafficContext(version, cipher_suite, secret)
         else:
             traffic = None
