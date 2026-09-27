@@ -225,7 +225,7 @@ class TLSHandshake:
 
     @property
     def session(self) -> TLSSession | None:
-        if self._session_establish or self._in_early_data:
+        if self._session_establish:
             return self._session
         return None
 
