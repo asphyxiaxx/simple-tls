@@ -554,9 +554,7 @@ class TLSHandshake:
         label: bytes,
         transcript: Transcript,
     ) -> None:
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
-
+        assert self._key_schedule is not None
         secret = self._key_schedule.derive_secret(label, transcript)
         if direction == Direction.WRITE:
             self._enc_secret[epoch] = secret
@@ -564,9 +562,7 @@ class TLSHandshake:
             self._dec_secret[epoch] = secret
 
     def _derive_upd_secret_tls13(self, direction: Direction) -> None:
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
-
+        assert self._key_schedule is not None
         epoch = Epoch.APPLICATION_DATA
 
         if direction == Direction.WRITE:
@@ -936,10 +932,8 @@ class TLSHandshake:
     def _verify_x509(
         self, session: TLSSession, hostname: bytes | None = None
     ) -> None:
-        if session.x509_peer is None or session.x509_chain is None:
-            raise AlertInternalError(
-                "Missing x509_peer or x509_chain in session"
-            )
+        assert session.x509_peer is not None
+        assert session.x509_chain is not None
 
         configuration = self.configuration
 
@@ -996,8 +990,8 @@ class TLSHandshake:
         cert_verify: CertificateVerify | CertificateVerifyTLS12,
         supported_sigalgs: typing.Sequence[int] | None,
     ) -> None:
-        if session.x509_peer is None:
-            raise AlertInternalError("Missing x509_peer in session")
+        assert session.x509_peer is not None
+
         if not cert_verify.signature:
             raise AlertIllegalParameter("Empty signature")
 
@@ -1030,9 +1024,7 @@ class TLSHandshake:
         self._check_pubkey(version, peer_public_key)
 
         if version >= TLSVersion.TLSv1_3:
-            if self._key_schedule is None:
-                raise AlertInternalError("key_schedule not set")
-
+            assert self._key_schedule is not None
             context_string = (
                 CLIENT_CONTEXT_STRING
                 if self.is_server

@@ -510,12 +510,9 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SERVER_HELLO)
             return Status.OK
 
-        if self._offered_session is None:
-            raise AlertInternalError("offered_session not set")
-
+        assert self._offered_session is not None
         offered_session = self._offered_session
-        if offered_session.cipher_suite is None:
-            raise AlertInternalError("Missing Cipher suite in session")
+        assert offered_session.cipher_suite is not None
 
         self._session = offered_session.copy(include_noauth=True)
         self._version = offered_session.version
@@ -582,13 +579,10 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertIllegalParameter("Invalid compression method")
 
         if self._early_data_offered:
+            assert self._offered_session is not None
+
             offered_session = self._offered_session
-
-            if offered_session is None:
-                self.can_early_write = False
-                raise AlertInternalError("offered_session not set")
-
-            if self._version != offered_session.version:
+            if self._version != self._offered_session.version:
                 if (
                     self.protocol_version() >= TLSVersion.TLSv1_3
                     or offered_session.protocol_version() < TLSVersion.TLSv1_3
@@ -654,20 +648,18 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Session ID
         if self._session_id and server_hello.session_id == self._session_id:
-            offered_session = self._offered_session
-
             if (
-                offered_session is None
+                self._offered_session is None
                 or self._ech_status == ECHStatus.REJECTED
             ):
                 raise AlertIllegalParameter("Echoed invalid session id")
-            if offered_session.version != self._version:
+            if self._offered_session.version != self._version:
                 raise AlertIllegalParameter("Invalid version")
-            if offered_session.cipher_suite != self._cipher_suite:
+            if self._offered_session.cipher_suite != self._cipher_suite:
                 raise AlertIllegalParameter("Invalid cipher suite")
 
             self._session_reused = True
-            session = offered_session.copy(include_noauth=True)
+            session = self._offered_session.copy(include_noauth=True)
         else:
             session = self._get_new_session()
             session.session_id = server_hello.session_id
@@ -703,9 +695,7 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SESSION_TICKET)
             return Status.OK
 
-        if self._cipher_suite is None:
-            raise AlertInternalError("cipher_suite not set")
-
+        assert self._cipher_suite is not None
         if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_KEY_EXCHANGE)
             return Status.OK
@@ -714,9 +704,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
+        assert self._session is not None
         session = self._session
         certificate = self._process_certificate(
             message, session, allow_anon=False
@@ -744,11 +732,9 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SERVER_KEY_EXCHANGE)
             return Status.OK
 
+        assert self._session is not None
+
         certificate_status = message.get_handshake(CertificateStatus)
-
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
         self._session.ocsp_response = certificate_status.ocsp
 
         self.message_cb(Direction.READ, certificate_status)
@@ -758,9 +744,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_server_key_exchange(self) -> Status:
-        if self._cipher_suite is None:
-            raise AlertInternalError("cipher_suite not set")
-
+        assert self._cipher_suite is not None
         cipher_suite = self._cipher_suite
 
         if cipher_suite.kea == KeyExchange.RSA:
@@ -771,9 +755,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
+        assert self._session is not None
         version = self.protocol_version()
         session = self._session
         ske = message.get_handshake(ServerKeyExchange)
@@ -829,9 +811,7 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertInternalError("Unsupported cipher suite selected")
 
         if cipher_suite.auth != Authentication.ANON:
-            if session.x509_peer is None:
-                raise AlertInternalError("Missing x509_peer in session")
-
+            assert session.x509_peer is not None
             x509_peer = session.x509_peer
             try:
                 peer_public_key = load_certificate_public_key(x509_peer)
@@ -884,9 +864,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_read_certificate_request(self) -> Status:
-        if self._cipher_suite is None:
-            raise AlertInternalError("cipher_suite not set")
-
+        assert self._cipher_suite is not None
         if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_HELLO_DONE)
             return Status.OK
@@ -995,10 +973,8 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_key_exchange(self) -> Status:
-        if self._cipher_suite is None:
-            raise AlertInternalError("cipher_suite not set")
-        if self._session is None:
-            raise AlertInternalError("session not set")
+        assert self._cipher_suite is not None
+        assert self._session is not None
 
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
@@ -1007,11 +983,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
+            assert session.x509_peer is not None
 
             x509_peer = session.x509_peer
-            if x509_peer is None:
-                raise AlertInternalError("Missing x509_peer in session")
-
             try:
                 peer_public_key = load_certificate_public_key(x509_peer)
             except ValueError as exc:
@@ -1024,10 +998,8 @@ class TLSHandshakeClient(TLSHandshake):
             enc_premaster_secret = peer_public_key.encrypt(premaster_secret)
             writer.write_prefixed_bytes(enc_premaster_secret, 2)
         else:
-            if self._key_exchange is None:
-                raise AlertInternalError("key_exchange not set")
-            if self._peer_key is None:
-                raise AlertInternalError("peer_key not set")
+            assert self._key_exchange is not None
+            assert self._peer_key is not None
 
             key_share, premaster_secret = (
                 self._key_exchange.generate_and_compute(self._peer_key)
@@ -1064,10 +1036,8 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.SEND_CLIENT_FINISHED)
             return Status.PACK_FLIGHT
 
-        if self._private_key is None:
-            raise AlertInternalError("private_key not set")
-        if self._signature_algorithm is None:
-            raise AlertInternalError("signature_algorithm not set")
+        assert self._private_key is not None
+        assert self._signature_algorithm is not None
 
         priv_key = self._private_key
         signature_algorithm = self._signature_algorithm
@@ -1089,15 +1059,14 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_client_finished(self) -> Status:
+        assert self._session is not None
+
         self._setup_traffic(Direction.WRITE)
 
         if self._npn_selected is not None:
             npn = NextProtocol(self._npn_selected)
             self.message_cb(Direction.WRITE, npn)
             self._add_message(npn)
-
-        if self._session is None:
-            raise AlertInternalError("session not set")
 
         master_secret = self._session.secret
         verify_data = self._derive_finished_verify_data(
@@ -1133,9 +1102,7 @@ class TLSHandshakeClient(TLSHandshake):
         if not new_session_ticket.ticket:
             self._ticket_expected = False
         else:
-            if self._session is None:
-                raise AlertInternalError("session not set")
-
+            assert self._session is not None
             session = self._session
             session.rebase_time()
             session.ticket = new_session_ticket.ticket
@@ -1157,11 +1124,9 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
+        assert self._session is not None
+
         server_finished = message.get_handshake(Finished)
-
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
         verify_data = server_finished.verify_data
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
@@ -1221,8 +1186,7 @@ class TLSHandshakeClient(TLSHandshake):
         ext_map.pop(ExtensionType.SUPPORTED_VERSIONS)
 
         if self._selected_ech_config is not None:
-            if self._inner_transcript is None:
-                raise AlertInternalError("inner_transcript not set")
+            assert self._inner_transcript is not None
 
             ext_map.pop(ExtensionType.ENCRYPTED_CLIENT_HELLO, None)
             self._inner_transcript.update_for_hello_retry_request(
@@ -1259,10 +1223,9 @@ class TLSHandshakeClient(TLSHandshake):
             self._peer_cookie = cookie_ext.data
 
         if key_share_ext is not None:
-            selected_group = key_share_ext.data
-            if self._supported_groups is None:
-                raise AlertInternalError()
+            assert self._supported_groups is not None
 
+            selected_group = key_share_ext.data
             if selected_group not in self._supported_groups:
                 raise AlertIllegalParameter(
                     "Unexpected group in key share extension"
@@ -1322,14 +1285,13 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
+        assert self._cipher_suite is not None
+        assert self._key_schedule is not None
+
         server_hello = message.get_handshake(ServerHello)
 
         if self.has_unprocessed_hs_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
-        if self._cipher_suite is None:
-            raise AlertInternalError("cipher_suite not set")
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
 
         cipher_suite = self._cipher_suite
         key_schedule = self._key_schedule
@@ -1350,17 +1312,14 @@ class TLSHandshakeClient(TLSHandshake):
             self._selected_ech_config is not None
             and self._ech_status != ECHStatus.REJECTED
         ):
-            if self._inner_transcript is None:
-                raise AlertInternalError("inner_transcript not set")
+            assert self._inner_transcript is not None
 
             ech_accepted = self._check_ech_confirmation(
                 server_hello, self._inner_transcript.copy(), is_hrr=False
             )
             if ech_accepted:
-                if self._inner_client_random is None:
-                    raise AlertInternalError("inner_client_random not set")
-                if self._inner_extensions_sent is None:
-                    raise AlertInternalError("inner_extensions_sent not set")
+                assert self._inner_client_random is not None
+                assert self._inner_extensions_sent is not None
 
                 self._ech_status = ECHStatus.ACCEPTED
                 self._client_random = self._inner_client_random
@@ -1394,19 +1353,15 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertUnsupportedExtension("Unsupported extension")
 
         if psk_ext is not None:
+            assert self._offered_session is not None
             offered_session = self._offered_session
+            assert offered_session.cipher_suite is not None
 
             if (
                 not self._pre_shared_keys
                 or self._ech_status == ECHStatus.REJECTED
             ):
                 raise AlertUnsupportedExtension("Unexpected PSK extension")
-            if offered_session is None:
-                raise AlertInternalError("offered_session not set")
-            if offered_session.cipher_suite is None:
-                raise AlertInternalError(
-                    "Missing cipher_suite in offered_session"
-                )
             if offered_session.version != self._version:
                 raise AlertIllegalParameter("version mismatch")
             if offered_session.cipher_suite.prf_hash != cipher_suite.prf_hash:
@@ -1428,9 +1383,7 @@ class TLSHandshakeClient(TLSHandshake):
             session.renew_timeout(100)
             self._session_reused = True
         else:
-            if key_schedule.generation != 0:
-                raise AlertInternalError()
-
+            assert key_schedule.generation == 0
             key_schedule.extract(None)
             session = self._get_new_session()
 
@@ -1500,6 +1453,8 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
+        assert self._session is not None
+
         enc_ext = message.get_handshake(EncryptedExtensions)
 
         ext_map = enc_ext.extension_map(ExtensionSource.SERVER)
@@ -1508,18 +1463,14 @@ class TLSHandshakeClient(TLSHandshake):
         self.message_cb(Direction.READ, enc_ext)
         self._next_message()
 
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
         session = self._session
 
         if self._early_data_accepted:
+            assert self._offered_session is not None
+            assert self._session_reused
+
             offered_session = self._offered_session
 
-            if offered_session is None:
-                raise AlertInternalError("offered_session not set")
-            if not self._session_reused:
-                raise AlertInternalError("Session not reused")
             if self._ech_status == ECHStatus.REJECTED:
                 raise AlertIllegalParameter(
                     "Early data accepted on rejected ECH"
@@ -1596,8 +1547,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        if self._session is None:
-            raise AlertInternalError("session not set")
+        assert self._session is not None
 
         session = self._session
         certificate = self._process_certificate_tls13(
@@ -1629,17 +1579,14 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
+        assert self._session is not None
+
         cert_verify = message.get_handshake(CertificateVerifyTLS12)
-
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
             supported_sigalgs=self._signature_algorithms,
         )
-
         self.message_cb(Direction.READ, cert_verify)
         self._next_message()
 
@@ -1651,14 +1598,13 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
+        assert self._key_schedule is not None
+        assert self._session is not None
+
         finished = message.get_handshake(Finished)
 
         if self.has_unprocessed_hs_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
-        if self._session is None:
-            raise AlertInternalError("session not set")
 
         verify_data = finished.verify_data
         expected_verify_data = self._key_schedule.finished_verify_data(
@@ -1671,9 +1617,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._next_message()
 
         # prepare traffic keys
-        if not self._key_schedule.generation == 2:
-            raise AlertInternalError()
-
+        assert self._key_schedule.generation == 2
         self._key_schedule.extract(None)
 
         self._derive_secret_tls13(
@@ -1707,9 +1651,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_client_encrypted_extensions_tls13(self) -> Status:
-        if self._session is None:
-            raise AlertInternalError("session not set")
-
+        assert self._session is not None
         session = self._session
 
         if self._early_data_accepted:
@@ -1741,8 +1683,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_finished_tls13(self) -> Status:
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
+        assert self._key_schedule is not None
 
         verify_data = self._key_schedule.finished_verify_data(
             self._enc_secret[Epoch.HANDSHAKE], self._transcript
@@ -1762,10 +1703,10 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_finish_client_handshake(self) -> Status:
+        assert self._session is not None
+
         if self._ech_status == ECHStatus.REJECTED:
             raise AlertECHRequired("ECH not negotiated")
-        if self._session is None:
-            raise AlertInternalError("session not set")
 
         if not self._session_reused:
             session = self._session
@@ -1811,10 +1752,8 @@ class TLSHandshakeClient(TLSHandshake):
         raise AlertUnexpectedMessage()
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
-        if self._session is None:
-            raise AlertInternalError("session not set")
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
+        assert self._session is not None
+        assert self._key_schedule is not None
 
         session = self._session
         key_schedule = self._key_schedule
@@ -1839,9 +1778,7 @@ class TLSHandshakeClient(TLSHandshake):
                 session.ticket_max_early_data = max_early_data
 
                 # Resumption master secret
-                if not key_schedule.generation == 3:
-                    raise AlertInternalError()
-
+                assert self._key_schedule.generation == 3
                 master_secret = key_schedule.derive_secret(
                     b"res master", self._transcript
                 )
@@ -2074,8 +2011,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         ext_type = ExtensionType.ENCRYPTED_CLIENT_HELLO
         idx, ext_data = hello_outer.find_extension(ext_type)
-        if ext_data is None:
-            raise AlertInternalError()
+        assert ext_data is not None
 
         self._ech_client_outer.payload = payload
         # new_ext_data = self._ech_client_outer.serialize()
@@ -2339,10 +2275,8 @@ class TLSHandshakeClient(TLSHandshake):
         transcript: Transcript,
         is_hrr: bool,
     ) -> bool:
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
-        if self._inner_client_random is None:
-            raise AlertInternalError("inner_client_random not set")
+        assert self._key_schedule is not None
+        assert self._inner_client_random is not None
 
         if is_hrr:
             ext_type = ExtensionType.ENCRYPTED_CLIENT_HELLO
@@ -2376,8 +2310,7 @@ class TLSHandshakeClient(TLSHandshake):
         return False
 
     def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
-        if self._cipher_suite is None:
-            raise AlertInternalError("cipher_suite not set")
+        assert self._cipher_suite is not None
 
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
@@ -2425,8 +2358,7 @@ class TLSHandshakeClient(TLSHandshake):
             ServerALPNExtension | None, ext_map.get(ExtensionType.ALPN)
         )
         if alpn_ext is not None:
-            if self._alpn_protocols is None:
-                raise AlertInternalError("alpn_protocols config not set")
+            assert self._alpn_protocols is not None
             if alpn_ext.protocol not in self._alpn_protocols:
                 raise AlertIllegalParameter(
                     "Unexpected protocol in ALPN extension"
@@ -2458,8 +2390,8 @@ class TLSHandshakeClient(TLSHandshake):
                 ext_map.get(ExtensionType.EARLY_DATA),
             )
             if early_data_ext is not None:
-                if not self._early_data_offered:
-                    raise AlertInternalError()
+                assert self._early_data_offered
+
                 if self._hello_retry_request_used:
                     AlertIllegalParameter(
                         "Unexpected early data extension after hello retry "
@@ -2487,8 +2419,7 @@ class TLSHandshakeClient(TLSHandshake):
                 ext_map.get(ExtensionType.SUPPORTS_NPN),
             )
             if npn_ext is not None:
-                if self._npn_protocols is None:
-                    raise AlertInternalError()
+                assert self._npn_protocols is not None
 
                 npn_selected = negotiate(
                     self._npn_protocols, npn_ext.protocols
@@ -2529,9 +2460,7 @@ class TLSHandshakeClient(TLSHandshake):
                 ext_map.get(ExtensionType.EC_POINT_FORMATS),
             )
             if ecpfs_ext is not None:
-                if self._ec_point_formats is None:
-                    raise AlertInternalError()
-
+                assert self._ec_point_formats is not None
                 _ = negotiate(
                     self._ec_point_formats,
                     ecpfs_ext.data,
@@ -2572,8 +2501,7 @@ class TLSHandshakeClient(TLSHandshake):
             pass
 
         elif self._credential is not None:
-            if self._signature_algorithms is None:
-                raise AlertInternalError("signature_algorithms config not set")
+            assert self._signature_algorithms is not None
 
             private_key = self._credential.private_key
             x509_certificates = self._credential.x509_certificates
@@ -2611,8 +2539,7 @@ class TLSHandshakeClient(TLSHandshake):
         if signature_algorithm is None:
             return
 
-        if self._key_schedule is None:
-            raise AlertInternalError("key_schedule not set")
+        assert self._key_schedule is not None
 
         private_key = typing.cast(BasePrivateKey, private_key)
         data = self._key_schedule.certificate_verify_data(
