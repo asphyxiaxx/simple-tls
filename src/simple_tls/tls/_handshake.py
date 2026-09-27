@@ -192,8 +192,8 @@ class TLSHandshake:
         self._ech_status: ECHStatus = ECHStatus.NONE
 
         # Buffer
-        self._hs_buf = bytearray()
-        self._pending_hs_data = bytearray()
+        self._incoming_data = bytearray()
+        self._outgoing_data = bytearray()
         self._cache: Handshake | None = None
 
         # Transcript and secrets
@@ -343,16 +343,16 @@ class TLSHandshake:
         return self._cipher_suite
 
     def add_hs_data(self, data: Buffer) -> None:
-        self._hs_buf.extend(data)
+        self._incoming_data.extend(data)
 
     def has_unprocessed_hs_data(self) -> bool:
-        return len(self._hs_buf) > 0
+        return len(self._incoming_data) > 0
 
     def pending_flight(self) -> bytearray:
-        return self._pending_hs_data
+        return self._outgoing_data
 
     def clear_flight(self) -> None:
-        self._pending_hs_data.clear()
+        self._outgoing_data.clear()
 
     @staticmethod
     def _update_hash(
@@ -366,16 +366,18 @@ class TLSHandshake:
         if self._cache is not None:
             return self._cache
 
-        if len(self._hs_buf) < 4:
+        if len(self._incoming_data) < 4:
             return None
 
-        data_len = 4 + bytes_to_int(self._hs_buf[1:4])
-        if len(self._hs_buf) < data_len:
+        data_len = 4 + bytes_to_int(self._incoming_data[1:4])
+        if len(self._incoming_data) < data_len:
             return None
 
-        handshake = Handshake(self._hs_buf[0], bytes(self._hs_buf[4:data_len]))
+        handshake = Handshake(
+            self._incoming_data[0], bytes(self._incoming_data[4:data_len])
+        )
         self._cache = handshake
-        del self._hs_buf[:data_len]
+        del self._incoming_data[:data_len]
         return self._cache
 
     def _add_message(
@@ -383,7 +385,7 @@ class TLSHandshake:
     ) -> None:
         handshake = Handshake(message.handshake_type, message.serialize())
         handshake_data = handshake.serialize()
-        self._pending_hs_data.extend(handshake_data)
+        self._outgoing_data.extend(handshake_data)
         if update_hash:
             self._transcript.update_hash(handshake_data)
 
