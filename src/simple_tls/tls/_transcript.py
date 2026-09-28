@@ -25,7 +25,7 @@ from cryptography.hazmat.primitives import hashes
 from simple_tls.codec import Writer
 from simple_tls.crypto.kdf import hkdf_extract
 
-from ._constant import HandshakeType
+from ._constants import HandshakeType
 from ._utils import get_algorithm, get_hash, hkdf_expand_label
 
 

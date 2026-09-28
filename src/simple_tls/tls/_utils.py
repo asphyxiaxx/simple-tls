@@ -32,8 +32,8 @@ from simple_tls.codec import Writer
 from simple_tls.crypto.kdf import hkdf_expand
 from simple_tls.crypto.utils import strxor
 
-from ._constant import UNSPECIFIED, HashAlgorithm
-from ._enum import Protocol
+from ._constants import UNSPECIFIED, HashAlgorithm
+from ._enums import Protocol
 from ._supported import TLS_VERSIONS
 
 Buffer: TypeAlias = bytes | bytearray | memoryview

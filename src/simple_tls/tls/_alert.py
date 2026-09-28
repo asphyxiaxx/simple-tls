@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from ._constant import AlertDescription
+from ._constants import AlertDescription
 
 
 class AlertException(Exception):

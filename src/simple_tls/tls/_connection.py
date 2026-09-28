@@ -30,7 +30,7 @@ from simple_tls.crypto.utils import int_to_bytes
 
 from ._alert import AlertException
 from ._configuration import TLSConfiguration
-from ._constant import (
+from ._constants import (
     AlertDescription,
     AlertLevel,
     CipherSuite,
@@ -38,7 +38,7 @@ from ._constant import (
     KeyUpdateMessageType,
     TLSVersion,
 )
-from ._enum import Direction, ECHStatus, Epoch, Shutdown, Status
+from ._enums import Direction, ECHStatus, Epoch, Shutdown, Status
 from ._exceptions import (
     TLSEOFError,
     TLSLocalAlert,

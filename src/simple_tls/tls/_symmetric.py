@@ -36,8 +36,8 @@ from simple_tls.crypto.constant_time import (
 )
 from simple_tls.crypto.utils import get_random_bytes, strxor
 
-from ._constant import CipherSuite, Symmetric, TLSVersion
-from ._enum import Direction
+from ._constants import CipherSuite, Symmetric, TLSVersion
+from ._enums import Direction
 from ._utils import Buffer, WritableBuffer, get_algorithm
 
 try:

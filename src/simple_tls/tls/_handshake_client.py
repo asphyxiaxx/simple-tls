@@ -52,7 +52,7 @@ from ._alert import (
     AlertUnsupportedExtension,
 )
 from ._configuration import TLSConfiguration
-from ._constant import (
+from ._constants import (
     CLIENT_CONTEXT_STRING,
     GREASES,
     TLS11_DOWNGRADE_SENTINEL,
@@ -74,7 +74,7 @@ from ._constant import (
     Symmetric,
     TLSVersion,
 )
-from ._enum import (
+from ._enums import (
     ClientHelloType,
     ClientState,
     Direction,

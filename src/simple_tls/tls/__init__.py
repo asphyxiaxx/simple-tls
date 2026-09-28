@@ -45,7 +45,7 @@ from ._alert import (
 )
 from ._configuration import TLSConfiguration, TLSCredential, load_castore
 from ._connection import ConnectionState, TLSConnection
-from ._constant import (
+from ._constants import (
     AlertDescription,
     AlertLevel,
     Authentication,
@@ -75,7 +75,7 @@ from ._constant import (
     TLSEnum,
     TLSVersion,
 )
-from ._enum import (
+from ._enums import (
     ClientHelloType,
     ClientState,
     Direction,

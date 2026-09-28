@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.crypto.utils import int_to_bytes
 
-from ._constant import (
+from ._constants import (
     CertificateStatusType,
     ECHClientHelloType,
     ExtensionType,

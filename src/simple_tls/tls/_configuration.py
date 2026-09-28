@@ -30,8 +30,8 @@ from cryptography import x509
 from simple_tls.crypto.utils import str_to_bytes
 from simple_tls.crypto.verification import ExtensionPolicy, Store
 
-from ._constant import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
-from ._enum import Protocol, VerifyMode
+from ._constants import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
+from ._enums import Protocol, VerifyMode
 from ._key import BasePrivateKey, load_pem_private_key
 from ._keyexchange import DHParameters
 from ._session import TicketAEAD, TLSSession

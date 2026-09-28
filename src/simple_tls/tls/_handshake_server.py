@@ -48,7 +48,7 @@ from ._alert import (
     AlertUnsupportedExtension,
 )
 from ._configuration import TLSConfiguration, TLSCredential
-from ._constant import (
+from ._constants import (
     SERVER_CONTEXT_STRING,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
@@ -68,7 +68,7 @@ from ._constant import (
     Symmetric,
     TLSVersion,
 )
-from ._enum import Direction, Epoch, ServerState, Status, VerifyMode
+from ._enums import Direction, Epoch, ServerState, Status, VerifyMode
 from ._extensions import (
     ClientALPNExtension,
     ClientALPSExtension,

@@ -33,7 +33,7 @@ from simple_tls.crypto.utils import (
 )
 
 from ._alert import AlertDecodeError, AlertIllegalParameter, AlertInternalError
-from ._constant import NamedGroup
+from ._constants import NamedGroup
 from ._supported import ECC_GROUPS
 
 

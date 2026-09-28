@@ -52,7 +52,7 @@ from ._alert import (
     AlertUnknownCA,
 )
 from ._configuration import TLSConfiguration, TLSCredential
-from ._constant import (
+from ._constants import (
     CLIENT_CONTEXT_STRING,
     SERVER_CONTEXT_STRING,
     UNSPECIFIED,
@@ -65,7 +65,7 @@ from ._constant import (
     SignatureScheme,
     TLSVersion,
 )
-from ._enum import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
+from ._enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
 from ._extensions import CertStatusRequestExtension, ECHConfig, Extension
 from ._key import (
     BasePublicKey,
