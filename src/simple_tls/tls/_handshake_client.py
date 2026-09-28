@@ -30,7 +30,6 @@ from simple_tls.crypto.constant_time import compare_digest
 from simple_tls.crypto.hpke import SenderContext, create_suite
 from simple_tls.crypto.utils import (
     bytes_to_int,
-    bytes_to_str,
     get_random_bits,
     get_random_bytes,
     get_random_int,
@@ -170,7 +169,7 @@ from ._supported import (
     SUPPORTED_GROUPS,
 )
 from ._transcript import KeySchedule, Transcript
-from ._utils import filter, is_valid_sni, negotiate
+from ._utils import check_server_hostname, filter, is_ipaddress, negotiate
 
 NewSessionHandler = typing.Callable[[TLSSession], None]
 
@@ -179,7 +178,10 @@ class TLSHandshakeClient(TLSHandshake):
     is_server = False
 
     def __init__(self, configuration: TLSConfiguration) -> None:
-        if configuration.check_hostname and not configuration.server_hostname:
+        server_hostname = configuration.server_hostname
+        if server_hostname is not None:
+            check_server_hostname(server_hostname)
+        elif configuration.check_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
         self.new_session_cb: NewSessionHandler | None = None
@@ -188,10 +190,7 @@ class TLSHandshakeClient(TLSHandshake):
         super().__init__(configuration)
 
         self._offered_session = configuration.session
-
-        server_hostname = configuration.server_hostname
-        if server_hostname and is_valid_sni(bytes_to_str(server_hostname)):
-            self._hostname = bytes(server_hostname)
+        self._hostname = server_hostname
 
         ## Configurations
         # Compression methods
@@ -2109,8 +2108,10 @@ class TLSHandshakeClient(TLSHandshake):
             assert self._selected_ech_config is not None
             hostname = self._selected_ech_config.public_name
             extensions.append(ClientSNIExtension(hostname))
-        elif self._hostname is not None:
-            extensions.append(ClientSNIExtension(self._hostname))
+        else:
+            # RFC 6066 explicitly forbids literal IP addresses in SNI
+            if self._hostname is not None and not is_ipaddress(self._hostname):
+                extensions.append(ClientSNIExtension(self._hostname))
 
         # Status Request
         if self._enable_status_request:

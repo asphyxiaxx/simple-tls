@@ -30,7 +30,7 @@ from cryptography.hazmat.primitives import hashes, hmac
 
 from simple_tls.codec import Writer
 from simple_tls.crypto.kdf import hkdf_expand
-from simple_tls.crypto.utils import strxor
+from simple_tls.crypto.utils import bytes_to_str, strxor
 
 from ._constants import UNSPECIFIED, HashAlgorithm
 from ._enums import Protocol
@@ -77,31 +77,25 @@ def negotiate(
     return None
 
 
-def is_valid_sni(server_hostname: str) -> bool:
+def check_server_hostname(server_hostname: bytes) -> None:
     # must be a non-empty string
-    if (
-        not server_hostname
-        or not isinstance(server_hostname, str)
-        or server_hostname.startswith(".")
-        or server_hostname.endswith(".")
-    ):
+    if not server_hostname or server_hostname.startswith(b"."):
         raise ValueError(
             "server_hostname cannot be an empty or start with a leading dot."
         )
-
-    # RFC 6066 explicitly forbids literal IP addresses in SNI
-    try:
-        ipaddress.ip_address(server_hostname)
-        # If this succeeds, it's an IP address, which is INVALID for SNI
-        return False
-    except ValueError:
-        pass  # Not an IP address, proceed to next checks
 
     # max 253 characters for a domain name
     if len(server_hostname) > 253:
         raise ValueError("SNI hostname is too long")
 
-    return True
+
+def is_ipaddress(server_hostname: bytes) -> bool:
+    hostname = bytes_to_str(server_hostname)
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
 
 
 @typing.overload
