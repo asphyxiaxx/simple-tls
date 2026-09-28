@@ -61,18 +61,21 @@ _ALERT_MAP = {
 
 
 class TLSError(Exception):
-    default: str = ""
-
     def __init__(self, message: str | Exception | None = None) -> None:
-        if not message:
-            message = self.default
-        elif isinstance(message, Exception):
-            message = f"{type(message).__name__}: {message}"
-        Exception.__init__(self, message)
+        if message:
+            if isinstance(message, Exception):
+                message = f"{type(message).__name__}: {message}"
+            super().__init__(message)
+        else:
+            super().__init__()
 
 
 class TLSEOFError(TLSError):
-    default = "The socket was closed."
+    pass
+
+
+class TLSWantReadError(TLSError):
+    pass
 
 
 class TLSAlert(TLSError):
@@ -91,11 +94,3 @@ class TLSLocalAlert(TLSAlert):
 
 class TLSRemoteAlert(TLSAlert):
     pass
-
-
-class TLSWantReadError(TLSError):
-    default = (
-        "I'm ready to process the next TLS step, but I need more "
-        "encrypted data first — please read from the wire and give"
-        " it to me."
-    )
