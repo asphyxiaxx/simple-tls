@@ -1049,14 +1049,14 @@ class TLSHandshakeServer(TLSHandshake):
                     self._pre_shared_key = (identity, binder_key)
                     break
 
-        if not self._session_reused:
+        if self._session_reused:
+            assert session is not None
+            assert key_schedule is not None
+            new_session = session.copy()
+        else:
             new_session = self._get_new_session()
             key_schedule = KeySchedule(cipher_suite.prf_hash)
             key_schedule.extract(None)
-        else:
-            assert session is not None
-            assert key_schedule is not None
-            new_session = session.copy(include_noauth=True)
 
         hrr = False
 
@@ -1140,6 +1140,9 @@ class TLSHandshakeServer(TLSHandshake):
             ):
                 self._early_data_accepted = True
 
+                new_session.ticket_max_early_data = (
+                    session.ticket_max_early_data
+                )
                 if new_session.has_alps:
                     new_session.peer_alps = session.peer_alps
 
