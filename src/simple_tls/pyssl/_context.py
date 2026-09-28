@@ -49,7 +49,7 @@ class SSLContext:
     sslsocket_class: type[SSLSocket] = SSLSocket
     sslobject_class: type[SSLObject] = SSLObject
 
-    def __init__(self, protocol: int = PROTOCOL_TLS_CLIENT):
+    def __init__(self, protocol: int = PROTOCOL_TLS_CLIENT) -> None:
         if protocol == PROTOCOL_TLS_CLIENT:
             verify_mode = VerifyMode.CERT_REQUIRED
             check_hostname = True
