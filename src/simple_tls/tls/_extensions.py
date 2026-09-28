@@ -78,15 +78,13 @@ class ExtensionsMessage:
 
         return None
 
-    def extension_map(
-        self, extension_source: ExtensionSource = ExtensionSource.NONE
-    ) -> dict[int, Extension]:
+    def extension_map(self, source: ExtensionSource) -> dict[int, Extension]:
         ext_map: dict[int, Extension] = {}
-        source = _EXTENSION_SOUCES[extension_source]
+        sources = _EXTENSION_SOUCES[source]
 
         for ext_type, ext_data in self.extensions:
             try:
-                ext_cls = source[ext_type]
+                ext_cls = sources[ext_type]
             except KeyError:
                 # Fallback: unknown or unsupported extension
                 ext_map[ext_type] = GenericExtension(ext_type, ext_data)
