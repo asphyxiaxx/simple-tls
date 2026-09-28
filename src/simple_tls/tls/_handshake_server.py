@@ -1379,9 +1379,7 @@ class TLSHandshakeServer(TLSHandshake):
             enc_extensions.append(ALPNServerExtension(self._alpn_selected))
 
         if self._session.has_alps and not self._early_data_accepted:
-            enc_extensions.append(
-                ALPSExtension(self._session.local_alps)
-            )
+            enc_extensions.append(ALPSExtension(self._session.local_alps))
 
         enc_ext = EncryptedExtensions(
             self._serialize_extensions(enc_extensions)
