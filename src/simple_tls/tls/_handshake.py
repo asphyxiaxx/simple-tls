@@ -124,9 +124,9 @@ class ECHConfigContent:
 class TrafficContext:
     version: int
     cipher_suite: CipherSuite
-
-    # --- Used for TLS 1.3 / QUIC ---
-    secret: bytes | None = None
+    client_random: bytes
+    server_random: bytes
+    secret: bytes
 
     # --- Used for TLS 1.2 and below ---
     enc_key: bytes | None = None
@@ -417,8 +417,13 @@ class TLSHandshake:
             assert self._session is not None
             session = self._session
             assert session.cipher_suite is not None
-            version = session.protocol_version()
-            traffic = TrafficContext(version, session.cipher_suite, secret)
+            traffic = TrafficContext(
+                version=session.protocol_version(),
+                cipher_suite=session.cipher_suite,
+                client_random=self._client_random,
+                server_random=self._server_random,
+                secret=secret,
+            )
         else:
             traffic = None
 
@@ -528,6 +533,9 @@ class TLSHandshake:
         self._read_traffic = TrafficContext(
             version=version,
             cipher_suite=cipher_suite,
+            client_random=self._client_random,
+            server_random=self._server_random,
+            secret=secret,
             enc_key=read_key,
             mac_key=read_mac,
             fixed_iv=read_iv,
@@ -536,6 +544,9 @@ class TLSHandshake:
         self._write_traffic = TrafficContext(
             version=version,
             cipher_suite=cipher_suite,
+            client_random=self._client_random,
+            server_random=self._server_random,
+            secret=secret,
             enc_key=write_key,
             mac_key=write_mac,
             fixed_iv=write_iv,
