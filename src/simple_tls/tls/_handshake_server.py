@@ -69,7 +69,7 @@ from ._constant import (
     TLSVersion,
 )
 from ._enum import Direction, Epoch, ServerState, Status, VerifyMode
-from ._extension import (
+from ._extensions import (
     ClientALPNExtension,
     ClientALPSExtension,
     ClientKeyShareExtension,

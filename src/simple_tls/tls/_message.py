@@ -33,7 +33,7 @@ from ._constant import (
     CertificateStatusType,
     HandshakeType,
 )
-from ._extension import (
+from ._extensions import (
     ExtensionsMessage,
     OptionalExtensionsMessage,
     SignatureAlgorithmsExtension,

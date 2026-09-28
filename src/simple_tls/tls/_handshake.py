@@ -66,7 +66,7 @@ from ._constant import (
     TLSVersion,
 )
 from ._enum import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from ._extension import CertStatusRequestExtension, ECHConfig, Extension
+from ._extensions import CertStatusRequestExtension, ECHConfig, Extension
 from ._key import (
     BasePublicKey,
     DSAPublicKey,

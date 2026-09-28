@@ -95,7 +95,7 @@ from ._exceptions import (
     TLSRemoteAlert,
     TLSWantReadError,
 )
-from ._extension import (
+from ._extensions import (
     CertStatusRequestExtension,
     ClientALPNExtension,
     ClientALPSExtension,

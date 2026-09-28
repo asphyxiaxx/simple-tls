@@ -83,7 +83,7 @@ from ._enum import (
     Status,
     VerifyMode,
 )
-from ._extension import (
+from ._extensions import (
     COMPRESSIBLE_EXTENSIONS,
     ClientALPNExtension,
     ClientALPSExtension,

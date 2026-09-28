@@ -45,7 +45,7 @@ from ._exceptions import (
     TLSRemoteAlert,
     TLSWantReadError,
 )
-from ._extension import ECHConfig
+from ._extensions import ECHConfig
 from ._handshake import TLSHandshake, TrafficContext
 from ._handshake_client import NewSessionHandler, TLSHandshakeClient
 from ._handshake_server import SNICallback, TLSHandshakeServer
