@@ -66,7 +66,11 @@ from ._constants import (
     TLSVersion,
 )
 from ._enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from ._extensions import CertStatusRequestExtension, ECHConfig, Extension
+from ._extensions import (
+    ECHConfig,
+    Extension,
+    StatusRequestCertificateExtension,
+)
 from ._key import (
     BasePublicKey,
     DSAPublicKey,
@@ -715,7 +719,9 @@ class TLSHandshake:
         except ValueError as exc:
             raise AlertBadCertificate(str(exc)) from exc
 
-        cert_status = cert_entry.get_extension(CertStatusRequestExtension)
+        cert_status = cert_entry.get_extension(
+            StatusRequestCertificateExtension
+        )
         if cert_status is not None:
             ocsp_response = cert_status.response
         else:

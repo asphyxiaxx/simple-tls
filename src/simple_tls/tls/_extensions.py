@@ -42,10 +42,10 @@ _IE = typing.TypeVar("_IE", bound="IntExtension")
 
 class ExtensionSource(enum.IntEnum):
     NONE = enum.auto()
-    CERT = enum.auto()
+    CERTIFICATE = enum.auto()
     CLIENT = enum.auto()
     SERVER = enum.auto()
-    HRR = enum.auto()
+    HELLO_RETRY_REQUEST = enum.auto()
 
 
 @dataclass
@@ -316,7 +316,7 @@ class CompressedCertificateExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ClientSupportedVersionsExtension(PrefixedIntListExtension):
+class SupportedVersionsClientExtension(PrefixedIntListExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
     _item_size: typing.ClassVar[int] = 2
     _prefix_size: typing.ClassVar[int] = 1
@@ -325,13 +325,13 @@ class ClientSupportedVersionsExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ServerSupportedVersionExtension(IntExtension):
+class SupportedVersionServerExtension(IntExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
     _item_size: typing.ClassVar[int] = 2
 
 
 @dataclass
-class ClientSupportedGroupsExtension(PrefixedIntListExtension):
+class SupportedGroupsClientExtension(PrefixedIntListExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTED_GROUPS
     _item_size: typing.ClassVar[int] = 2
     _prefix_size: typing.ClassVar[int] = 2
@@ -387,12 +387,12 @@ class PSKKeyExchangeModesExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ClientALPSExtension(Extension):
+class ALPSClientExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
     protocols: typing.Sequence[bytes]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientALPSExtension:
+    def from_bytes(cls, data: bytes) -> ALPSClientExtension:
         parser = Parser(data)
         protocols: list[bytes] = []
 
@@ -408,7 +408,7 @@ class ClientALPSExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientALPSExtension(protocols)
+        return ALPSClientExtension(protocols)
 
     def serialize(self) -> bytes:
         if not self.protocols:
@@ -426,13 +426,13 @@ class ClientALPSExtension(Extension):
 
 
 @dataclass
-class ServerALPSExtension(Extension):
+class ALPSExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
     settings: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ServerALPSExtension:
-        return ServerALPSExtension(data)
+    def from_bytes(cls, data: bytes) -> ALPSExtension:
+        return ALPSExtension(data)
 
     def serialize(self) -> bytes:
         return self.settings
@@ -452,7 +452,7 @@ class ECHOuterExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class ClientSNIExtension(Extension):
+class SNIClientExtension(Extension):
     """
     RFC 4366. Server Name Indication extension
     """
@@ -461,7 +461,7 @@ class ClientSNIExtension(Extension):
     hostname: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientSNIExtension:
+    def from_bytes(cls, data: bytes) -> SNIClientExtension:
         parser = Parser(data)
         _ = parser.read_int(2)  # prefixed list size
 
@@ -476,7 +476,7 @@ class ClientSNIExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientSNIExtension(hostname)
+        return SNIClientExtension(hostname)
 
     def serialize(self) -> bytes:
         sn_writer = Writer()
@@ -489,7 +489,7 @@ class ClientSNIExtension(Extension):
 
 
 @dataclass
-class ServerSNIExtension(EmptyExtension):
+class SNIServerExtension(EmptyExtension):
     """
     RFC 4366. Server Name Indication extension
     """
@@ -498,17 +498,17 @@ class ServerSNIExtension(EmptyExtension):
 
 
 @dataclass
-class ClientNPNExtension(EmptyExtension):
+class NPNClientExtension(EmptyExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTS_NPN
 
 
 @dataclass
-class ServerNPNExtension(Extension):
+class NPNServerExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTS_NPN
     protocols: typing.Sequence[bytes]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ServerNPNExtension:
+    def from_bytes(cls, data: bytes) -> NPNServerExtension:
         parser = Parser(data)
         protocols: list[bytes] = []
 
@@ -523,7 +523,7 @@ class ServerNPNExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ServerNPNExtension(protocols)
+        return NPNServerExtension(protocols)
 
     def serialize(self) -> bytes:
         if not self.protocols:
@@ -539,12 +539,12 @@ class ServerNPNExtension(Extension):
 
 
 @dataclass
-class ClientALPNExtension(Extension):
+class ALPNClientExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ALPN
     protocols: typing.Sequence[bytes]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientALPNExtension:
+    def from_bytes(cls, data: bytes) -> ALPNClientExtension:
         parser = Parser(data)
         protocols: list[bytes] = []
 
@@ -560,7 +560,7 @@ class ClientALPNExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientALPNExtension(protocols=protocols)
+        return ALPNClientExtension(protocols=protocols)
 
     def serialize(self) -> bytes:
         if not self.protocols:
@@ -578,12 +578,12 @@ class ClientALPNExtension(Extension):
 
 
 @dataclass
-class ServerALPNExtension(Extension):
+class ALPNServerExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ALPN
     protocol: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ServerALPNExtension:
+    def from_bytes(cls, data: bytes) -> ALPNServerExtension:
         parser = Parser(data)
         _ = parser.read_int(2)  # prefixed list size
         protocol = parser.read_prefixed_bytes(1)
@@ -593,7 +593,7 @@ class ServerALPNExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ServerALPNExtension(protocol)
+        return ALPNServerExtension(protocol)
 
     def serialize(self) -> bytes:
         if not self.protocol:
@@ -608,13 +608,13 @@ class ServerALPNExtension(Extension):
 
 
 @dataclass
-class ClientStatusRequestExtension(Extension):
+class StatusRequestClientExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
     responder_id_list: typing.Sequence[bytes] = ()
     request_extensions: bytes = b""
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientStatusRequestExtension:
+    def from_bytes(cls, data: bytes) -> StatusRequestClientExtension:
         parser = Parser(data)
         status_type = parser.read_int(1)
         if status_type != CertificateStatusType.OCSP:
@@ -631,7 +631,7 @@ class ClientStatusRequestExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientStatusRequestExtension(
+        return StatusRequestClientExtension(
             responder_id_list, request_extensions
         )
 
@@ -649,17 +649,17 @@ class ClientStatusRequestExtension(Extension):
 
 
 @dataclass
-class ServerStatusRequestExtension(EmptyExtension):
+class StatusRequestServerExtension(EmptyExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
 
 
 @dataclass
-class CertStatusRequestExtension(Extension):
+class StatusRequestCertificateExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
     response: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> CertStatusRequestExtension:
+    def from_bytes(cls, data: bytes) -> StatusRequestCertificateExtension:
         parser = Parser(data)
         status_type = parser.read_int(1)
         if status_type != CertificateStatusType.OCSP:
@@ -670,7 +670,7 @@ class CertStatusRequestExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return CertStatusRequestExtension(response)
+        return StatusRequestCertificateExtension(response)
 
     def serialize(self) -> bytes:
         writer = Writer()
@@ -702,12 +702,12 @@ class KeyShareEntry:
 
 
 @dataclass
-class ClientKeyShareExtension(Extension):
+class KeyShareClientExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
     key_shares: typing.Sequence[KeyShareEntry]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientKeyShareExtension:
+    def from_bytes(cls, data: bytes) -> KeyShareClientExtension:
         parser = Parser(data)
         key_shares: list[KeyShareEntry] = []
 
@@ -719,7 +719,7 @@ class ClientKeyShareExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientKeyShareExtension(key_shares)
+        return KeyShareClientExtension(key_shares)
 
     def serialize(self) -> bytes:
         ks_writer = Writer()
@@ -732,19 +732,19 @@ class ClientKeyShareExtension(Extension):
 
 
 @dataclass
-class ServerKeyShareExtension(Extension):
+class KeyShareServerExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
     key_share: KeyShareEntry
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ServerKeyShareExtension:
+    def from_bytes(cls, data: bytes) -> KeyShareServerExtension:
         parser = Parser(data)
         key_share = KeyShareEntry.parse(parser)
 
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ServerKeyShareExtension(key_share)
+        return KeyShareServerExtension(key_share)
 
     def serialize(self) -> bytes:
         writer = Writer()
@@ -753,7 +753,7 @@ class ServerKeyShareExtension(Extension):
 
 
 @dataclass
-class HRRKeyShareExtension(IntExtension):
+class KeyShareHRRExtension(IntExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
     _item_size: typing.ClassVar[int] = 2
 
@@ -782,13 +782,13 @@ class PSKIdentity:
 
 
 @dataclass
-class ClientPSKExtension(Extension):
+class PSKClientExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.PRE_SHARED_KEY
     identities: typing.Sequence[PSKIdentity]
     binders: typing.Sequence[bytes]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientPSKExtension:
+    def from_bytes(cls, data: bytes) -> PSKClientExtension:
         parser = Parser(data)
         identities: list[PSKIdentity] = []
         binders: list[bytes] = []
@@ -812,7 +812,7 @@ class ClientPSKExtension(Extension):
         if parser.remaining():
             raise ParseError("trailing data")
 
-        return ClientPSKExtension(identities, binders)
+        return PSKClientExtension(identities, binders)
 
     def serialize(self) -> bytes:
         if len(self.identities) != len(self.binders):
@@ -838,13 +838,13 @@ class ClientPSKExtension(Extension):
 
 
 @dataclass
-class ServerPSKExtension(IntExtension):
+class PSKServerExtension(IntExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.PRE_SHARED_KEY
     _item_size: typing.ClassVar[int] = 2
 
 
 @dataclass
-class ClientPHAExtension(EmptyExtension):
+class PostHandshakeAuthExtension(EmptyExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.POST_HANDSHAKE_AUTH
 
 
@@ -855,24 +855,24 @@ class EarlyDataExtension(IntExtension):
 
 
 @dataclass
-class ClientEarlyDataExtension(EmptyExtension):
+class EarlyDataClientExtension(EmptyExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.EARLY_DATA
 
 
 @dataclass
-class ServerEarlyDataExtension(EmptyExtension):
+class EarlyDataServerExtension(EmptyExtension):
     extension_type: typing.ClassVar[int] = ExtensionType.EARLY_DATA
 
 
 @dataclass
-class ClientSCTExtension(EmptyExtension):
+class SCTClientExtension(EmptyExtension):
     extension_type: typing.ClassVar[int] = (
         ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
     )
 
 
 @dataclass
-class ServerSCTExtension(PrefixedBytesExtension):
+class SCTServerExtension(PrefixedBytesExtension):
     extension_type: typing.ClassVar[int] = (
         ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
     )
@@ -975,7 +975,7 @@ class ECHConfig:
 
 
 @dataclass
-class ClientECHExtension(Extension):
+class ECHClientExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     ech_client_hello_type: int
     hpke_kdf_id: int = 0
@@ -985,7 +985,7 @@ class ClientECHExtension(Extension):
     payload: bytes = b""
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ClientECHExtension:
+    def from_bytes(cls, data: bytes) -> ECHClientExtension:
         parser = Parser(data)
         ech_cl_type = parser.read_int(1)
 
@@ -995,7 +995,7 @@ class ClientECHExtension(Extension):
             confid_id = parser.read_int(1)
             enc = parser.read_prefixed_bytes(2)
             payload = parser.read_prefixed_bytes(2)
-            ret = ClientECHExtension(
+            ret = ECHClientExtension(
                 ech_client_hello_type=ech_cl_type,
                 hpke_kdf_id=hpke_kem_id,
                 hpke_aead_id=hpke_aead_id,
@@ -1004,7 +1004,7 @@ class ClientECHExtension(Extension):
                 payload=payload,
             )
         elif ech_cl_type == ECHClientHelloType.INNER:
-            ret = ClientECHExtension(ech_cl_type)
+            ret = ECHClientExtension(ech_cl_type)
         else:
             raise ParseError("invalid encrypted client hello extension")
 
@@ -1028,12 +1028,12 @@ class ClientECHExtension(Extension):
 
 
 @dataclass
-class ServerECHExtensions(Extension):
+class ECHServerExtensions(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     retry_configs: typing.Sequence[ECHConfig]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ServerECHExtensions:
+    def from_bytes(cls, data: bytes) -> ECHServerExtensions:
         parser = Parser(data)
         configs: list[ECHConfig] = []
 
@@ -1045,7 +1045,7 @@ class ServerECHExtensions(Extension):
         if not configs:
             raise ValueError("empty retry config list")
 
-        return ServerECHExtensions(configs)
+        return ECHServerExtensions(configs)
 
     def serialize(self) -> bytes:
         if not self.retry_configs:
@@ -1061,15 +1061,15 @@ class ServerECHExtensions(Extension):
 
 
 @dataclass
-class HRRECHExtension(Extension):
+class ECHHRRExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     data: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> HRRECHExtension:
+    def from_bytes(cls, data: bytes) -> ECHHRRExtension:
         if not len(data) == 8:
             raise ParseError("data must be exactly 8-bytes")
-        return HRRECHExtension(data)
+        return ECHHRRExtension(data)
 
     def serialize(self) -> bytes:
         if not len(self.data) == 8:
@@ -1106,29 +1106,29 @@ _UNIVERSAL_EXTENSIONS: dict[int, type[Extension]] = {
 _CLIENT_EXTENSION: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
-        ClientALPSExtension,
-        ClientALPNExtension,
-        ClientEarlyDataExtension,
-        ClientECHExtension,
+        ALPSClientExtension,
+        ALPNClientExtension,
         ClientHelloPaddingExtension,
-        ClientKeyShareExtension,
-        ClientNPNExtension,
-        ClientSCTExtension,
-        ClientSNIExtension,
-        ClientPSKExtension,
-        ClientStatusRequestExtension,
-        ClientSupportedGroupsExtension,
-        ClientSupportedVersionsExtension,
-        ClientPHAExtension,
         CompressedCertificateExtension,
+        EarlyDataClientExtension,
+        ECHClientExtension,
         ECHOuterExtension,
         ECPointFormatsExtension,
         EncryptThenMacExtension,
         ExtendedMasterSecretExtension,
-        RenegotiationInfoExtension,
+        KeyShareClientExtension,
+        NPNClientExtension,
+        PostHandshakeAuthExtension,
+        PSKClientExtension,
         PSKKeyExchangeModesExtension,
+        RenegotiationInfoExtension,
+        SCTClientExtension,
         SessionTicketExtension,
         SignatureAlgorithmsExtension,
+        SNIClientExtension,
+        StatusRequestClientExtension,
+        SupportedGroupsClientExtension,
+        SupportedVersionsClientExtension,
     )
 }
 
@@ -1137,45 +1137,45 @@ _SERVER_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
         ECPointFormatsExtension,
+        ALPNServerExtension,
+        ALPSExtension,
+        EarlyDataServerExtension,
+        ECHServerExtensions,
         EncryptThenMacExtension,
         ExtendedMasterSecretExtension,
+        KeyShareServerExtension,
+        NPNServerExtension,
+        PSKServerExtension,
         RenegotiationInfoExtension,
-        ServerALPNExtension,
-        ServerALPSExtension,
-        ServerEarlyDataExtension,
-        ServerECHExtensions,
-        ServerKeyShareExtension,
-        ServerNPNExtension,
-        ServerPSKExtension,
-        ServerSCTExtension,
-        ServerStatusRequestExtension,
-        ServerSNIExtension,
-        ServerSupportedVersionExtension,
+        SCTServerExtension,
         SessionTicketExtension,
+        SNIServerExtension,
+        StatusRequestServerExtension,
+        SupportedVersionServerExtension,
     )
 }
 
 
-_HRR_EXTENSIONS: dict[int, type[Extension]] = {
+_HELLO_RETRY_REQEUEST_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
         CookieExtension,
-        HRRKeyShareExtension,
-        HRRECHExtension,
-        ServerSupportedVersionExtension,
+        ECHHRRExtension,
+        KeyShareHRRExtension,
+        SupportedVersionServerExtension,
     )
 }
 
 
 _CERTIFICATE_EXTENSIONS: dict[int, type[Extension]] = {
-    e.extension_type: e for e in (CertStatusRequestExtension,)
+    e.extension_type: e for e in (StatusRequestCertificateExtension,)
 }
 
 
 _EXTENSION_SOUCES: dict[ExtensionSource, dict[int, type[Extension]]] = {
     ExtensionSource.NONE: _UNIVERSAL_EXTENSIONS,
-    ExtensionSource.CERT: _CERTIFICATE_EXTENSIONS,
+    ExtensionSource.CERTIFICATE: _CERTIFICATE_EXTENSIONS,
     ExtensionSource.CLIENT: _CLIENT_EXTENSION,
     ExtensionSource.SERVER: _SERVER_EXTENSIONS,
-    ExtensionSource.HRR: _HRR_EXTENSIONS,
+    ExtensionSource.HELLO_RETRY_REQUEST: _HELLO_RETRY_REQEUEST_EXTENSIONS,
 }
