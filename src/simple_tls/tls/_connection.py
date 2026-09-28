@@ -49,7 +49,7 @@ from ._extensions import ECHConfig
 from ._handshake import TLSHandshake, TrafficContext
 from ._handshake_client import NewSessionHandler, TLSHandshakeClient
 from ._handshake_server import SNICallback, TLSHandshakeServer
-from ._message import HandshakeMessage
+from ._messages import HandshakeMessage
 from ._symmetric import InvalidTag, NullCipher, TLSCipher, get_key_iv_lens
 from ._utils import Buffer, WritableBuffer, get_algorithm, hkdf_expand_label
 

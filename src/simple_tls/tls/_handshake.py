@@ -77,7 +77,7 @@ from ._key import (
     RSAPublicKey,
     load_certificate_public_key,
 )
-from ._message import (
+from ._messages import (
     Certificate,
     CertificateEntry,
     CertificateTLS13,

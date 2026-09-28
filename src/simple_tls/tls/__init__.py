@@ -158,7 +158,7 @@ from ._handshake_server import (
 )
 from ._key import load_certificate_public_key, load_pem_private_key
 from ._keyexchange import load_pem_parameters
-from ._message import (
+from ._messages import (
     Certificate,
     CertificateEntry,
     CertificateRequest,

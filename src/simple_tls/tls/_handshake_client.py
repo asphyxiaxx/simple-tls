@@ -139,7 +139,7 @@ from ._keyexchange import (
     FFDHKeyExchange,
     KEMKeyExchange,
 )
-from ._message import (
+from ._messages import (
     CertificateRequest,
     CertificateRequestTLS12,
     CertificateRequestTLS13,

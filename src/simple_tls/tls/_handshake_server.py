@@ -104,7 +104,7 @@ from ._extensions import (
 from ._handshake import TLSHandshake
 from ._key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
 from ._keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
-from ._message import (
+from ._messages import (
     CertificateRequest,
     CertificateRequestTLS12,
     CertificateRequestTLS13,
