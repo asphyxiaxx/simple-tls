@@ -1,6 +1,6 @@
 import ssl as _ssl
 
-from ._constant import (
+from ._constants import (
     SSL_ERROR_EOF,
     SSL_ERROR_SYSCALL,
     SSL_ERROR_WANT_READ,
