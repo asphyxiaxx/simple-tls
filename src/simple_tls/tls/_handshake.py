@@ -293,6 +293,12 @@ class TLSHandshake:
         return None
 
     @property
+    def peer_application_settings(self) -> bytes | None:
+        if self._session is not None and self._session.has_alps:
+            return self._session.peer_alps
+        return None
+
+    @property
     def ech_status(self) -> ECHStatus:
         return self._ech_status
 

@@ -195,6 +195,9 @@ class TLSConnection:
             return ech_retry_config
         return None
 
+    def get_peer_application_settings(self) -> bytes | None:
+        return self._handshake.peer_application_settings
+
     def early_data_accepted(self) -> bool:
         return self._handshake.early_data_accepted
 
