@@ -420,6 +420,7 @@ class TLSConnection:
             self._write_shutdown = Shutdown.CLOSE_NOTIFY
 
     # Callbacks
+
     def _do_hs_callback(
         self, direction: Direction, message: HandshakeMessage
     ) -> None:
@@ -431,6 +432,7 @@ class TLSConnection:
         self._message_callback(self, direction, version, content_type, data)
 
     # Record layer
+
     def _setup_traffic(
         self,
         direction: Direction,

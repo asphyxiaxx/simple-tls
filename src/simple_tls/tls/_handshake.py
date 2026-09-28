@@ -143,8 +143,6 @@ class TLSHandshake:
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
 
-        self._configuration: TLSConfiguration = configuration
-        """asociated TLS context containing configuration"""
         self.skip_early_data: bool = False
         """instructs the record layer to discard unexpected early data messages
         when 0-RTT is rejected"""
@@ -159,6 +157,7 @@ class TLSHandshake:
         self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
 
         ## Configurations
+        self._configuration: TLSConfiguration = configuration
         self._protocol: Protocol = configuration.protocol
         self._credential: TLSCredential | None = configuration.credential
         self._verify_mode: VerifyMode = configuration.verify_mode
@@ -361,6 +360,8 @@ class TLSHandshake:
 
     def clear_flight(self) -> None:
         self._outgoing_data.clear()
+
+    # Internal
 
     @staticmethod
     def _update_hash(
