@@ -181,7 +181,6 @@ class TLSHandshake:
         self._session_id: bytes = b""
         self._cipher_suite: CipherSuite | None = None
         self._in_early_data: bool = False
-        self._max_early_data: int = 0
         self._early_data_offered: bool = False
         self._early_data_accepted: bool = False
         self._extended_master_secret: bool = False
@@ -255,7 +254,12 @@ class TLSHandshake:
 
     @property
     def max_early_data(self) -> int:
-        return self._max_early_data
+        if self._in_early_data:
+            if not self._session_reused and self.skip_early_data:
+                return self._configuration.max_early_data_size
+            assert self._session is not None
+            return self._session.ticket_max_early_data
+        return 0
 
     @property
     def early_data_accepted(self) -> bool:
@@ -277,10 +281,8 @@ class TLSHandshake:
     def alpn_selected(self) -> bytes | None:
         if self._in_early_data:
             assert self._session is not None
-            alpn_selected = self._session.early_alpn
-        else:
-            alpn_selected = self._alpn_selected
-        return alpn_selected
+            return self._session.early_alpn
+        return self._alpn_selected
 
     @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:
@@ -598,7 +600,6 @@ class TLSHandshake:
     def _close_early_data(self) -> None:
         assert self._in_early_data
 
-        self._max_early_data = 0
         self._in_early_data = False
         self.can_early_write = False
 

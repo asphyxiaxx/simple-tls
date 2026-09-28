@@ -1045,7 +1045,6 @@ class TLSHandshakeServer(TLSHandshake):
 
                     self._session_reused = True
                     self._psk_index = index
-                    self._max_early_data = session.ticket_max_early_data
                     # Store in case of HRR
                     self._pre_shared_key = (identity, binder_key)
                     break
@@ -1057,7 +1056,7 @@ class TLSHandshakeServer(TLSHandshake):
         else:
             assert session is not None
             assert key_schedule is not None
-            new_session = session.copy()
+            new_session = session.copy(include_noauth=True)
 
         hrr = False
 
