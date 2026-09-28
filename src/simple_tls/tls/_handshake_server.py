@@ -1156,7 +1156,7 @@ class TLSHandshakeServer(TLSHandshake):
 
             else:
                 self._early_data_accepted = False
-                self.skip_early_data = True
+                self._skip_early_data = True
 
         if hrr:
             self._transcript.update_for_hello_retry_request(
@@ -1472,8 +1472,8 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._early_data_accepted:
             self._setup_traffic_tls13(Direction.READ, Epoch.ZERO_RTT)
-            self.can_early_write = True
-            self.can_early_read = True
+            self._can_early_write = True
+            self._can_early_read = True
             self._in_early_data = True
 
             self._set_state(ServerState.PROCESS_END_OF_EARLY_DATA_TLS13)

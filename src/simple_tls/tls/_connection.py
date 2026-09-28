@@ -265,7 +265,7 @@ class TLSConnection:
 
                     if not hs.done:
                         assert hs.can_early_read
-                        hs.can_early_read = False
+                        hs.close_early_data()
                     else:
                         hs.trigger_post_handshake()
                 else:
@@ -326,7 +326,7 @@ class TLSConnection:
 
         if is_early_data_write:
             if self._early_data_processed >= hs.max_early_data:
-                hs.can_early_write = False
+                hs.close_early_data()
 
             max_send_frament = min(
                 max_send_frament,
@@ -745,7 +745,8 @@ class TLSConnection:
         else:
             state.sequence_number += 1
 
-        self._handshake.skip_early_data = False
+        if self._handshake.skip_early_data:
+            self._handshake.close_early_data()
 
         if state.hide_content_type:
             if content_type != ContentType.APPLICATION_DATA:

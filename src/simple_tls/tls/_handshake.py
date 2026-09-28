@@ -143,16 +143,6 @@ class TLSHandshake:
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
 
-        self.skip_early_data: bool = False
-        """instructs the record layer to discard unexpected early data messages
-        when 0-RTT is rejected"""
-        self.can_early_write: bool = False
-        """indicates whether the record layer is currently allowed to send
-        early data (0-RTT)"""
-        self.can_early_read: bool = False
-        """indicates whether the record layer is currently allowed to process
-        incoming early data (0-RTT)"""
-
         ## Dispatch function
         self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
 
@@ -180,6 +170,9 @@ class TLSHandshake:
         self._session_id: bytes = b""
         self._cipher_suite: CipherSuite | None = None
         self._in_early_data: bool = False
+        self._skip_early_data: bool = False
+        self._can_early_write: bool = False
+        self._can_early_read: bool = False
         self._early_data_offered: bool = False
         self._early_data_accepted: bool = False
         self._extended_master_secret: bool = False
@@ -252,9 +245,30 @@ class TLSHandshake:
         return self._in_early_data
 
     @property
+    def skip_early_data(self) -> bool:
+        """instructs the record layer to discard unexpected early data messages
+        when 0-RTT is rejected"""
+
+        return self._skip_early_data
+
+    @property
+    def can_early_write(self) -> bool:
+        """indicates whether the record layer is currently allowed to send
+        early data (0-RTT)"""
+
+        return self._can_early_write
+
+    @property
+    def can_early_read(self) -> bool:
+        """indicates whether the record layer is currently allowed to process
+        incoming early data (0-RTT)"""
+
+        return self._can_early_read
+
+    @property
     def max_early_data(self) -> int:
         if self._in_early_data:
-            if not self._session_reused and self.skip_early_data:
+            if not self._session_reused and self._skip_early_data:
                 return self._configuration.max_early_data_size
             assert self._session is not None
             return self._session.ticket_max_early_data
@@ -341,6 +355,11 @@ class TLSHandshake:
 
     def trigger_post_handshake(self) -> None:
         raise NotImplementedError("abstract class")
+
+    def close_early_data(self) -> None:
+        self._skip_early_data = False
+        self._can_early_read = False
+        self._can_early_write = False
 
     def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
         raise NotImplementedError("abstract class")
@@ -608,7 +627,7 @@ class TLSHandshake:
         assert self._in_early_data
 
         self._in_early_data = False
-        self.can_early_write = False
+        self.close_early_data()
 
     def _get_new_session(self) -> TLSSession:
         version = self.protocol_version()

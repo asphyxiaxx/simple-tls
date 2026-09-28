@@ -534,7 +534,7 @@ class TLSHandshakeClient(TLSHandshake):
         )
         self._setup_traffic_tls13(Direction.WRITE, Epoch.ZERO_RTT)
         self._in_early_data = True
-        self.can_early_write = True
+        self._can_early_write = True
 
         self._set_state(ClientState.READ_SERVER_HELLO)
         return Status.EARLY_RETURN
@@ -588,7 +588,7 @@ class TLSHandshakeClient(TLSHandshake):
                 ):
                     raise AlertInternalError("Version mistmatch")
 
-                self.can_early_write = False
+                self._can_early_write = False
 
                 # Termintate early since TLSv1.2 cannot handle early data
                 raise AlertProtocolVersion(
