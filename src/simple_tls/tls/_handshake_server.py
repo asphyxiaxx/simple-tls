@@ -33,7 +33,6 @@ from simple_tls.crypto.utils import (
     get_random_bytes,
     int_to_bytes,
 )
-from simple_tls.tls._configuration import TLSCredential
 
 from ._alert import (
     Alert,
@@ -48,7 +47,7 @@ from ._alert import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from ._configuration import TLSConfiguration
+from ._configuration import TLSConfiguration, TLSCredential
 from ._constant import (
     SERVER_CONTEXT_STRING,
     TLS11_DOWNGRADE_SENTINEL,
