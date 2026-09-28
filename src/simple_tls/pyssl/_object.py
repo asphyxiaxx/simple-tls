@@ -9,7 +9,7 @@ from simple_tls import tls
 from simple_tls.crypto.utils import bytes_to_str, str_to_bytes
 
 from ._constant import Options
-from ._exception import SSLEOFError, SSLWantReadError
+from ._exceptions import SSLEOFError, SSLWantReadError
 from ._session import SSLSession
 from ._utils import (
     PeerCertRetDictType,

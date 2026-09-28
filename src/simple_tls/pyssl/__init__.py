@@ -80,7 +80,7 @@ from ._constant import (
     VerifyMode,
 )
 from ._context import SSLContext
-from ._exception import (
+from ._exceptions import (
     SSLEOFError,
     SSLError,
     SSLSyscallError,
