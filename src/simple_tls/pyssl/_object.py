@@ -156,8 +156,8 @@ class SSLObject(_ssl.SSLObject):
         """
         return self._sslobj.write(data)  # type: ignore
 
-    def get_ech_retry_configs(self) -> bytes | None:
-        return self._sslobj.ech_retry_configs(binary_form=True)
+    def get_peer_ech_retry_configs(self) -> bytes | None:
+        return self._sslobj.get_peer_ech_retry_configs(binary_form=True)
 
     def ech_accepted(self) -> bool:
         return self._sslobj.ech_accepted()

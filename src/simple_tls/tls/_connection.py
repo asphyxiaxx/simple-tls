@@ -170,21 +170,21 @@ class TLSConnection:
         return self._handshake.ech_status == ECHStatus.ACCEPTED
 
     @typing.overload
-    def ech_retry_configs(
+    def get_peer_ech_retry_configs(
         self, binary_form: typing.Literal[True] = ...
     ) -> bytes | None: ...
 
     @typing.overload
-    def ech_retry_configs(
+    def get_peer_ech_retry_configs(
         self, binary_form: typing.Literal[False] = ...
     ) -> list[ECHConfig] | None: ...
 
     @typing.overload
-    def ech_retry_configs(
+    def get_peer_ech_retry_configs(
         self, binary_form: bool = ...
     ) -> list[ECHConfig] | bytes | None: ...
 
-    def ech_retry_configs(
+    def get_peer_ech_retry_configs(
         self, binary_form: bool = True
     ) -> list[ECHConfig] | bytes | None:
         ech_retry_config = self._handshake.peer_ech_retry_configs
