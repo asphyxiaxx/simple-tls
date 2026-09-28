@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import typing
+from dataclasses import dataclass
 
 from cryptography import x509
 from cryptography.x509.oid import PublicKeyAlgorithmOID
@@ -32,6 +33,7 @@ from simple_tls.crypto.utils import (
     get_random_bytes,
     int_to_bytes,
 )
+from simple_tls.tls._configuration import TLSCredential
 
 from ._alert import (
     Alert,
@@ -46,7 +48,6 @@ from ._alert import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from ._callback import ClientHelloInfo, HandshakeContext
 from ._configuration import TLSConfiguration
 from ._constant import (
     SERVER_CONTEXT_STRING,
@@ -139,6 +140,29 @@ from ._supported import (
 )
 from ._transcript import KeySchedule
 from ._utils import filter, negotiate
+
+
+@dataclass(frozen=True)
+class ClientHelloInfo:
+    """Details extracted from the client's ClientHello message."""
+
+    server_name: bytes | None
+    cipher_suites: typing.Sequence[int]
+
+
+@dataclass
+class HandshakeContext:
+    """Mutable interface for configuring handshake settings per SNI."""
+
+    credential: TLSCredential | None
+    """Set the certificate and private key for this connection."""
+
+    verify_mode: VerifyMode
+    """Override client certificate verification"""
+
+    alert_description: int | None = None
+    """"""
+
 
 SNICallback = typing.Callable[[ClientHelloInfo, HandshakeContext], None]
 

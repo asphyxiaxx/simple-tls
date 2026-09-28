@@ -43,7 +43,6 @@ from ._alert import (
     AlertUnknownCA,
     AlertUnsupportedExtension,
 )
-from ._callback import ClientHelloInfo, HandshakeContext, TicketContext
 from ._configuration import TLSConfiguration, TLSCredential, load_castore
 from ._connection import ConnectionState, TLSConnection
 from ._constant import (
@@ -152,7 +151,11 @@ from ._extension import (
 )
 from ._handshake import TLSHandshake, TrafficContext
 from ._handshake_client import TLSHandshakeClient
-from ._handshake_server import TLSHandshakeServer
+from ._handshake_server import (
+    ClientHelloInfo,
+    HandshakeContext,
+    TLSHandshakeServer,
+)
 from ._key import load_certificate_public_key, load_pem_private_key
 from ._keyexchange import load_pem_parameters
 from ._message import (
@@ -373,7 +376,6 @@ __all__ = [
     "TLSVersion",
     "TLSWantReadError",
     "TicketAEAD",
-    "TicketContext",
     "TrafficContext",
     "Transcript",
     "Validator",
