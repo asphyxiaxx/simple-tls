@@ -41,8 +41,6 @@ _IE = typing.TypeVar("_IE", bound="IntExtension")
 
 
 class ExtensionSource(enum.IntEnum):
-    NONE = enum.auto()
-    CERTIFICATE = enum.auto()
     CLIENT = enum.auto()
     SERVER = enum.auto()
     HELLO_RETRY_REQUEST = enum.auto()
@@ -1093,16 +1091,6 @@ COMPRESSIBLE_EXTENSIONS = (
 )
 
 
-_UNIVERSAL_EXTENSIONS: dict[int, type[Extension]] = {
-    e.extension_type: e
-    for e in (
-        CompressedCertificateExtension,
-        EarlyDataExtension,
-        SignatureAlgorithmsExtension,
-    )
-}
-
-
 _CLIENT_EXTENSION: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
@@ -1167,14 +1155,7 @@ _HELLO_RETRY_REQEUEST_EXTENSIONS: dict[int, type[Extension]] = {
 }
 
 
-_CERTIFICATE_EXTENSIONS: dict[int, type[Extension]] = {
-    e.extension_type: e for e in (StatusRequestCertificateExtension,)
-}
-
-
 _EXTENSION_SOUCES: dict[ExtensionSource, dict[int, type[Extension]]] = {
-    ExtensionSource.NONE: _UNIVERSAL_EXTENSIONS,
-    ExtensionSource.CERTIFICATE: _CERTIFICATE_EXTENSIONS,
     ExtensionSource.CLIENT: _CLIENT_EXTENSION,
     ExtensionSource.SERVER: _SERVER_EXTENSIONS,
     ExtensionSource.HELLO_RETRY_REQUEST: _HELLO_RETRY_REQEUEST_EXTENSIONS,
