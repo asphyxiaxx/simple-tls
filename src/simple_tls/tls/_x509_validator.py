@@ -30,7 +30,7 @@ from cryptography.x509.oid import ExtensionOID
 from simple_tls.crypto.utils import bytes_to_str
 from simple_tls.crypto.verification import Verifier
 
-from ._alert import AlertBadCertificate
+from ._alerts import AlertBadCertificate
 from ._utils import Buffer
 
 

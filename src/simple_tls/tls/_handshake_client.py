@@ -37,7 +37,7 @@ from simple_tls.crypto.utils import (
     int_to_bytes,
 )
 
-from ._alert import (
+from ._alerts import (
     AlertDecodeError,
     AlertDecryptError,
     AlertECHRequired,

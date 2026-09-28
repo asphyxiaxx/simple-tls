@@ -27,7 +27,7 @@ from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.compression import ZLIB, ZSTD, Brotli
 from simple_tls.crypto.utils import int_to_bytes
 
-from ._alert import AlertUnexpectedMessage
+from ._alerts import AlertUnexpectedMessage
 from ._constants import (
     CertificateCompressionAlgorithm,
     CertificateStatusType,

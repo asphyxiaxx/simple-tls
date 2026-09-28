@@ -40,7 +40,7 @@ from simple_tls.crypto.verification import (
     Verifier,
 )
 
-from ._alert import (
+from ._alerts import (
     AlertBadCertificate,
     AlertCertificateExpired,
     AlertCertificateRequired,

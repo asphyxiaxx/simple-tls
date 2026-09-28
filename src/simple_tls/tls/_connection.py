@@ -28,7 +28,7 @@ from cryptography import x509
 
 from simple_tls.crypto.utils import int_to_bytes
 
-from ._alert import AlertException
+from ._alerts import AlertException
 from ._configuration import TLSConfiguration
 from ._constants import (
     AlertDescription,

@@ -32,7 +32,11 @@ from simple_tls.crypto.utils import (
     int_to_bytes,
 )
 
-from ._alert import AlertDecodeError, AlertIllegalParameter, AlertInternalError
+from ._alerts import (
+    AlertDecodeError,
+    AlertIllegalParameter,
+    AlertInternalError,
+)
 from ._constants import NamedGroup
 from ._supported import ECC_GROUPS
 

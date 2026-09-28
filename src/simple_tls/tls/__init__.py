@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from ._alert import (
+from ._alerts import (
     Alert,
     AlertBadCertificate,
     AlertBadRecordMac,
