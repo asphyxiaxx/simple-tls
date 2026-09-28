@@ -39,7 +39,7 @@ from ._constant import (
     TLSVersion,
 )
 from ._enum import Direction, ECHStatus, Epoch, Shutdown, Status
-from ._exception import (
+from ._exceptions import (
     TLSEOFError,
     TLSLocalAlert,
     TLSRemoteAlert,

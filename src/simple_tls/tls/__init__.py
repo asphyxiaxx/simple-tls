@@ -87,7 +87,7 @@ from ._enum import (
     Status,
     VerifyMode,
 )
-from ._exception import (
+from ._exceptions import (
     TLSAlert,
     TLSEOFError,
     TLSError,
