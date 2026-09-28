@@ -13,7 +13,7 @@ from simple_tls import tls
 from simple_tls.crypto import verification
 from simple_tls.crypto.utils import str_to_bytes
 
-from ._constant import (
+from ._constants import (
     PROTOCOL_TLS,
     PROTOCOL_TLS_CLIENT,
     PROTOCOL_TLS_SERVER,

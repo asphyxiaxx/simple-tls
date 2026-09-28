@@ -12,7 +12,7 @@ from cryptography.x509.oid import AuthorityInformationAccessOID
 
 from simple_tls import tls
 
-from ._constant import (
+from ._constants import (
     CERT_NONE,
     CERT_REQUIRED,
     PROTOCOL_TLS_CLIENT,

@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from ._constant import (
+from ._constants import (
     ALERT_DESCRIPTION_ACCESS_DENIED,
     ALERT_DESCRIPTION_BAD_CERTIFICATE,
     ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE,
