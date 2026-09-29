@@ -420,9 +420,11 @@ class SSLContext:
         else:
             raise ValueError(f"Unsupported verify_mode '{self._verify_mode}'")
 
+        if not (self.options & Options.OP_NO_TICKET):
+            config["ticket_aead"] = self._ticket_aead
+
         config["castore"] = self._castore
         config["check_hostname"] = self._check_hostname
         config["post_handshake_auth"] = self._post_handshake_auth
-        config["ticket_aead"] = self._ticket_aead
 
         return config
