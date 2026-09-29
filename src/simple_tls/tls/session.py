@@ -29,7 +29,7 @@ from cryptography import x509
 
 from simple_tls.codec import Parser, Writer
 
-from .constants import CipherSuite, TLSVersion
+from .constants import UNSPECIFIED, CipherSuite, TLSVersion
 from .enums import Protocol
 from .utils import Buffer, utcnow
 
@@ -42,7 +42,7 @@ class TLSSession:
     """indicate this session was create by server side"""
     not_resumable: bool = False
     """"""
-    version: int = TLSVersion.UNSPECIFIED
+    version: int = UNSPECIFIED
     """TLS version"""
     cipher_suite: CipherSuite | None = None
     """selected cipher suite"""
@@ -120,7 +120,7 @@ class TLSSession:
         return (ticket_age + self.ticket_age_add) % (1 << 32)
 
     def protocol_version(self) -> int:
-        assert self.version != TLSVersion.UNSPECIFIED
+        assert self.version != UNSPECIFIED
         return self.version
 
     def copy(

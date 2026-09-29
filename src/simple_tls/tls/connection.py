@@ -32,6 +32,7 @@ from .alerts import AlertException
 from .cipher import InvalidTag, NullCipher, TLSCipher, get_key_iv_lens
 from .configuration import TLSConfiguration
 from .constants import (
+    UNSPECIFIED,
     AlertDescription,
     AlertLevel,
     CipherSuite,
@@ -798,12 +799,12 @@ class TLSConnection:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
 
     def _record_version(self) -> int:
-        if self._handshake.version == TLSVersion.UNSPECIFIED:
+        if self._handshake.version == UNSPECIFIED:
             return TLSVersion.TLSv1
         return min(TLSVersion.TLSv1_2, self._handshake.version)
 
     def _has_final_version(self) -> bool:
-        if self._handshake.version == TLSVersion.UNSPECIFIED:
+        if self._handshake.version == UNSPECIFIED:
             return False
         if self._handshake.is_early_version:
             return False

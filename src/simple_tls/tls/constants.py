@@ -354,7 +354,6 @@ class SignatureScheme(int, TLSEnum):
 
 
 class TLSVersion(int, TLSEnum):
-    UNSPECIFIED = -1
     TLSv1 = 769
     TLSv1_1 = 770
     TLSv1_2 = 771

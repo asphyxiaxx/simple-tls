@@ -170,9 +170,9 @@ class TLSHandshake:
         ## Temporary State
         self._state: int = 0
         self._hostname: bytes | None = None
-        self._version: int = TLSVersion.UNSPECIFIED
+        self._version: int = UNSPECIFIED
         self._is_early_version: bool = False
-        self._client_version: int = TLSVersion.UNSPECIFIED
+        self._client_version: int = UNSPECIFIED
         self._session: TLSSession | None = None
         self._session_establish: bool = False
         self._session_reused: bool = False
@@ -374,7 +374,7 @@ class TLSHandshake:
         raise NotImplementedError("abstract class")
 
     def protocol_version(self) -> int:
-        assert self._version != TLSVersion.UNSPECIFIED
+        assert self._version != UNSPECIFIED
         return self._version
 
     def add_hs_data(self, data: Buffer) -> None:
