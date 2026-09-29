@@ -784,7 +784,7 @@ class TLSHandshake:
         return certificate
 
     @staticmethod
-    def _certificate_type(public_key_oid: x509.ObjectIdentifier) -> int:
+    def _get_certificate_type(public_key_oid: x509.ObjectIdentifier) -> int:
         if public_key_oid in (
             PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
             PublicKeyAlgorithmOID.RSASSA_PSS,

@@ -947,7 +947,7 @@ class TLSHandshakeClient(TLSHandshake):
                 public_key_oid=public_key_oid,
                 supported_sigalgs=self._signature_algorithms,
             )
-            cert_type = self._certificate_type(public_key_oid)
+            cert_type = self._get_certificate_type(public_key_oid)
             supported_cert_types = cert_request.certificate_types
 
             if version == TLSVersion.TLSv1_2:
