@@ -27,7 +27,6 @@ from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.compression import ZLIB, ZSTD, Brotli
 from simple_tls.crypto.utils import int_to_bytes
 
-from .alerts import AlertUnexpectedMessage
 from .constants import (
     CertificateCompressionAlgorithm,
     CertificateStatusType,
@@ -40,46 +39,6 @@ from .extensions import (
 )
 
 _M = typing.TypeVar("_M", bound="HandshakeMessage")
-
-
-@dataclass
-class Handshake:
-    handshake_type: int
-    data: bytes
-
-    # cache
-    _cache: typing.Any = field(
-        default=None, init=False, repr=False, compare=False
-    )
-
-    @classmethod
-    def from_bytes(cls, data: bytes) -> Handshake:
-        parser = Parser(data)
-        handshake_type = parser.read_int(1)
-        data = parser.read_prefixed_bytes(3)
-
-        if parser.remaining():
-            raise ParseError("trailing data")
-
-        return Handshake(handshake_type, data)
-
-    def serialize(self) -> bytes:
-        writer = Writer()
-        writer.write_int(self.handshake_type, 1)
-        writer.write_prefixed_bytes(self.data, 3)
-        return writer.tobytes()
-
-    def get_handshake(self, handshake_cls: type[_M]) -> _M:
-        if handshake_cls.handshake_type != self.handshake_type:
-            raise AlertUnexpectedMessage(
-                f"Unexpected message '{self.handshake_type}' "
-                f"(expected {handshake_cls.handshake_type})"
-            )
-
-        if self._cache is None or type(self._cache) is not handshake_cls:
-            self._cache = handshake_cls.from_bytes(self.data)
-
-        return typing.cast(_M, self._cache)
 
 
 class HandshakeMessage:
