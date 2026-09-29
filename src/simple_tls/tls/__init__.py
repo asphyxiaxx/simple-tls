@@ -25,6 +25,7 @@ from .connection import TLSConnection
 from .constants import (
     AlertDescription,
     Authentication,
+    CertificateCompressionAlgorithm,
     CipherSuite,
     KeyExchange,
     NamedGroup,
@@ -49,6 +50,7 @@ from .session import TicketAEAD, TLSSession
 __all__ = [
     "AlertDescription",
     "Authentication",
+    "CertificateCompressionAlgorithm",
     "CipherSuite",
     "ClientHelloInfo",
     "Direction",
