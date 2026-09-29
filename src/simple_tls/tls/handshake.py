@@ -30,7 +30,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
 from simple_tls.codec import ParseError, Parser
 from simple_tls.compression import UnsupportedCompression
 from simple_tls.crypto.hpke import Context as HPKEContext
-from simple_tls.crypto.utils import bytes_to_int
+from simple_tls.crypto.utils import bytes_to_int, int_to_bytes
 from simple_tls.crypto.verification import (
     CertificateExpired,
     CertificateNotYetValid,
@@ -49,6 +49,7 @@ from .alerts import (
     AlertHandshakeFailure,
     AlertIllegalParameter,
     AlertInternalError,
+    AlertUnexpectedMessage,
     AlertUnknownCA,
 )
 from .cipher import get_key_iv_lens
@@ -94,7 +95,6 @@ from .messages import (
     CertificateVerify,
     CertificateVerifyTLS12,
     CompressedCertificate,
-    Handshake,
     HandshakeMessage,
     KeyUpdate,
 )
@@ -109,6 +109,8 @@ from .utils import (
     prf,
     version_from_wire,
 )
+
+_M = typing.TypeVar("_M", bound="HandshakeMessage")
 
 MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
 SetupTrafficCallback = typing.Callable[
@@ -142,6 +144,33 @@ class TrafficContext:
     mac_key: bytes | None = None
     fixed_iv: bytes | None = None
     encrypt_then_mac: bool = False
+
+
+@dataclass
+class Handshake:
+    handshake_type: int
+    data: bytes
+
+    _cache: typing.Any = field(default=None, init=False)
+
+    def tobytes(self) -> bytes:
+        return (
+            bytes([self.handshake_type])
+            + int_to_bytes(len(self.data), 3)
+            + self.data
+        )
+
+    def parse_as(self, message_cls: type[_M]) -> _M:
+        if message_cls.handshake_type != self.handshake_type:
+            raise AlertUnexpectedMessage(
+                f"Unexpected message '{self.handshake_type}' "
+                f"(expected {message_cls.handshake_type})"
+            )
+
+        if self._cache is None or type(self._cache) is not message_cls:
+            self._cache = message_cls.from_bytes(self.data)
+
+        return typing.cast(_M, self._cache)
 
 
 class TLSHandshake:
@@ -192,8 +221,8 @@ class TLSHandshake:
         self._ech_status: ECHStatus = ECHStatus.NONE
 
         # Buffer
-        self._incoming_data = bytearray()
-        self._outgoing_data = bytearray()
+        self._incoming_data: bytearray = bytearray()
+        self._outgoing_messages: list[bytes] = []
         self._cache: Handshake | None = None
 
         # Transcript and secrets
@@ -377,27 +406,28 @@ class TLSHandshake:
         assert self._version != UNSPECIFIED
         return self._version
 
-    def add_hs_data(self, data: Buffer) -> None:
+    def feed_data(self, data: Buffer) -> None:
         self._incoming_data.extend(data)
 
-    def has_unprocessed_hs_data(self) -> bool:
+    def has_unprocessed_data(self) -> bool:
         return len(self._incoming_data) > 0
 
-    def pending_flight(self) -> bytearray:
-        return self._outgoing_data
+    def pending_flight(self) -> list[bytes]:
+        return self._outgoing_messages
 
     def clear_flight(self) -> None:
-        self._outgoing_data.clear()
+        self._outgoing_messages.clear()
 
     # Internal
 
     @staticmethod
-    def _update_hash(
-        message: HandshakeMessage, transcript: Transcript
-    ) -> None:
-        handshake = Handshake(message.handshake_type, message.serialize())
-        handshake_data = handshake.serialize()
-        transcript.update_hash(handshake_data)
+    def _pack_handshake(message: HandshakeMessage) -> bytes:
+        message_data = message.serialize()
+        return (
+            bytes([message.handshake_type])
+            + int_to_bytes(len(message_data), 3)
+            + message_data
+        )
 
     def _get_message(self) -> Handshake | None:
         if self._cache is not None:
@@ -410,26 +440,26 @@ class TLSHandshake:
         if len(self._incoming_data) < data_len:
             return None
 
-        handshake = Handshake(
-            self._incoming_data[0], bytes(self._incoming_data[4:data_len])
+        self._cache = Handshake(
+            handshake_type=self._incoming_data[0],
+            data=bytes(self._incoming_data[4:data_len]),
         )
-        self._cache = handshake
         del self._incoming_data[:data_len]
         return self._cache
 
     def _add_message(
         self, message: HandshakeMessage, update_hash: bool = True
     ) -> None:
-        handshake = Handshake(message.handshake_type, message.serialize())
-        handshake_data = handshake.serialize()
-        self._outgoing_data.extend(handshake_data)
+        handshake_data = self._pack_handshake(message)
+        self._outgoing_messages.append(handshake_data)
         if update_hash:
             self._transcript.update_hash(handshake_data)
 
     def _next_message(self, update_hash: bool = True) -> None:
         assert self._cache is not None
         if update_hash:
-            self._transcript.update_hash(self._cache.serialize())
+            handshake = self._cache
+            self._transcript.update_hash(handshake.tobytes())
         self._cache = None
 
     def _set_state(self, state: int) -> None:
@@ -659,7 +689,7 @@ class TLSHandshake:
         session: TLSSession,
         allow_anon: bool = False,
     ) -> Certificate:
-        certificate = message.get_handshake(Certificate)
+        certificate = message.parse_as(Certificate)
         cert_chain = certificate.certificates
         if not cert_chain:
             if not allow_anon:
@@ -692,7 +722,7 @@ class TLSHandshake:
             message.handshake_type == HandshakeType.COMPRESSED_CERTIFICATE
             and supported_compressions is not None
         ):
-            c_certificate = message.get_handshake(CompressedCertificate)
+            c_certificate = message.parse_as(CompressedCertificate)
             compression = c_certificate.compression
             if compression not in supported_compressions:
                 raise AlertIllegalParameter("Invalid compression algorithm")
@@ -706,7 +736,7 @@ class TLSHandshake:
                     f"Certificate compression '{compression}' is unsupported"
                 ) from None
         else:
-            certificate = message.get_handshake(CertificateTLS13)
+            certificate = message.parse_as(CertificateTLS13)
 
         cert_entries = certificate.certificate_entries
         if not cert_entries:

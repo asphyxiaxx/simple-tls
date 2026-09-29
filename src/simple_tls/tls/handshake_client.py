@@ -131,7 +131,7 @@ from .extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionServerExtension,
 )
-from .handshake import ECHConfigContent, TLSHandshake
+from .handshake import ECHConfigContent, Handshake, TLSHandshake
 from .key import (
     BasePrivateKey,
     InvalidSignature,
@@ -156,7 +156,6 @@ from .messages import (
     EncryptedExtensions,
     EndOfEarlyData,
     Finished,
-    Handshake,
     KeyUpdate,
     NewSessionTicket,
     NewSessionTicketTLS13,
@@ -547,7 +546,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        server_hello = message.get_handshake(ServerHello)
+        server_hello = message.parse_as(ServerHello)
 
         # Update version
         server_version = server_hello.version
@@ -736,7 +735,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         assert self._session is not None
 
-        certificate_status = message.get_handshake(CertificateStatus)
+        certificate_status = message.parse_as(CertificateStatus)
         self._session.ocsp_response = certificate_status.ocsp
 
         self.message_cb(Direction.READ, certificate_status)
@@ -760,7 +759,7 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._session is not None
         version = self.protocol_version()
         session = self._session
-        ske = message.get_handshake(ServerKeyExchange)
+        ske = message.parse_as(ServerKeyExchange)
         parser = Parser(ske.data)
         parser.set_bookmark()
 
@@ -881,9 +880,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         cert_request: CertificateRequestTLS12 | CertificateRequest
         if self.protocol_version() == TLSVersion.TLSv1_2:
-            cert_request = message.get_handshake(CertificateRequestTLS12)
+            cert_request = message.parse_as(CertificateRequestTLS12)
         else:
-            cert_request = message.get_handshake(CertificateRequest)
+            cert_request = message.parse_as(CertificateRequest)
 
         self._peer_cert_request = cert_request
 
@@ -898,7 +897,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        hello_done = message.get_handshake(ServerHelloDone)
+        hello_done = message.parse_as(ServerHelloDone)
         self.message_cb(Direction.READ, hello_done)
         self._next_message()
 
@@ -1100,7 +1099,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        new_session_ticket = message.get_handshake(NewSessionTicket)
+        new_session_ticket = message.parse_as(NewSessionTicket)
         if not new_session_ticket.ticket:
             self._ticket_expected = False
         else:
@@ -1128,7 +1127,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         assert self._session is not None
 
-        server_finished = message.get_handshake(Finished)
+        server_finished = message.parse_as(Finished)
         verify_data = server_finished.verify_data
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
@@ -1151,9 +1150,9 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        server_hello = message.get_handshake(ServerHello)
+        server_hello = message.parse_as(ServerHello)
 
-        if self.has_unprocessed_hs_data():
+        if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
 
         # Cipher Suites
@@ -1200,7 +1199,7 @@ class TLSHandshakeClient(TLSHandshake):
                 server_hello, self._inner_transcript.copy(), is_hrr=True
             ):
                 self._ech_status = ECHStatus.ACCEPTED
-                self._inner_transcript.update_hash(message.serialize())
+                self._inner_transcript.update_hash(message.tobytes())
             else:
                 self._ech_status = ECHStatus.REJECTED
 
@@ -1292,9 +1291,9 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._cipher_suite is not None
         assert self._key_schedule is not None
 
-        server_hello = message.get_handshake(ServerHello)
+        server_hello = message.parse_as(ServerHello)
 
-        if self.has_unprocessed_hs_data():
+        if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
 
         cipher_suite = self._cipher_suite
@@ -1459,7 +1458,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         assert self._session is not None
 
-        enc_ext = message.get_handshake(EncryptedExtensions)
+        enc_ext = message.parse_as(EncryptedExtensions)
 
         ext_map = enc_ext.extension_map(ExtensionSource.SERVER)
         self._process_extensions(ext_map)
@@ -1529,7 +1528,7 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SERVER_CERTIFICATE_TLS13)
             return Status.OK
 
-        cert_request = message.get_handshake(CertificateRequestTLS13)
+        cert_request = message.parse_as(CertificateRequestTLS13)
 
         # RFC 8446 Section 4.3.2
         # certificate_request_context field SHALL be zero length unless used
@@ -1585,7 +1584,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         assert self._session is not None
 
-        cert_verify = message.get_handshake(CertificateVerifyTLS12)
+        cert_verify = message.parse_as(CertificateVerifyTLS12)
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
@@ -1605,9 +1604,9 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._key_schedule is not None
         assert self._session is not None
 
-        finished = message.get_handshake(Finished)
+        finished = message.parse_as(Finished)
 
-        if self.has_unprocessed_hs_data():
+        if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
 
         verify_data = finished.verify_data
@@ -1763,7 +1762,7 @@ class TLSHandshakeClient(TLSHandshake):
         key_schedule = self._key_schedule
 
         if message.handshake_type == HandshakeType.NEWSESSION_TICKET:
-            new_session_ticket = message.get_handshake(NewSessionTicketTLS13)
+            new_session_ticket = message.parse_as(NewSessionTicketTLS13)
 
             if self.new_session_cb is not None:
                 early_data_ext = new_session_ticket.get_extension(
@@ -1804,7 +1803,7 @@ class TLSHandshakeClient(TLSHandshake):
             if not self._enable_pha:
                 raise AlertUnexpectedMessage("Unexpected certificate request")
 
-            cert_request = message.get_handshake(CertificateRequestTLS13)
+            cert_request = message.parse_as(CertificateRequestTLS13)
             self.message_cb(Direction.READ, cert_request)
             self._next_message()
 
@@ -1819,9 +1818,9 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.PACK_FLIGHT
 
         if message.handshake_type == HandshakeType.KEY_UPDATE:
-            key_update = message.get_handshake(KeyUpdate)
+            key_update = message.parse_as(KeyUpdate)
 
-            if self.has_unprocessed_hs_data():
+            if self.has_unprocessed_data():
                 raise AlertUnexpectedMessage("Trailing handshake data")
 
             message_type = key_update.message_type
@@ -1958,7 +1957,7 @@ class TLSHandshakeClient(TLSHandshake):
             )
 
         self.message_cb(Direction.WRITE, hello_inner)
-        self._update_hash(hello_inner, inner_transcript)
+        inner_transcript.update_hash(self._pack_handshake(hello_inner))
 
         # draft-ietf-tls-esni-13, section 6.1.3.
         # Pad the EncodedClientHelloInner
@@ -2296,7 +2295,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             ori = expected = ext_data
             server_hello.extensions[i] = (ext_type, bytes(8))
-            self._update_hash(server_hello, transcript)
+            transcript.update_hash(self._pack_handshake(server_hello))
             server_hello.extensions[i] = (ext_type, ori)
         else:
             label = b"ech accept confirmation"
@@ -2304,7 +2303,7 @@ class TLSHandshakeClient(TLSHandshake):
             ori = server_hello.random
             expected = server_hello.random[-8:]
             server_hello.random = server_hello.random[:-8] + bytes(8)
-            self._update_hash(server_hello, transcript)
+            transcript.update_hash(self._pack_handshake(server_hello))
             server_hello.random = ori
 
         accept_confirmation = self._key_schedule.ech_accept_confirmation(
@@ -2628,8 +2627,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         return None
 
-    @staticmethod
+    @classmethod
     def _update_binders(
+        cls,
         pre_shared_keys: list[tuple[KeySchedule, PSKIdentity, bytes]],
         transcript: Transcript,
         client_hello: ClientHello,
@@ -2640,11 +2640,7 @@ class TLSHandshakeClient(TLSHandshake):
         psk_ext_type, psk_ext_data = client_hello.extensions[-1]
         assert psk_ext_type == ExtensionType.PRE_SHARED_KEY
 
-        handshake = Handshake(
-            client_hello.handshake_type, client_hello.serialize()
-        )
-        handshake_data = handshake.serialize()
-
+        handshake_data = cls._pack_handshake(client_hello)
         total_binders_length = sum(
             1 + i[0].digest_size for i in pre_shared_keys
         )

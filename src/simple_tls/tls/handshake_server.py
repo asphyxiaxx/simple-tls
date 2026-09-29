@@ -111,7 +111,7 @@ from .extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionServerExtension,
 )
-from .handshake import TLSHandshake
+from .handshake import Handshake, TLSHandshake
 from .key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
 from .keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
 from .messages import (
@@ -125,7 +125,6 @@ from .messages import (
     EncryptedExtensions,
     EndOfEarlyData,
     Finished,
-    Handshake,
     KeyUpdate,
     NewSessionTicket,
     NewSessionTicketTLS13,
@@ -348,7 +347,7 @@ class TLSHandshakeServer(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        client_hello = message.get_handshake(ClientHello)
+        client_hello = message.parse_as(ClientHello)
 
         # Server random
         self._server_random = get_random_bytes(32)
@@ -480,7 +479,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         assert self._cipher_suite is not None
 
-        client_hello = message.get_handshake(ClientHello)
+        client_hello = message.parse_as(ClientHello)
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
 
@@ -768,7 +767,7 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._cipher_suite is not None
         assert self._session is not None
 
-        cke = message.get_handshake(ClientKeyExchange)
+        cke = message.parse_as(ClientKeyExchange)
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         parser = Parser(cke.data)
@@ -846,9 +845,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         cert_verify: CertificateVerifyTLS12 | CertificateVerify
         if self.protocol_version() >= TLSVersion.TLSv1_2:
-            cert_verify = message.get_handshake(CertificateVerifyTLS12)
+            cert_verify = message.parse_as(CertificateVerifyTLS12)
         else:
-            cert_verify = message.get_handshake(CertificateVerify)
+            cert_verify = message.parse_as(CertificateVerify)
 
         self._process_certificate_verify(
             session=self._session,
@@ -882,7 +881,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         assert self._npn_protocols is not None
 
-        next_proto = message.get_handshake(NextProtocol)
+        next_proto = message.parse_as(NextProtocol)
         if next_proto.next_protocol not in self._npn_protocols:
             raise AlertIllegalParameter("Unexpected next_proto selected")
 
@@ -901,7 +900,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         assert self._session is not None
 
-        finished = message.get_handshake(Finished)
+        finished = message.parse_as(Finished)
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"client finished"
@@ -957,12 +956,12 @@ class TLSHandshakeServer(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        if self.has_unprocessed_hs_data():
+        if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
 
         assert self._cipher_suite is not None
 
-        client_hello = message.get_handshake(ClientHello)
+        client_hello = message.parse_as(ClientHello)
 
         # Update session id
         self._session_id = client_hello.session_id
@@ -1208,9 +1207,9 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._cipher_suite is not None
         assert self._key_schedule is not None
 
-        client_hello = message.get_handshake(ClientHello)
+        client_hello = message.parse_as(ClientHello)
 
-        if self.has_unprocessed_hs_data():
+        if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
 
         supported_version_ext = client_hello.get_extension(
@@ -1482,9 +1481,9 @@ class TLSHandshakeServer(TLSHandshake):
             if message is None:
                 return Status.READ_MESSAGE
 
-            end_of_early_data = message.get_handshake(EndOfEarlyData)
+            end_of_early_data = message.parse_as(EndOfEarlyData)
 
-            if self.has_unprocessed_hs_data():
+            if self.has_unprocessed_data():
                 raise AlertUnexpectedMessage("Trailing handshake data")
 
             self._close_early_data()
@@ -1505,7 +1504,7 @@ class TLSHandshakeServer(TLSHandshake):
             if message is None:
                 return Status.READ_MESSAGE
 
-            enc_ext = message.get_handshake(EncryptedExtensions)
+            enc_ext = message.parse_as(EncryptedExtensions)
             ext_map = enc_ext.extension_map(ExtensionSource.SERVER)
             alps_ext = typing.cast(
                 ALPSExtension | None,
@@ -1571,7 +1570,7 @@ class TLSHandshakeServer(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        cert_verify = message.get_handshake(CertificateVerifyTLS12)
+        cert_verify = message.parse_as(CertificateVerifyTLS12)
 
         self._process_certificate_verify(
             session=self._session,
@@ -1592,9 +1591,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         assert self._key_schedule is not None
 
-        finished = message.get_handshake(Finished)
+        finished = message.parse_as(Finished)
 
-        if self.has_unprocessed_hs_data():
+        if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("Trailing handshake data")
 
         verify_data = finished.verify_data
@@ -1699,9 +1698,9 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
         if message.handshake_type == HandshakeType.KEY_UPDATE:
-            key_update = message.get_handshake(KeyUpdate)
+            key_update = message.parse_as(KeyUpdate)
 
-            if self.has_unprocessed_hs_data():
+            if self.has_unprocessed_data():
                 raise AlertUnexpectedMessage("Trailing handshake data")
 
             message_type = key_update.message_type
@@ -1734,12 +1733,12 @@ class TLSHandshakeServer(TLSHandshake):
         psk_ext: PSKClientExtension,
     ) -> bytes:
         assert message.handshake_type == HandshakeType.CLIENT_HELLO
-        message_data = message.serialize()
+        handshake_data = message.tobytes()
 
         binders = psk_ext.binders
         total_binders_length = sum(1 + len(binder) for binder in binders)
         total_length = 2 + total_binders_length
-        return message_data[:-total_length]
+        return handshake_data[:-total_length]
 
     def _negotiate_cipher_suite(self) -> CipherSuite:
         assert self._peer_cipher_suites is not None

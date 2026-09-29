@@ -262,7 +262,7 @@ class TLSConnection:
 
             if content_type != ContentType.APPLICATION_DATA:
                 if content_type == ContentType.HANDSHAKE:
-                    hs.add_hs_data(data)
+                    hs.feed_data(data)
 
                     if not hs.done:
                         assert hs.can_early_read
@@ -536,20 +536,20 @@ class TLSConnection:
                 AlertDescription.UNEXPECTED_MESSAGE,
                 f"Unexpected content type '0x{content_type:02X}'",
             )
-        self._handshake.add_hs_data(data)
+        self._handshake.feed_data(data)
 
     def _pack_handshake(self) -> None:
-        pending_hs_data = self._handshake.pending_flight()
+        pending_hs_data = b"".join(self._handshake.pending_flight())
         if not pending_hs_data:
             return
 
-        fragment = self._send_record_limit - 1
+        fragment_size = self._send_record_limit - 1
         content_type = ContentType.HANDSHAKE
 
         with memoryview(pending_hs_data) as view:
-            for i in range(0, len(view), fragment):
+            for i in range(0, len(view), fragment_size):
                 record_data = self._seal_record(
-                    content_type, view[i : i + fragment]
+                    content_type, view[i : i + fragment_size]
                 )
                 self._pending_flight.extend(record_data)
 
@@ -783,7 +783,7 @@ class TLSConnection:
         # messages
         if (
             content_type != ContentType.HANDSHAKE
-            and self._handshake.has_unprocessed_hs_data()
+            and self._handshake.has_unprocessed_data()
             and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
         ):
             self._send_alert(
