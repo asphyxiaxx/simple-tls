@@ -1024,12 +1024,12 @@ class ECHClientExtension(Extension):
 
 
 @dataclass
-class ECHServerExtensions(Extension):
+class ECHServerExtension(Extension):
     extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     retry_configs: typing.Sequence[ECHConfig]
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> ECHServerExtensions:
+    def from_bytes(cls, data: bytes) -> ECHServerExtension:
         parser = Parser(data)
         configs: list[ECHConfig] = []
 
@@ -1041,7 +1041,7 @@ class ECHServerExtensions(Extension):
         if not configs:
             raise ValueError("empty retry config list")
 
-        return ECHServerExtensions(configs)
+        return ECHServerExtension(configs)
 
     def serialize(self) -> bytes:
         if not self.retry_configs:
@@ -1126,7 +1126,7 @@ _SERVER_EXTENSIONS: dict[int, type[Extension]] = {
         ALPNServerExtension,
         ALPSExtension,
         EarlyDataServerExtension,
-        ECHServerExtensions,
+        ECHServerExtension,
         EncryptThenMacExtension,
         ExtendedMasterSecretExtension,
         KeyShareServerExtension,

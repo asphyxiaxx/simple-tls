@@ -103,7 +103,7 @@ from .extensions import (
     ECHClientExtension,
     ECHConfig,
     ECHOuterExtension,
-    ECHServerExtensions,
+    ECHServerExtension,
     ECPointFormatsExtension,
     EncryptThenMacExtension,
     ExtendedMasterSecretExtension,
@@ -2384,7 +2384,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             # Encrypted client hello extension
             ech_ext = typing.cast(
-                ECHServerExtensions | None,
+                ECHServerExtension | None,
                 ext_map.get(ExtensionType.ENCRYPTED_CLIENT_HELLO),
             )
             if ech_ext is not None:
