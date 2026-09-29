@@ -671,9 +671,7 @@ class TLSHandshake:
 
     @staticmethod
     def _process_certificate(
-        message: Handshake,
-        session: TLSSession,
-        allow_anon: bool = False,
+        message: Handshake, session: TLSSession, allow_anon: bool = False
     ) -> Certificate:
         certificate = message.parse_as(Certificate)
         cert_chain = certificate.certificates
