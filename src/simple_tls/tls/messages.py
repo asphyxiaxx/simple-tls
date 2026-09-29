@@ -27,13 +27,13 @@ from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.compression import ZLIB, ZSTD, Brotli
 from simple_tls.crypto.utils import int_to_bytes
 
-from ._alerts import AlertUnexpectedMessage
-from ._constants import (
+from .alerts import AlertUnexpectedMessage
+from .constants import (
     CertificateCompressionAlgorithm,
     CertificateStatusType,
     HandshakeType,
 )
-from ._extensions import (
+from .extensions import (
     ExtensionsMessage,
     OptionalExtensionsMessage,
     SignatureAlgorithmsExtension,

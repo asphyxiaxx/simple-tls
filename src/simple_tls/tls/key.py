@@ -39,9 +39,15 @@ from cryptography.hazmat.primitives.asymmetric.types import (
     PublicKeyTypes,
 )
 
-from ._constants import UNSPECIFIED, HashAlgorithm, NamedGroup, SignatureScheme
-from ._supported import DSA_SIGNATURE_ALGORITHMS, ECDSA_SIGNATURE_ALGORITHMS
-from ._utils import _MD5SHA1, _MD5SHA1Hash, get_algorithm
+from .constants import (
+    DSA_SIGNATURE_ALGORITHMS,
+    ECDSA_SIGNATURE_ALGORITHMS,
+    UNSPECIFIED,
+    HashAlgorithm,
+    NamedGroup,
+    SignatureScheme,
+)
+from .utils import _MD5SHA1, _MD5SHA1Hash, get_algorithm
 
 
 class InvalidSignature(Exception):

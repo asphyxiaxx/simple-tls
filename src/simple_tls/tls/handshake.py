@@ -40,7 +40,7 @@ from simple_tls.crypto.verification import (
     Verifier,
 )
 
-from ._alerts import (
+from .alerts import (
     AlertBadCertificate,
     AlertCertificateExpired,
     AlertCertificateRequired,
@@ -51,9 +51,15 @@ from ._alerts import (
     AlertInternalError,
     AlertUnknownCA,
 )
-from ._configuration import TLSConfiguration, TLSCredential
-from ._constants import (
+from .cipher import get_key_iv_lens
+from .configuration import TLSConfiguration, TLSCredential
+from .constants import (
     CLIENT_CONTEXT_STRING,
+    DSA_SIGNATURE_ALGORITHMS,
+    ECDSA_SIGNATURE_ALGORITHMS,
+    RSA_PKCS1_SIGNATURE_ALGORITHMS,
+    RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
+    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
     SERVER_CONTEXT_STRING,
     UNSPECIFIED,
     Authentication,
@@ -65,13 +71,13 @@ from ._constants import (
     SignatureScheme,
     TLSVersion,
 )
-from ._enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from ._extensions import (
+from .enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
+from .extensions import (
     ECHConfig,
     Extension,
     StatusRequestCertificateExtension,
 )
-from ._key import (
+from .key import (
     BasePublicKey,
     DSAPublicKey,
     ECPublicKey,
@@ -81,7 +87,7 @@ from ._key import (
     RSAPublicKey,
     load_certificate_public_key,
 )
-from ._messages import (
+from .messages import (
     Certificate,
     CertificateEntry,
     CertificateTLS13,
@@ -92,18 +98,17 @@ from ._messages import (
     HandshakeMessage,
     KeyUpdate,
 )
-from ._session import TLSSession
-from ._supported import (
-    DSA_SIGNATURE_ALGORITHMS,
-    ECDSA_SIGNATURE_ALGORITHMS,
-    RSA_PKCS1_SIGNATURE_ALGORITHMS,
-    RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
-    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
+from .session import TLSSession
+from .utils import (
+    Buffer,
+    EKUValidator,
+    KeySchedule,
+    SANValidator,
+    Transcript,
+    get_algorithm,
+    prf,
+    version_from_wire,
 )
-from ._symmetric import get_key_iv_lens
-from ._transcript import KeySchedule, Transcript
-from ._utils import Buffer, get_algorithm, prf, version_from_wire
-from ._x509_validator import EKUValidator, SANValidator
 
 MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
 SetupTrafficCallback = typing.Callable[

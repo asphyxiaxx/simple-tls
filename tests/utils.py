@@ -7,15 +7,10 @@ import pytest
 from cryptography import x509
 
 from simple_tls.crypto.verification import Store
-from simple_tls.tls import (
-    Protocol,
-    Status,
-    TLSConfiguration,
-    TLSCredential,
-    TLSHandshakeClient,
-    TLSHandshakeServer,
-    VerifyMode,
-)
+from simple_tls.tls.configuration import TLSConfiguration, TLSCredential
+from simple_tls.tls.enums import Protocol, Status, VerifyMode
+from simple_tls.tls.handshake_client import TLSHandshakeClient
+from simple_tls.tls.handshake_server import TLSHandshakeServer
 
 
 def format_path(*paths: str):

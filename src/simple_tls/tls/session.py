@@ -29,9 +29,9 @@ from cryptography import x509
 
 from simple_tls.codec import Parser, Writer
 
-from ._constants import CipherSuite, TLSVersion
-from ._enums import Protocol
-from ._utils import Buffer, utcnow
+from .constants import CipherSuite, TLSVersion
+from .enums import Protocol
+from .utils import Buffer, utcnow
 
 
 @dataclass

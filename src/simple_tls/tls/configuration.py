@@ -30,12 +30,12 @@ from cryptography import x509
 from simple_tls.crypto.utils import str_to_bytes
 from simple_tls.crypto.verification import ExtensionPolicy, Store
 
-from ._constants import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
-from ._enums import Protocol, VerifyMode
-from ._key import BasePrivateKey, load_pem_private_key
-from ._keyexchange import DHParameters
-from ._session import TicketAEAD, TLSSession
-from ._utils import Buffer, StrOrBytesPath
+from .constants import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
+from .enums import Protocol, VerifyMode
+from .key import BasePrivateKey, load_pem_private_key
+from .keyexchange import DHParameters
+from .session import TicketAEAD, TLSSession
+from .utils import Buffer, StrOrBytesPath
 
 
 def _ensure_str_path(path_input: str | bytes | os.PathLike) -> str:

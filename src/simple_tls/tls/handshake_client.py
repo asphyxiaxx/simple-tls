@@ -36,7 +36,7 @@ from simple_tls.crypto.utils import (
     int_to_bytes,
 )
 
-from ._alerts import (
+from .alerts import (
     AlertDecodeError,
     AlertDecryptError,
     AlertECHRequired,
@@ -50,10 +50,16 @@ from ._alerts import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from ._configuration import TLSConfiguration
-from ._constants import (
+from .configuration import TLSConfiguration
+from .constants import (
+    CERTIFICATE_COMPRESSIONS,
     CLIENT_CONTEXT_STRING,
+    ECC_GROUPS,
+    FFDHE_GROUPS,
     GREASES,
+    KEM_GROUPS,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
@@ -73,7 +79,7 @@ from ._constants import (
     Symmetric,
     TLSVersion,
 )
-from ._enums import (
+from .enums import (
     ClientHelloType,
     ClientState,
     Direction,
@@ -82,7 +88,7 @@ from ._enums import (
     Status,
     VerifyMode,
 )
-from ._extensions import (
+from .extensions import (
     COMPRESSIBLE_EXTENSIONS,
     ALPNClientExtension,
     ALPNServerExtension,
@@ -125,20 +131,20 @@ from ._extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionServerExtension,
 )
-from ._handshake import ECHConfigContent, TLSHandshake
-from ._key import (
+from .handshake import ECHConfigContent, TLSHandshake
+from .key import (
     BasePrivateKey,
     InvalidSignature,
     RSAPublicKey,
     load_certificate_public_key,
 )
-from ._keyexchange import (
+from .keyexchange import (
     DHParameters,
     ECDHKeyExchange,
     FFDHKeyExchange,
     KEMKeyExchange,
 )
-from ._messages import (
+from .messages import (
     CertificateRequest,
     CertificateRequestTLS12,
     CertificateRequestTLS13,
@@ -159,17 +165,15 @@ from ._messages import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from ._session import TLSSession
-from ._supported import (
-    CERTIFICATE_COMPRESSIONS,
-    ECC_GROUPS,
-    FFDHE_GROUPS,
-    KEM_GROUPS,
-    SIGNATURE_ALGORITHMS,
-    SUPPORTED_GROUPS,
+from .session import TLSSession
+from .utils import (
+    KeySchedule,
+    Transcript,
+    check_server_hostname,
+    filter,
+    is_ipaddress,
+    negotiate,
 )
-from ._transcript import KeySchedule, Transcript
-from ._utils import check_server_hostname, filter, is_ipaddress, negotiate
 
 NewSessionHandler = typing.Callable[[TLSSession], None]
 

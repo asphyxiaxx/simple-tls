@@ -1,25 +1,24 @@
 import pytest
 
-from simple_tls.tls import (
-    DSA_SIGNATURE_ALGORITHMS,
-    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
-    SIGNATURE_ALGORITHMS,
+from simple_tls.tls.alerts import (
     AlertCertificateRequired,
     AlertDecryptError,
     AlertHandshakeFailure,
     AlertProtocolVersion,
+)
+from simple_tls.tls.configuration import TLSCredential
+from simple_tls.tls.constants import (
+    DSA_SIGNATURE_ALGORITHMS,
+    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
+    SIGNATURE_ALGORITHMS,
     Authentication,
     CipherSuite,
-    ClientState,
-    Epoch,
     KeyUpdateMessageType,
     NamedGroup,
-    ServerState,
     SignatureScheme,
-    TLSCredential,
     TLSVersion,
-    VerifyMode,
 )
+from simple_tls.tls.enums import ClientState, Epoch, ServerState, VerifyMode
 
 from .utils import (
     SERVER_CAFILE,

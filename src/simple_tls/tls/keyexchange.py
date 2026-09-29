@@ -32,13 +32,8 @@ from simple_tls.crypto.utils import (
     int_to_bytes,
 )
 
-from ._alerts import (
-    AlertDecodeError,
-    AlertIllegalParameter,
-    AlertInternalError,
-)
-from ._constants import NamedGroup
-from ._supported import ECC_GROUPS
+from .alerts import AlertDecodeError, AlertIllegalParameter, AlertInternalError
+from .constants import ECC_GROUPS, NamedGroup
 
 
 class BaseKeyExchange:

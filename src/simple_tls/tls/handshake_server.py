@@ -34,7 +34,7 @@ from simple_tls.crypto.utils import (
     int_to_bytes,
 )
 
-from ._alerts import (
+from .alerts import (
     Alert,
     AlertDecodeError,
     AlertDecryptError,
@@ -47,9 +47,19 @@ from ._alerts import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from ._configuration import TLSConfiguration, TLSCredential
-from ._constants import (
+from .configuration import TLSConfiguration, TLSCredential
+from .constants import (
+    CERTIFICATE_COMPRESSIONS,
+    DSA_SIGNATURE_ALGORITHMS,
+    ECC_GROUPS,
+    ECDSA_SIGNATURE_ALGORITHMS,
+    EDDSA_SIGNATURE_ALGORITHMS,
+    FFDHE_GROUPS,
+    KEM_GROUPS,
+    RSA_SIGNATURE_ALGORITHMS,
     SERVER_CONTEXT_STRING,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
@@ -68,8 +78,8 @@ from ._constants import (
     Symmetric,
     TLSVersion,
 )
-from ._enums import Direction, Epoch, ServerState, Status, VerifyMode
-from ._extensions import (
+from .enums import Direction, Epoch, ServerState, Status, VerifyMode
+from .extensions import (
     ALPNClientExtension,
     ALPNServerExtension,
     ALPSClientExtension,
@@ -101,10 +111,10 @@ from ._extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionServerExtension,
 )
-from ._handshake import TLSHandshake
-from ._key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
-from ._keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
-from ._messages import (
+from .handshake import TLSHandshake
+from .key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
+from .keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
+from .messages import (
     CertificateRequest,
     CertificateRequestTLS12,
     CertificateRequestTLS13,
@@ -124,21 +134,8 @@ from ._messages import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from ._session import TLSSession
-from ._supported import (
-    CERTIFICATE_COMPRESSIONS,
-    DSA_SIGNATURE_ALGORITHMS,
-    ECC_GROUPS,
-    ECDSA_SIGNATURE_ALGORITHMS,
-    EDDSA_SIGNATURE_ALGORITHMS,
-    FFDHE_GROUPS,
-    KEM_GROUPS,
-    RSA_SIGNATURE_ALGORITHMS,
-    SIGNATURE_ALGORITHMS,
-    SUPPORTED_GROUPS,
-)
-from ._transcript import KeySchedule
-from ._utils import filter, negotiate
+from .session import TLSSession
+from .utils import KeySchedule, filter, negotiate
 
 
 @dataclass(frozen=True)

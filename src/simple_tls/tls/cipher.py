@@ -36,9 +36,9 @@ from simple_tls.crypto.constant_time import (
 )
 from simple_tls.crypto.utils import get_random_bytes, strxor
 
-from ._constants import CipherSuite, Symmetric, TLSVersion
-from ._enums import Direction
-from ._utils import Buffer, WritableBuffer, get_algorithm
+from .constants import CipherSuite, Symmetric, TLSVersion
+from .enums import Direction
+from .utils import Buffer, WritableBuffer, get_algorithm
 
 try:
     from cryptography.hazmat.decrepit.ciphers.algorithms import (  # type: ignore
@@ -51,8 +51,12 @@ except ImportError:
         TripleDES,
     )
 
-
-__all__ = ["InvalidTag", "NullCipher", "TLSCipher"]
+__all__ = [
+    "InvalidTag",
+    "NullCipher",
+    "TLSCipher",
+    "get_key_iv_lens",
+]
 
 _CipherType: typing.TypeAlias = CipherContext
 _AEADCipherType: typing.TypeAlias = typing.Union[
@@ -683,6 +687,9 @@ class NullCipher(TLSCipher):
 
         out[0 : len(ciphertext)] = ciphertext
         return len(ciphertext)
+
+
+# Internal
 
 
 @dataclass(frozen=True)
