@@ -54,13 +54,13 @@ from .alerts import (
 from .cipher import get_key_iv_lens
 from .configuration import TLSConfiguration, TLSCredential
 from .constants import (
-    CLIENT_CONTEXT_STRING,
     DSA_SIGNATURE_ALGORITHMS,
     ECDSA_SIGNATURE_ALGORITHMS,
     RSA_PKCS1_SIGNATURE_ALGORITHMS,
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
-    SERVER_CONTEXT_STRING,
+    TLS13_CLIENT_CONTEXT_STRING,
+    TLS13_SERVER_CONTEXT_STRING,
     UNSPECIFIED,
     Authentication,
     CipherSuite,
@@ -1070,9 +1070,9 @@ class TLSHandshake:
         if version >= TLSVersion.TLSv1_3:
             assert self._key_schedule is not None
             context_string = (
-                CLIENT_CONTEXT_STRING
+                TLS13_CLIENT_CONTEXT_STRING
                 if self.is_server
-                else SERVER_CONTEXT_STRING
+                else TLS13_SERVER_CONTEXT_STRING
             )
             data = self._key_schedule.certificate_verify_data(
                 context_string, self._transcript

@@ -30,8 +30,8 @@ TLS11_DOWNGRADE_SENTINEL = b"DOWNGRD\x00"
 TLS12_DOWNGRADE_SENTINEL = b"DOWNGRD\x01"
 TLS13_HRR_SENTINEL = b"\xcf!\xadt\xe5\x9aa\x11\xbe\x1d\x8c\x02\x1ee\xb8\x91\xc2\xa2\x11\x16z\xbb\x8c^\x07\x9e\t\xe2\xc8\xa83\x9c"
 
-CLIENT_CONTEXT_STRING = b"TLS 1.3, client CertificateVerify"
-SERVER_CONTEXT_STRING = b"TLS 1.3, server CertificateVerify"
+TLS13_CLIENT_CONTEXT_STRING = b"TLS 1.3, client CertificateVerify"
+TLS13_SERVER_CONTEXT_STRING = b"TLS 1.3, server CertificateVerify"
 
 GREASES = (
     0x0A0A,

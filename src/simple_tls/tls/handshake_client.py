@@ -53,7 +53,6 @@ from .alerts import (
 from .configuration import TLSConfiguration
 from .constants import (
     CERTIFICATE_COMPRESSIONS,
-    CLIENT_CONTEXT_STRING,
     ECC_GROUPS,
     FFDHE_GROUPS,
     GREASES,
@@ -62,6 +61,7 @@ from .constants import (
     SUPPORTED_GROUPS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
+    TLS13_CLIENT_CONTEXT_STRING,
     TLS13_HRR_SENTINEL,
     Authentication,
     CipherSuite,
@@ -2549,7 +2549,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         private_key = typing.cast(BasePrivateKey, private_key)
         data = self._key_schedule.certificate_verify_data(
-            CLIENT_CONTEXT_STRING, self._transcript
+            TLS13_CLIENT_CONTEXT_STRING, self._transcript
         )
         signature = private_key.sign(data, signature_algorithm)
 

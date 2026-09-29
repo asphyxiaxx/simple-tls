@@ -57,12 +57,12 @@ from .constants import (
     FFDHE_GROUPS,
     KEM_GROUPS,
     RSA_SIGNATURE_ALGORITHMS,
-    SERVER_CONTEXT_STRING,
     SIGNATURE_ALGORITHMS,
     SUPPORTED_GROUPS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
+    TLS13_SERVER_CONTEXT_STRING,
     AlertDescription,
     Authentication,
     CipherSuite,
@@ -1419,7 +1419,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._add_message(certificate)
 
         data = self._key_schedule.certificate_verify_data(
-            SERVER_CONTEXT_STRING, self._transcript
+            TLS13_SERVER_CONTEXT_STRING, self._transcript
         )
         signature = self._private_key.sign(data, self._signature_algorithm)
 
