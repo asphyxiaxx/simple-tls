@@ -29,7 +29,6 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, PublicKeyAlgorithmOID
 
 from simple_tls.codec import ParseError, Parser
 from simple_tls.compression import UnsupportedCompression
-from simple_tls.crypto.hpke import Context as HPKEContext
 from simple_tls.crypto.utils import bytes_to_int, int_to_bytes
 from simple_tls.crypto.verification import (
     CertificateExpired,
@@ -116,19 +115,6 @@ MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
 SetupTrafficCallback = typing.Callable[
     [Direction, Epoch, typing.Optional["TrafficContext"]], None
 ]
-
-
-@dataclass(frozen=True, slots=True)
-class ECHConfigContent:
-    kdf_id: int
-    aead_id: int
-    kem_id: int
-    hpke_context: HPKEContext
-    config_id: int
-    public_name: bytes
-    maximum_name_length: int
-    enc: bytes = b""
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import random
 import typing
+from dataclasses import dataclass, field
 
 from cryptography import x509
 
 from simple_tls.codec import ParseError, Parser, Writer
+from simple_tls.crypto import hpke
 from simple_tls.crypto.constant_time import compare_digest
-from simple_tls.crypto.hpke import SenderContext, create_suite
 from simple_tls.crypto.utils import (
     bytes_to_int,
     get_random_bits,
@@ -131,7 +132,7 @@ from .extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionServerExtension,
 )
-from .handshake import ECHConfigContent, Handshake, TLSHandshake
+from .handshake import Handshake, TLSHandshake
 from .key import (
     BasePrivateKey,
     InvalidSignature,
@@ -175,6 +176,19 @@ from .utils import (
 )
 
 NewSessionHandler = typing.Callable[[TLSSession], None]
+
+
+@dataclass(frozen=True, slots=True)
+class ECHConfigContent:
+    kdf_id: int
+    aead_id: int
+    kem_id: int
+    hpke_context: hpke.Context
+    config_id: int
+    public_name: bytes
+    maximum_name_length: int
+    enc: bytes = b""
+    extensions: list[tuple[int, bytes]] = field(default_factory=list)
 
 
 class TLSHandshakeClient(TLSHandshake):
@@ -1975,7 +1989,7 @@ class TLSHandshakeClient(TLSHandshake):
         )
         encoded_hello_inner_data += bytes(padding_len)
 
-        hpke_context = typing.cast(SenderContext, content.hpke_context)
+        hpke_context = typing.cast(hpke.SenderContext, content.hpke_context)
         aead_overhead = hpke_context.aead_overhead
         payload_len = len(encoded_hello_inner_data) + aead_overhead
         if not is_hrr:
@@ -2599,7 +2613,7 @@ class TLSHandshakeClient(TLSHandshake):
                 kdf_id, aead_id = cipher_suite
 
                 try:
-                    suite = create_suite(kem_id, kdf_id, aead_id)
+                    suite = hpke.create_suite(kem_id, kdf_id, aead_id)
                     peer_public_key = suite.kem.deserialize_public_key(
                         ech_config.contents.public_key
                     )
