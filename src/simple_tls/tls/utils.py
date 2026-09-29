@@ -153,10 +153,7 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
         raise ValueError(f"Invalid hash_algorithm '{hash_algorithm}'")
 
 
-def get_hash(
-    hash_algorithm: int,
-    message: Buffer = b"",
-) -> hashes.Hash:
+def get_hash(hash_algorithm: int, message: Buffer = b"") -> hashes.Hash:
     if hash_algorithm == UNSPECIFIED:
         hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
     else:

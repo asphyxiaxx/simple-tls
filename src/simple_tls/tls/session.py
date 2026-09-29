@@ -29,7 +29,7 @@ from cryptography import x509
 
 from simple_tls.codec import Parser, Writer
 
-from .constants import UNSPECIFIED, CipherSuite, TLSVersion
+from .constants import UNSPECIFIED, CipherSuite
 from .enums import Protocol
 from .utils import Buffer, utcnow
 
