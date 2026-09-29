@@ -286,7 +286,7 @@ class TLSCipher:
         )
         m = mac.copy()
         m.update(aad)
-        m.update(plaintext)
+        m.update(plaintext)  # type: ignore
         return m.finalize()
 
     def _encrypt_aead(
@@ -319,7 +319,7 @@ class TLSCipher:
             nonce = self._fixed_nonce + seq_bytes
 
         cipher = typing.cast(_AEADCipherType, self._cipher)
-        ciphertext = cipher.encrypt(nonce, plaintext, aad)
+        ciphertext = cipher.encrypt(nonce, plaintext, aad)  # type: ignore
 
         written = 0
         if self._variable_nonce_included_in_record:
@@ -358,7 +358,7 @@ class TLSCipher:
         if not isinstance(out, memoryview):
             out = memoryview(out)
         for b in (rand_iv, plaintext, pad_bytes):
-            written += cipher.update_into(b, out[written:])
+            written += cipher.update_into(b, out[written:])  # type: ignore
         assert written == data_len
 
         mac_bytes = self._get_mac(
@@ -405,7 +405,7 @@ class TLSCipher:
         if not isinstance(out, memoryview):
             out = memoryview(out)
         for b in (rand_iv, plaintext, mac_bytes, pad_bytes):
-            written += cipher.update_into(b, out[written:])
+            written += cipher.update_into(b, out[written:])  # type: ignore
         assert written == out_len
 
         return written
@@ -438,7 +438,7 @@ class TLSCipher:
             if not isinstance(out, memoryview):
                 out = memoryview(out)
             for b in (plaintext, mac_bytes):
-                written += cipher.update_into(b, out[written:])
+                written += cipher.update_into(b, out[written:])  # type: ignore
             assert written == len(plaintext) + len(mac_bytes)
         else:
             out[written : written + len(plaintext)] = plaintext
@@ -489,7 +489,7 @@ class TLSCipher:
             nonce = self._fixed_nonce + seq_bytes
 
         cipher = typing.cast(_AEADCipherType, self._cipher)
-        plaintext = cipher.decrypt(nonce, ciphertext, aad)
+        plaintext = cipher.decrypt(nonce, ciphertext, aad)  # type: ignore
         out[: len(plaintext)] = plaintext
 
         return len(plaintext)
@@ -534,10 +534,10 @@ class TLSCipher:
         # For TLSv1.1+, remove explicit IV
         iv, ciphertext = ciphertext[:rand_iv_len], ciphertext[rand_iv_len:]
 
-        written = cipher.update_into(iv, out)
+        written = cipher.update_into(iv, out)  # type: ignore
         assert written == rand_iv_len
 
-        written = cipher.update_into(ciphertext, out)
+        written = cipher.update_into(ciphertext, out)  # type: ignore
         if written != len(ciphertext):
             raise InvalidTag("ciphertext length not multiple of block_length")
 
@@ -574,10 +574,10 @@ class TLSCipher:
         # For TLSv1.1+, remove explicit IV
         iv, ciphertext = ciphertext[:rand_iv_len], ciphertext[rand_iv_len:]
 
-        written = cipher.update_into(iv, out)
+        written = cipher.update_into(iv, out)  # type: ignore
         assert written == rand_iv_len
 
-        written = cipher.update_into(ciphertext, out)
+        written = cipher.update_into(ciphertext, out)  # type: ignore
         if written != len(ciphertext):
             raise InvalidTag("ciphertext length not multiple of block_length")
 
@@ -618,7 +618,7 @@ class TLSCipher:
             raise ValueError("out buffer too small")
 
         if cipher is not None:
-            written = cipher.update_into(ciphertext, out)
+            written = cipher.update_into(ciphertext, out)  # type: ignore
             assert written == len(ciphertext)
         else:
             out[0 : len(ciphertext)] = ciphertext
