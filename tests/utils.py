@@ -8,7 +8,7 @@ from cryptography import x509
 
 from simple_tls.crypto.verification import Store
 from simple_tls.tls.configuration import TLSConfiguration, TLSCredential
-from simple_tls.tls.enums import Protocol, Status, VerifyMode
+from simple_tls.tls.enums import Protocol, VerifyMode
 from simple_tls.tls.handshake_client import TLSHandshakeClient
 from simple_tls.tls.handshake_server import TLSHandshakeServer
 
@@ -174,81 +174,3 @@ def create_client(cafile=SERVER_CAFILE, **kwargs):
     castore = load_castore(cafile)
     config = TLSConfiguration(castore=castore, **kwargs)
     return TLSHandshakeClient(config)
-
-
-def run_handshake(client, server, stop_condition=None):
-    client_status = client.do_handshake()
-    server_status = server.do_handshake()
-
-    while not (client.done and server.done):
-        if stop_condition and stop_condition(client, server):
-            return
-
-        progress_made = False
-
-        #  Process client
-        if not client.done:
-            # If client wants to send data, grab it and feed it to the server
-            if client_status in (Status.PACK_FLIGHT, Status.FLUSH_MESSAGE):
-                flight = client.pending_flight()
-                if flight:
-                    server.add_hs_data(flight)
-
-                client.clear_flight()
-                client_status = client.do_handshake()
-                progress_made = True
-
-            # If client is waiting to read, let it process its buffer
-            elif client_status in (
-                Status.READ_MESSAGE,
-                Status.READ_CHANGE_CIPHER_SPEC,
-                Status.READ_END_OF_EARLY_DATA,
-            ):
-                new_status = client.do_handshake()
-                # Check if it success read data
-                if new_status != client_status:
-                    client_status = new_status
-                    progress_made = True
-
-            elif client_status == Status.EARLY_RETURN:
-                client_status = Status.OK
-                progress_made = True
-
-        # Process Server
-        if not server.done:
-            # If server wants to send data, grab it and feed it to the client
-            if server_status in (Status.PACK_FLIGHT, Status.FLUSH_MESSAGE):
-                flight = server.pending_flight()
-                if flight:
-                    client.add_hs_data(flight)
-
-                server.clear_flight()
-                server_status = server.do_handshake()
-                progress_made = True
-
-            # If server is waiting to read, let it process its buffer
-            elif server_status in (
-                Status.READ_MESSAGE,
-                Status.READ_CHANGE_CIPHER_SPEC,
-                Status.READ_END_OF_EARLY_DATA,
-            ):
-                new_status = server.do_handshake()
-                # Check if it success read data
-                if new_status != server_status:
-                    server_status = new_status
-                    progress_made = True
-
-            elif server_status == Status.EARLY_RETURN:
-                server_status = Status.OK
-                progress_made = True
-
-        # Prevent infinite loops
-        # If neither the client nor the server made any progress in this
-        # iteration, they are deadlocked (both waiting for data from each
-        # other, or crashed).
-        assert progress_made or (client.done and server.done)
-
-    assert client.done, "Client did not finish handshake"
-    assert server.done, "Server did not finish handshake"
-    assert client_status == Status.OK
-    assert server_status == Status.OK
