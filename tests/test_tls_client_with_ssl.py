@@ -187,7 +187,6 @@ def test_tls13_handshake(cipher_suite, rsa_server):
         tls.CipherSuite.TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
         tls.CipherSuite.TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
         tls.CipherSuite.TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-        tls.CipherSuite.TLS_DHE_RSA_WITH_CHACHA20_POLY1305_draft_00,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_NULL_SHA,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_RC4_128_SHA,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
@@ -197,7 +196,6 @@ def test_tls13_handshake(cipher_suite, rsa_server):
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        tls.CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_draft_00,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     ),
 )
@@ -238,7 +236,6 @@ def test_tls12_rsa_handshake(cipher_suite, rsa_server):
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_draft_00,
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     ),
 )

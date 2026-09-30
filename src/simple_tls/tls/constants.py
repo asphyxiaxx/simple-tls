@@ -520,7 +520,7 @@ class CipherSuite(TLSEnum):
     TLS_RSA_WITH_NULL_SHA256 = _Cipher(
         id=0x003B,
         name="TLS_RSA_WITH_NULL_SHA256",
-        minimum_version=TLSVersion.TLSv1,
+        minimum_version=TLSVersion.TLSv1_2,
         maximum_version=TLSVersion.TLSv1_2,
         strength_bits=0,
         alg_bits=0,
@@ -781,7 +781,7 @@ class CipherSuite(TLSEnum):
         alg_bits=128,
         aead=False,
         symmetric=Symmetric.AES_128_CBC,
-        digest=None,
+        digest=HashAlgorithm.SHA256,
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
@@ -796,7 +796,7 @@ class CipherSuite(TLSEnum):
         alg_bits=256,
         aead=False,
         symmetric=Symmetric.AES_256_CBC,
-        digest=None,
+        digest=HashAlgorithm.SHA256,
         prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
@@ -826,7 +826,7 @@ class CipherSuite(TLSEnum):
         alg_bits=256,
         aead=True,
         symmetric=Symmetric.AES_256_GCM,
-        digest=HashAlgorithm.SHA384,
+        digest=None,
         prf_hash=HashAlgorithm.SHA384,
         kea=KeyExchange.DHE,
         auth=Authentication.DSS,
@@ -1012,21 +1012,6 @@ class CipherSuite(TLSEnum):
         auth=Authentication.RSA,
     )
 
-    TLS_DHE_RSA_WITH_CHACHA20_POLY1305_draft_00 = _Cipher(
-        id=0xCCA3,
-        name="TLS_DHE_RSA_WITH_CHACHA20_POLY1305_draft_00",
-        minimum_version=TLSVersion.TLSv1_2,
-        maximum_version=TLSVersion.TLSv1_2,
-        strength_bits=256,
-        alg_bits=256,
-        aead=True,
-        symmetric=Symmetric.CHACHA20_DRAFT_00,
-        digest=None,
-        prf_hash=HashAlgorithm.SHA256,
-        kea=KeyExchange.DHE,
-        auth=Authentication.RSA,
-    )
-
     TLS_ECDHE_RSA_WITH_NULL_SHA = _Cipher(
         id=0xC010,
         name="TLS_ECDHE_RSA_WITH_NULL_SHA",
@@ -1158,21 +1143,6 @@ class CipherSuite(TLSEnum):
         symmetric=Symmetric.AES_256_GCM,
         digest=None,
         prf_hash=HashAlgorithm.SHA384,
-        kea=KeyExchange.ECDHE,
-        auth=Authentication.RSA,
-    )
-
-    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_draft_00 = _Cipher(
-        id=0xCCA1,
-        name="TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_draft_00",
-        minimum_version=TLSVersion.TLSv1_2,
-        maximum_version=TLSVersion.TLSv1_2,
-        strength_bits=256,
-        alg_bits=256,
-        aead=True,
-        symmetric=Symmetric.CHACHA20_DRAFT_00,
-        digest=None,
-        prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.RSA,
     )
@@ -1383,21 +1353,6 @@ class CipherSuite(TLSEnum):
         symmetric=Symmetric.AES_256_GCM,
         digest=None,
         prf_hash=HashAlgorithm.SHA384,
-        kea=KeyExchange.ECDHE,
-        auth=Authentication.ECDSA,
-    )
-
-    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_draft_00 = _Cipher(
-        id=0xCCA2,
-        name="TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_draft_00",
-        minimum_version=TLSVersion.TLSv1_2,
-        maximum_version=TLSVersion.TLSv1_2,
-        strength_bits=256,
-        alg_bits=256,
-        aead=True,
-        symmetric=Symmetric.CHACHA20_DRAFT_00,
-        digest=None,
-        prf_hash=HashAlgorithm.SHA256,
         kea=KeyExchange.ECDHE,
         auth=Authentication.ECDSA,
     )
