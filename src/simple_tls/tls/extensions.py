@@ -1122,11 +1122,11 @@ _CLIENT_EXTENSION: dict[int, type[Extension]] = {
 _SERVER_EXTENSIONS: dict[int, type[Extension]] = {
     e.extension_type: e
     for e in (
-        ECPointFormatsExtension,
         ALPNServerExtension,
         ALPSExtension,
         EarlyDataServerExtension,
         ECHServerExtension,
+        ECPointFormatsExtension,
         EncryptThenMacExtension,
         ExtendedMasterSecretExtension,
         KeyShareServerExtension,
