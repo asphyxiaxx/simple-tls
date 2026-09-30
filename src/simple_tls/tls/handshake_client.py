@@ -1795,7 +1795,7 @@ class TLSHandshakeClient(TLSHandshake):
                 session.ticket_max_early_data = max_early_data
 
                 # Resumption master secret
-                assert self._key_schedule.generation == 3
+                assert key_schedule.generation == 3
                 master_secret = key_schedule.derive_secret(
                     b"res master", self._transcript
                 )
