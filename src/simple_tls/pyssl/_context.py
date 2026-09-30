@@ -33,6 +33,7 @@ from ._utils import (
     ReadableBuffer,
     SrvnmeCbType,
     StrOrBytesPath,
+    get_cipher,
     parse_certificate,
     parse_cipher_string,
 )
@@ -76,13 +77,17 @@ class SSLContext:
             | Options.OP_NO_TLSv1
             | Options.OP_NO_TLSv1_1
         )
-        self._minimum_version = _ssl.TLSVersion.MINIMUM_SUPPORTED
-        self._maximum_version = _ssl.TLSVersion.MAXIMUM_SUPPORTED
-        self._castore = verification.Store()
+
+        self._minimum_version: TLSVersion = _ssl.TLSVersion.MINIMUM_SUPPORTED
+        self._maximum_version: TLSVersion = _ssl.TLSVersion.MAXIMUM_SUPPORTED
+        self._cipher_suites: typing.Sequence[tls.CipherSuite] = (
+            tls.TLSConfiguration.cipher_suites
+        )
+        self._castore: verification.Store = verification.Store()
         self._verify_mode: _ssl.VerifyMode = verify_mode
         self._check_hostname: bool = check_hostname
         self._post_handshake_auth: bool = False
-        self._ticket_aead = ticket_aead
+        self._ticket_aead: TicketAEAD | None = ticket_aead
         self._sni_callback: SrvnmeCbType | None = None
 
     def wrap_socket(
@@ -121,15 +126,19 @@ class SSLContext:
             context=self,
         )
 
-    def get_ciphers(self) -> list:
-        raise NotImplementedError
+    def get_ciphers(self) -> list[_ssl._Cipher]:
+        ciphers = []
+        for cipher_suite in self._cipher_suites:
+            cipher = get_cipher(cipher_suite)
+            if cipher is not None:
+                ciphers.append(cipher)
+        return ciphers
 
     def session_stats(self) -> dict[str, int]:
         raise NotImplementedError
 
     def set_ciphers(self, cipherlist: str) -> None:
-        cipher_suites = parse_cipher_string(cipherlist)
-        self._config["cipher_suites"] = cipher_suites
+        self._cipher_suites = parse_cipher_string(cipherlist)
 
     def set_npn_protocols(self, npn_protocols: typing.Iterable[str]) -> None:
         out: list[bytes] = []
@@ -319,7 +328,7 @@ class SSLContext:
 
     @minimum_version.setter
     def minimum_version(self, value: TLSVersion) -> None:
-        self._minimum_version = value
+        self._minimum_version = TLSVersion(value)
 
     @property
     def maximum_version(self) -> TLSVersion:
@@ -327,7 +336,7 @@ class SSLContext:
 
     @maximum_version.setter
     def maximum_version(self, value: TLSVersion) -> None:
-        self._maximum_version = value
+        self._maximum_version = TLSVersion(value)
 
     @property
     def options(self) -> Options:
@@ -423,6 +432,7 @@ class SSLContext:
         if not (self.options & Options.OP_NO_TICKET):
             config["ticket_aead"] = self._ticket_aead
 
+        config["cipher_suites"] = self._cipher_suites
         config["castore"] = self._castore
         config["check_hostname"] = self._check_hostname
         config["post_handshake_auth"] = self._post_handshake_auth
