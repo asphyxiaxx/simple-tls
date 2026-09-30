@@ -1048,6 +1048,7 @@ class TLSHandshakeServer(TLSHandshake):
             assert session is not None
             assert key_schedule is not None
             new_session = session.copy()
+            new_session.renew_timeout(1 * 24 * 60 * 60)
         else:
             new_session = self._get_new_session()
             key_schedule = KeySchedule(cipher_suite.prf_hash)
