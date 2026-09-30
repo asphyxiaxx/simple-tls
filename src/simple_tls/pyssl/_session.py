@@ -27,6 +27,8 @@ class SSLSession:
             )
 
         self._session = session
+        self._ticket_lifetime_hint = int(session.timeout.total_seconds())
+        self._session.set_timeout(7200)
 
     @property
     def session(self) -> tls.TLSSession:
@@ -34,6 +36,11 @@ class SSLSession:
 
     @property
     def has_ticket(self) -> bool:
+        """
+        Indicates whether the session was established using a TLS session
+        ticket (stateless session resumption, as defined in RFC 5077 / TLS 1.3)
+        rather than a traditional stateful session ID.
+        """
         return True
 
     @property
@@ -42,12 +49,18 @@ class SSLSession:
 
     @property
     def ticket_lifetime_hint(self) -> int:
-        return 0
+        """
+        The server's suggested lifetime for the session ticket, measured in
+        seconds.
+        """
+        return self._ticket_lifetime_hint
 
     @property
     def time(self) -> int:
+        """The creation timestamp of the session."""
         return int(self._session.time.timestamp())
 
     @property
     def timeout(self) -> int:
+        """The maximum timeout duration for the session."""
         return int(self._session.timeout.total_seconds())
