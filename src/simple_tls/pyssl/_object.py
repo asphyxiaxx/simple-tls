@@ -16,8 +16,9 @@ from ._utils import (
     ReadableBuffer,
     SrvnmeCbType,
     SSLConnection,
+    get_cipher_tuple,
+    get_version_name,
     parse_certificate,
-    parse_cipher,
 )
 
 if typing.TYPE_CHECKING:
@@ -226,9 +227,11 @@ class SSLObject(_ssl.SSLObject):
         Return the currently selected cipher as a 3-tuple ``(name,
         ssl_version, secret_bits)``.
         """
-        cipher = self._sslobj.cipher()
-        if cipher is not None:
-            return parse_cipher(cipher)
+        cipher_suite = self._sslobj.cipher()
+        if cipher_suite is not None:
+            cipher = get_cipher_tuple(cipher_suite)
+            assert cipher is not None
+            return cipher
         return None
 
     def shared_ciphers(self) -> list[tuple[str, str, int]] | None:
@@ -236,9 +239,15 @@ class SSLObject(_ssl.SSLObject):
         Return a list of ciphers shared by the client during the handshake or
         None if this is not a valid server connection.
         """
-        shared_ciphers = self._sslobj.shared_ciphers()
-        if shared_ciphers is not None:
-            return [parse_cipher(c) for c in shared_ciphers]
+        cipher_suites = self._sslobj.shared_ciphers()
+        if cipher_suites is not None:
+            ciphers = []
+            for cipher_suite in cipher_suites:
+                cipher = get_cipher_tuple(cipher_suite)
+                if cipher is None:
+                    continue
+                ciphers.append(cipher)
+            return ciphers
         return None
 
     def compression(self) -> None:
@@ -277,12 +286,15 @@ class SSLObject(_ssl.SSLObject):
         """
         raise NotImplementedError()
 
-    def version(self) -> str:
+    def version(self) -> str | None:
         """
         Return a string identifying the protocol version used by the
         current SSL channel.
         """
-        return self._sslobj.version()
+        version = self._sslobj.version()
+        if version is not None:
+            return get_version_name(version)
+        return None
 
     def verify_client_post_handshake(self) -> None:
         raise NotImplementedError("Post handshake auth is not supported")

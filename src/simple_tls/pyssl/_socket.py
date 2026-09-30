@@ -24,8 +24,9 @@ from ._utils import (
     SrvnmeCbType,
     SSLConnection,
     WritableBuffer,
+    get_cipher_tuple,
+    get_version_name,
     parse_certificate,
-    parse_cipher,
 )
 
 if typing.TYPE_CHECKING:
@@ -337,18 +338,26 @@ class SSLSocket(_ssl.SSLSocket):
         self._checkClosed()
 
         if self._sslobj is not None:
-            cipher = self._sslobj.cipher()
-            if cipher is not None:
-                return parse_cipher(cipher)
+            cipher_suite = self._sslobj.cipher()
+            if cipher_suite is not None:
+                cipher = get_cipher_tuple(cipher_suite)
+                assert cipher is not None
+                return cipher
         return None
 
     def shared_ciphers(self) -> list[tuple[str, str, int]] | None:
         self._checkClosed()
 
         if self._sslobj is not None:
-            shared_ciphers = self._sslobj.shared_ciphers()
-            if shared_ciphers is not None:
-                return [parse_cipher(c) for c in shared_ciphers]
+            cipher_suites = self._sslobj.shared_ciphers()
+            if cipher_suites is not None:
+                ciphers = []
+                for cipher_suite in cipher_suites:
+                    cipher = get_cipher_tuple(cipher_suite)
+                    if cipher is None:
+                        continue
+                    ciphers.append(cipher)
+                return ciphers
         return None
 
     def compression(self) -> None:
@@ -563,7 +572,9 @@ class SSLSocket(_ssl.SSLSocket):
 
     def version(self) -> str | None:
         if self._sslobj is not None:
-            return self._sslobj.version()
+            version = self._sslobj.version()
+            if version is not None:
+                return get_version_name(version)
         return None
 
     def _new_session_handler(self, session: tls.TLSSession) -> None:

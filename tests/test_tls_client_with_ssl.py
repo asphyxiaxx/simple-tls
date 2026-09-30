@@ -153,7 +153,7 @@ def test_tls13_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1.3"
-        assert conn.version() == "TLSv1.3"
+        assert conn.version() == tls.TLSVersion.TLSv1_3
 
 
 @pytest.mark.parametrize(
@@ -217,7 +217,7 @@ def test_tls12_rsa_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1.2"
-        assert conn.version() == "TLSv1.2"
+        assert conn.version() == tls.TLSVersion.TLSv1_2
 
 
 @pytest.mark.parametrize(
@@ -257,7 +257,7 @@ def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
             raise
     else:
         assert ec_server.tls.version() == "TLSv1.2"
-        assert conn.version() == "TLSv1.2"
+        assert conn.version() == tls.TLSVersion.TLSv1_2
 
 
 @pytest.mark.parametrize(
@@ -290,7 +290,7 @@ def test_tls12_dss_handshake(cipher_suite, dsa_server):
             raise
     else:
         assert dsa_server.tls.version() == "TLSv1.2"
-        assert conn.version() == "TLSv1.2"
+        assert conn.version() == tls.TLSVersion.TLSv1_2
 
 
 @pytest.mark.parametrize(
@@ -331,7 +331,7 @@ def test_tls11_rsa_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1.1"
-        assert conn.version() == "TLSv1.1"
+        assert conn.version() == tls.TLSVersion.TLSv1_1
 
 
 @pytest.mark.parametrize(
@@ -362,7 +362,7 @@ def test_tls11_ecdsa_handshake(cipher_suite, ec_server):
             raise
     else:
         assert ec_server.tls.version() == "TLSv1.1"
-        assert conn.version() == "TLSv1.1"
+        assert conn.version() == tls.TLSVersion.TLSv1_1
 
 
 @pytest.mark.parametrize(
@@ -391,7 +391,7 @@ def test_tls11_dss_handshake(cipher_suite, dsa_server):
             raise
     else:
         assert dsa_server.tls.version() == "TLSv1.1"
-        assert conn.version() == "TLSv1.1"
+        assert conn.version() == tls.TLSVersion.TLSv1_1
 
 
 @pytest.mark.parametrize(
@@ -432,7 +432,7 @@ def test_tls1_rsa_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1"
-        assert conn.version() == "TLSv1"
+        assert conn.version() == tls.TLSVersion.TLSv1
 
 
 @pytest.mark.parametrize(
@@ -463,7 +463,7 @@ def test_tls1_ecdsa_handshake(cipher_suite, ec_server):
             raise
     else:
         assert ec_server.tls.version() == "TLSv1"
-        assert conn.version() == "TLSv1"
+        assert conn.version() == tls.TLSVersion.TLSv1
 
 
 @pytest.mark.parametrize(
@@ -492,4 +492,4 @@ def test_tls1_dss_handshake(cipher_suite, dsa_server):
             raise
     else:
         assert dsa_server.tls.version() == "TLSv1"
-        assert conn.version() == "TLSv1"
+        assert conn.version() == tls.TLSVersion.TLSv1

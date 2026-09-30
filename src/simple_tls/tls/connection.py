@@ -52,7 +52,13 @@ from .handshake import TLSHandshake, TrafficContext
 from .handshake_client import NewSessionHandler, TLSHandshakeClient
 from .handshake_server import SNICallback, TLSHandshakeServer
 from .messages import HandshakeMessage
-from .utils import Buffer, WritableBuffer, get_algorithm, hkdf_expand_label
+from .utils import (
+    Buffer,
+    WritableBuffer,
+    get_algorithm,
+    hkdf_expand_label,
+    version_to_wire,
+)
 
 MessageCallback = typing.Callable[
     ["TLSConnection", Direction, int, int, bytes], None
@@ -205,20 +211,13 @@ class TLSConnection:
     def early_data_offered(self) -> bool:
         return self._handshake.early_data_offered
 
-    def version(self) -> str:
-        lookup_map: dict[int, str] = {
-            TLSVersion.TLSv1: "TLSv1",
-            TLSVersion.TLSv1_1: "TLSv1.1",
-            TLSVersion.TLSv1_2: "TLSv1.2",
-            TLSVersion.TLSv1_3: "TLSv1.3",
-        }
+    def version(self) -> TLSVersion | None:
         if self._has_final_version():
+            protocol = self.configuration.protocol
             version = self._handshake.protocol_version()
-            try:
-                return lookup_map[version]
-            except KeyError:
-                pass
-        return "Unknown version"
+            wire_version = version_to_wire(protocol, version)
+            return TLSVersion(wire_version)
+        return None
 
     def bio_write(self, data: Buffer) -> None:
         """

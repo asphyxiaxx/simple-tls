@@ -168,11 +168,69 @@ def parse_certificate(certificate: x509.Certificate) -> dict[str, typing.Any]:
     return out
 
 
-def parse_cipher(cipher: tls.CipherSuite) -> tuple[str, str, int]:
-    name = cipher.name
-    version = _VERSION_MAP.get(cipher.minimum_version, "Unknown version")
-    secret_bits = _SECRET_BIT_MAP.get(cipher.symmetric, 0)
-    return (name, version, secret_bits)
+def get_cipher(cipher_suite: tls.CipherSuite) -> _ssl._Cipher | None:
+    if cipher_suite in (
+        tls.CipherSuite.TLS_FALLBACK_SCSV,
+        tls.CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV,
+    ):
+        return None
+
+    desc: list[str] = []
+
+    name = _OPENSSL_CIPHER_NAMES[cipher_suite.name]
+    desc.append(f"{name:<31}")
+
+    protocol, ver = _OPENSSL_VERSION_NAMES[cipher_suite.minimum_version]
+    desc.append(f"{ver:<8}")
+
+    kea, kx = _OPENSSL_KEA_NAMES[cipher_suite.kea]
+    desc.append(f"Kx={kx:<9}")
+
+    auth, au = _OPENSSL_AUTH_NAMES[cipher_suite.auth]
+    desc.append(f"Au={au:<6}")
+
+    symmetric, enc = _OPENSSL_SYMMETRIC_NAMES[cipher_suite.symmetric]
+    desc.append(f"Enc={enc:<23}")
+
+    if cipher_suite.digest is not None:
+        assert not cipher_suite.aead
+        digest, mac = _OPENSSL_DIGEST_NAMES[cipher_suite.digest]
+    else:
+        assert cipher_suite.aead
+        digest = None
+        mac = "AEAD"
+
+    desc.append(f"Mac={mac}")
+
+    return {
+        "id": (0x03000000 | cipher_suite.id),
+        "name": name,
+        "protocol": protocol,
+        "description": "".join(desc),
+        "strength_bits": cipher_suite.value.strength_bits,
+        "alg_bits": cipher_suite.value.alg_bits,
+        "aead": cipher_suite.aead,
+        "symmetric": symmetric,  # type: ignore
+        "digest": digest,
+        "kea": kea,
+        "auth": auth,
+    }
+
+
+def get_cipher_tuple(
+    cipher_suite: tls.CipherSuite,
+) -> tuple[str, str, int] | None:
+    cipher = get_cipher(cipher_suite)
+    if cipher is not None:
+        return (cipher["name"], cipher["protocol"], cipher["alg_bits"])
+    return None
+
+
+def get_version_name(version: int) -> str:
+    try:
+        return _OPENSSL_VERSION_NAMES[version][1]
+    except KeyError:
+        return "Unknown version"
 
 
 def parse_cipher_string(cipher_str: str) -> list[tls.CipherSuite]:
@@ -227,33 +285,128 @@ def create_default_context(
     return context
 
 
-_VERSION_MAP: dict[int, str] = {
-    TLSVersion.TLSv1: "TLSv1",
-    TLSVersion.TLSv1_1: "TLSv1.1",
-    TLSVersion.TLSv1_2: "TLSv1.2",
-    TLSVersion.TLSv1_3: "TLSv1.3",
-}
-
-_SECRET_BIT_MAP: dict[tls.Symmetric, int] = {
-    tls.Symmetric.AES_128_CBC: 128,
-    tls.Symmetric.AES_128_CCM: 128,
-    tls.Symmetric.AES_128_CCM_8: 128,
-    tls.Symmetric.AES_128_GCM: 128,
-    tls.Symmetric.AES_256_CBC: 256,
-    tls.Symmetric.AES_256_CCM: 256,
-    tls.Symmetric.AES_256_CCM_8: 256,
-    tls.Symmetric.AES_256_GCM: 256,
-    tls.Symmetric.CHACHA20_DRAFT_00: 256,
-    tls.Symmetric.CHACHA20_POLY1305: 256,
-    tls.Symmetric.TRIPLE_DES_EDE_CBC: 168,
-    tls.Symmetric.RC4_128: 128,
-    tls.Symmetric.NULL: 0,
-}
-
-
 class SSLConnection(tls.TLSConnection):
     def selected_alpn_protocol(self) -> str | None:  # type: ignore
         protocol = super().selected_alpn_protocol()
         if protocol is not None:
             return protocol.decode()
         return None
+
+
+_OPENSSL_VERSION_NAMES: dict[int, tuple[str, str]] = {
+    TLSVersion.TLSv1: ("TLSv1.0", "TLSv1"),
+    TLSVersion.TLSv1_1: ("TLSv1.1", "TLSv1.1"),
+    TLSVersion.TLSv1_2: ("TLSv1.2", "TLSv1.2"),
+    TLSVersion.TLSv1_3: ("TLSv1.3", "TLSv1.3"),
+}
+
+_OPENSSL_DIGEST_NAMES: dict[int, tuple[str, str]] = {
+    tls.HashAlgorithm.MD5: ("md5", "MD5"),
+    tls.HashAlgorithm.SHA1: ("sha1", "SHA1"),
+    tls.HashAlgorithm.SHA256: ("sha256", "SHA256"),
+    tls.HashAlgorithm.SHA384: ("sha384", "SHA384"),
+}
+
+_OPENSSL_SYMMETRIC_NAMES: dict[int, tuple[str | None, str]] = {
+    tls.Symmetric.NULL: (None, "None"),
+    tls.Symmetric.RC4_128: ("rc4", "RC4(128)"),
+    tls.Symmetric.TRIPLE_DES_EDE_CBC: ("des-ede3-cbc", "3DES(168)"),
+    tls.Symmetric.AES_128_CBC: ("aes-128-cbc", "AES(128)"),
+    tls.Symmetric.AES_256_CBC: ("aes-256-cbc", "AES(256)"),
+    tls.Symmetric.AES_128_GCM: ("aes-128-gcm", "AESGCM(128)"),
+    tls.Symmetric.AES_256_GCM: ("aes-256-gcm", "AESGCM(256)"),
+    tls.Symmetric.CHACHA20_POLY1305: (
+        "chacha20-poly1305",
+        "CHACHA20/POLY1305(256)",
+    ),
+    tls.Symmetric.AES_128_CCM: ("aes-128-ccm", "AESCCM(128)"),
+    tls.Symmetric.AES_256_CCM: ("aes-256-ccm", "AESCCM(256)"),
+    tls.Symmetric.AES_128_CCM_8: ("aes-128-ccm", "AESCCM8(128)"),
+    tls.Symmetric.AES_256_CCM_8: ("aes-256-ccm", "AESCCM8(256)"),
+}
+
+_OPENSSL_KEA_NAMES: dict[int, tuple[str, str]] = {
+    tls.KeyExchange.RSA: ("kx-rsa", "RSA"),
+    tls.KeyExchange.DHE: ("kx-dhe", "DH"),
+    tls.KeyExchange.ECDHE: ("kx-ecdhe", "ECDH"),
+    tls.KeyExchange.NONE: ("kx-any", "any"),
+}
+
+_OPENSSL_AUTH_NAMES: dict[int, tuple[str, str]] = {
+    tls.Authentication.ANON: ("auth-null", "None"),
+    tls.Authentication.DSS: ("auth-dss", "DSS"),
+    tls.Authentication.ECDSA: ("auth-ecdsa", "ECDSA"),
+    tls.Authentication.RSA: ("auth-rsa", "RSA"),
+    tls.Authentication.NONE: ("auth-any", "any"),
+}
+
+# ruff: disable[E501]
+
+_OPENSSL_CIPHER_NAMES: dict[str, str] = {
+    "TLS_RSA_WITH_NULL_MD5": "NULL-MD5",
+    "TLS_RSA_WITH_NULL_SHA": "NULL-SHA",
+    "TLS_RSA_WITH_NULL_SHA256": "NULL-SHA256",
+    "TLS_RSA_WITH_RC4_128_MD5": "RC4-MD5",
+    "TLS_RSA_WITH_RC4_128_SHA": "RC4-SHA",
+    "TLS_RSA_WITH_3DES_EDE_CBC_SHA": "DES-CBC3-SHA",
+    "TLS_RSA_WITH_AES_128_CBC_SHA": "AES128-SHA",
+    "TLS_RSA_WITH_AES_256_CBC_SHA": "AES256-SHA",
+    "TLS_RSA_WITH_AES_128_CBC_SHA256": "AES128-SHA256",
+    "TLS_RSA_WITH_AES_256_CBC_SHA256": "AES256-SHA256",
+    "TLS_RSA_WITH_AES_128_CCM": "AES128-CCM",
+    "TLS_RSA_WITH_AES_256_CCM": "AES256-CCM",
+    "TLS_RSA_WITH_AES_128_CCM_8": "AES128-CCM8",
+    "TLS_RSA_WITH_AES_256_CCM_8": "AES256-CCM8",
+    "TLS_RSA_WITH_AES_128_GCM_SHA256": "AES128-GCM-SHA256",
+    "TLS_RSA_WITH_AES_256_GCM_SHA384": "AES256-GCM-SHA384",
+    "TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA": "DHE-DSS-DES-CBC3-SHA",
+    "TLS_DHE_DSS_WITH_AES_128_CBC_SHA": "DHE-DSS-AES128-SHA",
+    "TLS_DHE_DSS_WITH_AES_256_CBC_SHA": "DHE-DSS-AES256-SHA",
+    "TLS_DHE_DSS_WITH_AES_128_CBC_SHA256": "DHE-DSS-AES128-SHA256",
+    "TLS_DHE_DSS_WITH_AES_256_CBC_SHA256": "DHE-DSS-AES256-SHA256",
+    "TLS_DHE_DSS_WITH_AES_128_GCM_SHA256": "DHE-DSS-AES128-GCM-SHA256",
+    "TLS_DHE_DSS_WITH_AES_256_GCM_SHA384": "DHE-DSS-AES256-GCM-SHA384",
+    "TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA": "DHE-RSA-DES-CBC3-SHA",
+    "TLS_DHE_RSA_WITH_AES_128_CBC_SHA": "DHE-RSA-AES128-SHA",
+    "TLS_DHE_RSA_WITH_AES_256_CBC_SHA": "DHE-RSA-AES256-SHA",
+    "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256": "DHE-RSA-AES128-SHA256",
+    "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256": "DHE-RSA-AES256-SHA256",
+    "TLS_DHE_RSA_WITH_AES_128_CCM": "DHE-RSA-AES128-CCM",
+    "TLS_DHE_RSA_WITH_AES_256_CCM": "DHE-RSA-AES256-CCM",
+    "TLS_DHE_RSA_WITH_AES_128_CCM_8": "DHE-RSA-AES128-CCM8",
+    "TLS_DHE_RSA_WITH_AES_256_CCM_8": "DHE-RSA-AES256-CCM8",
+    "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256": "DHE-RSA-AES128-GCM-SHA256",
+    "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384": "DHE-RSA-AES256-GCM-SHA384",
+    "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256": "DHE-RSA-CHACHA20-POLY1305",
+    "TLS_ECDHE_RSA_WITH_NULL_SHA": "ECDHE-RSA-NULL-SHA",
+    "TLS_ECDHE_RSA_WITH_RC4_128_SHA": "ECDHE-RSA-RC4-SHA",
+    "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA": "ECDHE-RSA-DES-CBC3-SHA",
+    "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA": "ECDHE-RSA-AES128-SHA",
+    "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA": "ECDHE-RSA-AES256-SHA",
+    "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256": "ECDHE-RSA-AES128-SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384": "ECDHE-RSA-AES256-SHA384",
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": "ECDHE-RSA-AES128-GCM-SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384": "ECDHE-RSA-AES256-GCM-SHA384",
+    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256": "ECDHE-RSA-CHACHA20-POLY1305",
+    "TLS_ECDHE_ECDSA_WITH_NULL_SHA": "ECDHE-ECDSA-NULL-SHA",
+    "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA": "ECDHE-ECDSA-RC4-SHA",
+    "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA": "ECDHE-ECDSA-DES-CBC3-SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA": "ECDHE-ECDSA-AES128-SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA": "ECDHE-ECDSA-AES256-SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256": "ECDHE-ECDSA-AES128-SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384": "ECDHE-ECDSA-AES256-SHA384",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_CCM": "ECDHE-ECDSA-AES128-CCM",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_CCM": "ECDHE-ECDSA-AES256-CCM",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8": "ECDHE-ECDSA-AES128-CCM8",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8": "ECDHE-ECDSA-AES256-CCM8",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256": "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384": "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256": "ECDHE-ECDSA-CHACHA20-POLY1305",
+    "TLS_AES_128_GCM_SHA256": "TLS_AES_128_GCM_SHA256",
+    "TLS_AES_256_GCM_SHA384": "TLS_AES_256_GCM_SHA384",
+    "TLS_CHACHA20_POLY1305_SHA256": "TLS_CHACHA20_POLY1305_SHA256",
+    "TLS_AES_128_CCM_SHA256": "TLS_AES_128_CCM_SHA256",
+    "TLS_AES_128_CCM_8_SHA256": "TLS_AES_128_CCM_8_SHA256",
+}
+
+# ruff: enable[E501]
