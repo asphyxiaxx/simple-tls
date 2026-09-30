@@ -315,14 +315,14 @@ _OPENSSL_SYMMETRIC_NAMES: dict[int, tuple[str | None, str]] = {
     tls.Symmetric.AES_256_CBC: ("aes-256-cbc", "AES(256)"),
     tls.Symmetric.AES_128_GCM: ("aes-128-gcm", "AESGCM(128)"),
     tls.Symmetric.AES_256_GCM: ("aes-256-gcm", "AESGCM(256)"),
-    tls.Symmetric.CHACHA20_POLY1305: (
-        "chacha20-poly1305",
-        "CHACHA20/POLY1305(256)",
-    ),
     tls.Symmetric.AES_128_CCM: ("aes-128-ccm", "AESCCM(128)"),
     tls.Symmetric.AES_256_CCM: ("aes-256-ccm", "AESCCM(256)"),
     tls.Symmetric.AES_128_CCM_8: ("aes-128-ccm", "AESCCM8(128)"),
     tls.Symmetric.AES_256_CCM_8: ("aes-256-ccm", "AESCCM8(256)"),
+    tls.Symmetric.CHACHA20_POLY1305: (
+        "chacha20-poly1305",
+        "CHACHA20/POLY1305(256)",
+    ),
 }
 
 _OPENSSL_KEA_NAMES: dict[int, tuple[str, str]] = {
