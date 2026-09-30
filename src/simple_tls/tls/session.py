@@ -33,6 +33,8 @@ from .constants import UNSPECIFIED, CipherSuite
 from .enums import Protocol
 from .utils import Buffer, utcnow
 
+DEFAULT_TIMEOUT = 1 * 24 * 60 * 60
+
 
 @dataclass
 class TLSSession:
@@ -68,7 +70,9 @@ class TLSSession:
     """Max early data size can be send after ClientHello for TLSv1.3"""
     time: datetime = field(default_factory=utcnow)
     """time issued"""
-    timeout: timedelta = field(default_factory=lambda: timedelta(days=2))
+    timeout: timedelta = field(
+        default_factory=lambda: timedelta(seconds=DEFAULT_TIMEOUT)
+    )
     """timeout"""
     ticket_age_add: int = 0
     """age added"""
@@ -98,12 +102,12 @@ class TLSSession:
         else:
             self.timeout -= delta
 
-    def set_timeout(self, timeout: int) -> None:
+    def set_timeout(self, timeout: int = DEFAULT_TIMEOUT) -> None:
         delta = timedelta(seconds=timeout)
         if self.timeout > delta:
             self.timeout = delta
 
-    def renew_timeout(self, timeout: int) -> None:
+    def renew_timeout(self, timeout: int = DEFAULT_TIMEOUT) -> None:
         self.rebase_time()
         delta = timedelta(seconds=timeout)
         if self.timeout <= delta:
