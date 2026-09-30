@@ -235,7 +235,15 @@ class SSLConnection:
     def get_protocol_version_name(self) -> str:
         if self._conn is None:
             raise TypeError("connection state not set")
-        return self._conn.version()
+
+        version_map = {
+            stls.TLSVersion.TLSv1: "TLSv1",
+            stls.TLSVersion.TLSv1_1: "TLSv1.1",
+            stls.TLSVersion.TLSv1_2: "TLSv1.2",
+            stls.TLSVersion.TLSv1_3: "TLSv1.3",
+            None: "Unknown version",
+        }
+        return version_map[self._conn.version()]
 
     def ech_accepted(self) -> bool:
         if self._conn is None:
