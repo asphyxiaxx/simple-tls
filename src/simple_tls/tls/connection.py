@@ -117,43 +117,47 @@ class TLSConnection:
         handshake.message_cb = self._do_hs_callback
         handshake.setup_traffic_cb = self._setup_traffic
 
-        self._handshake = typing.cast(TLSHandshake, handshake)
+        self._handshake: TLSHandshake = typing.cast(TLSHandshake, handshake)
         """handshake object"""
-        self._handshake_status = Status.OK
+        self._handshake_status: Status = Status.OK
         """current handshake status"""
-        self._send_record_limit = 2**14
+        self._send_record_limit: int = 2**14
         """send record limit"""
-        self._recv_record_limit = 2**14
+        self._recv_record_limit: int = 2**14
         """received record limit"""
 
-        self._inbio = inbio or MemoryBIO()
+        self._inbio: MemoryBIO = inbio or MemoryBIO()
         """incoming encrypted bytes"""
-        self._outbio = outbio or MemoryBIO()
+        self._outbio: MemoryBIO = outbio or MemoryBIO()
         """outgoing encrypted bytes (waiting to be send)"""
 
         self._header: bytes | None = None
         """cached record header"""
-        self._read_buf = memoryview(bytearray(self._recv_record_limit + 2048))
+        self._read_buf: memoryview = memoryview(
+            bytearray(self._recv_record_limit + 2048)
+        )
         """temporary buffer to store data decrypted"""
-        self._write_buf = memoryview(
+        self._write_buf: memoryview = memoryview(
             bytearray(self._send_record_limit + 2 * (_HEADER_LENGTH + 2048))
         )
         """temporary buffer to store data encrypted"""
-        self._temp_buf = memoryview(bytearray(self._send_record_limit + 2048))
+        self._temp_buf: memoryview = memoryview(
+            bytearray(self._send_record_limit + 2048)
+        )
         """temporary buffer to store plaintext for TLSv1.3"""
 
-        self._pending_flight = bytearray()
+        self._pending_flight: bytearray = bytearray()
         """pending encrypted handshake record to send"""
-        self._pending_app_data = bytearray()
+        self._pending_app_data: bytearray = bytearray()
         """unconsumed decrypted application data"""
 
-        self._write_shutdown = Shutdown.NONE
-        self._read_shutdown = Shutdown.NONE
-        self._write_state = _NULL_WRITE_STATE
-        self._read_state = _NULL_READ_STATE
-        self._early_data_ignored = 0
-        self._early_data_processed = 0
-        self._ccs_sent = False
+        self._write_shutdown: Shutdown = Shutdown.NONE
+        self._read_shutdown: Shutdown = Shutdown.NONE
+        self._write_state: ConnectionState = _NULL_WRITE_STATE
+        self._read_state: ConnectionState = _NULL_READ_STATE
+        self._early_data_ignored: int = 0
+        self._early_data_processed: int = 0
+        self._ccs_sent: bool = False
 
     @property
     def configuration(self) -> TLSConfiguration:
