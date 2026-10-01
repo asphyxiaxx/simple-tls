@@ -396,7 +396,7 @@ class TLSConnection:
             elif self._handshake_status == Status.READ_MESSAGE:
                 self._read_handshake()
             elif self._handshake_status == Status.READ_CHANGE_CIPHER_SPEC:
-                self._read_ccs(Epoch.APPLICATION_DATA)
+                self._read_ccs()
             elif self._handshake_status == Status.EARLY_RETURN:
                 if isinstance(self._handshake, TLSHandshakeClient):
                     assert self._handshake.ech_status != ECHStatus.REJECTED
@@ -526,11 +526,11 @@ class TLSConnection:
         self._pending_flight.extend(header)
         self._pending_flight.extend(b"\x01")
 
-    def _read_ccs(self, epoch: Epoch) -> None:
+    def _read_ccs(self) -> None:
         content_type, _ = self._open_record()
         if content_type != ContentType.CHANGE_CIPHER_SPEC:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
-        self._current_read_epoch = epoch
+        self._current_read_epoch = Epoch.APPLICATION_DATA
 
     def _read_handshake(self) -> None:
         content_type, data = self._open_record()
