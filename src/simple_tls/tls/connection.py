@@ -827,7 +827,7 @@ class TLSConnection:
     @typing.overload
     def _send_alert(
         self,
-        description: AlertDescription,
+        description: int,
         reason: typing.Any | None = ...,
         fatal: typing.Literal[True] = ...,
     ) -> typing.NoReturn: ...
@@ -835,7 +835,7 @@ class TLSConnection:
     @typing.overload
     def _send_alert(
         self,
-        description: AlertDescription,
+        description: int,
         reason: typing.Any | None = ...,
         fatal: typing.Literal[False] = ...,
     ) -> None: ...
@@ -843,14 +843,14 @@ class TLSConnection:
     @typing.overload
     def _send_alert(
         self,
-        description: AlertDescription,
+        description: int,
         reason: typing.Any | None = ...,
         fatal: bool = ...,
     ) -> None: ...
 
     def _send_alert(
         self,
-        description: AlertDescription,
+        description: int,
         reason: typing.Any | None = None,
         fatal: bool = True,
     ) -> None:
@@ -869,7 +869,6 @@ class TLSConnection:
 
         if fatal:
             raise TLSLocalAlert(description, reason)
-        return None
 
     def _process_alert(self, data: Buffer) -> typing.NoReturn:
         if len(data) != 2:
