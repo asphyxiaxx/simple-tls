@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import ssl as _ssl
 import sys
-import typing
 import warnings
+from collections.abc import Callable, Iterable, Sequence
 from socket import socket
+from typing import Any, ClassVar, Literal, overload
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
@@ -65,7 +66,7 @@ class SSLContext(_ssl.SSLContext):
         else:
             raise ValueError(f"unsupported protocol {protocol}")
 
-        self._config: dict[str, typing.Any] = {}
+        self._config: dict[str, Any] = {}
         self._protocol = protocol
         self._options: Options = (
             Options.OP_ENABLE_MIDDLEBOX_COMPAT
@@ -81,7 +82,7 @@ class SSLContext(_ssl.SSLContext):
 
         self._minimum_version: TLSVersion = _ssl.TLSVersion.MINIMUM_SUPPORTED
         self._maximum_version: TLSVersion = _ssl.TLSVersion.MAXIMUM_SUPPORTED
-        self._cipher_suites: typing.Sequence[tls.CipherSuite] = (
+        self._cipher_suites: Sequence[tls.CipherSuite] = (
             tls.TLSConfiguration.cipher_suites
         )
         self._castore: verification.Store = verification.Store()
@@ -141,7 +142,7 @@ class SSLContext(_ssl.SSLContext):
     def set_ciphers(self, cipherlist: str) -> None:
         self._cipher_suites = parse_cipher_string(cipherlist)
 
-    def set_npn_protocols(self, npn_protocols: typing.Iterable[str]) -> None:
+    def set_npn_protocols(self, npn_protocols: Iterable[str]) -> None:
         out: list[bytes] = []
         for protocol in npn_protocols:
             b = bytes(protocol, "ascii")
@@ -150,7 +151,7 @@ class SSLContext(_ssl.SSLContext):
             out.append(b)
         self._config["npn_protocols"] = out
 
-    def set_alpn_protocols(self, alpn_protocols: typing.Iterable[str]) -> None:
+    def set_alpn_protocols(self, alpn_protocols: Iterable[str]) -> None:
         out: list[bytes] = []
         for protocol in alpn_protocols:
             b = bytes(protocol, "ascii")
@@ -181,7 +182,7 @@ class SSLContext(_ssl.SSLContext):
     ) -> None:
         raise NotImplementedError
 
-    _ECDH_CURVES: typing.ClassVar[dict[str, int]] = {
+    _ECDH_CURVES: ClassVar[dict[str, int]] = {
         "prime256v1": tls.NamedGroup.SECP256R1,
         "secp256r1": tls.NamedGroup.SECP256R1,
         "secp384r1": tls.NamedGroup.SECP384R1,
@@ -256,22 +257,22 @@ class SSLContext(_ssl.SSLContext):
 
         return data
 
-    @typing.overload
+    @overload
     def get_ca_certs(
-        self, binary_form: typing.Literal[False] = False
+        self, binary_form: Literal[False] = False
     ) -> list[PeerCertRetDictType]: ...
 
-    @typing.overload
-    def get_ca_certs(
-        self, binary_form: typing.Literal[True]
-    ) -> list[bytes]: ...
+    @overload
+    def get_ca_certs(self, binary_form: Literal[True]) -> list[bytes]: ...
 
-    @typing.overload
+    @overload
     def get_ca_certs(
         self, binary_form: bool = False
     ) -> list[PeerCertRetDictType] | list[bytes]: ...
 
-    def get_ca_certs(self, binary_form: bool = False) -> typing.Any:
+    def get_ca_certs(
+        self, binary_form: bool = False
+    ) -> list[PeerCertRetDictType] | list[bytes]:
         castore = self._castore
         if not binary_form:
             return [parse_certificate(c) for c in castore]
@@ -382,11 +383,11 @@ class SSLContext(_ssl.SSLContext):
         self._post_handshake_auth = value
 
     @property
-    def _msg_callback(self) -> typing.Callable | None:
+    def _msg_callback(self) -> Callable | None:
         return None
 
     @_msg_callback.setter
-    def _msg_callback(self, callback: typing.Callable | None) -> None:
+    def _msg_callback(self, callback: Callable | None) -> None:
         raise NotImplementedError
 
     @property
@@ -420,7 +421,7 @@ class SSLContext(_ssl.SSLContext):
         except ValueError:
             return None
 
-    def _config_data(self) -> dict[str, typing.Any]:
+    def _config_data(self) -> dict[str, Any]:
         config = self._config.copy()
 
         minimum_version = self._get_version(self._minimum_version)
