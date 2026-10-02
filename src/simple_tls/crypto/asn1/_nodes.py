@@ -175,8 +175,8 @@ def _extract_branch(t: typing.Any) -> Branch:
 
         if is_annotated:
             # Reconstruct Annotated without the Variant wrapper
-            metadata = typing.cast(tuple[typing.Any, ...], t.__metadata__)
-            annotated_value_type = Annotated[(value_type, *metadata)]  # type: ignore
+            metadata = (value_type,) + getattr(t, "__metadata__")  # noqa: RUF005
+            annotated_value_type = Annotated[metadata]  # type: ignore
             node = resolve_type(annotated_value_type)
         else:
             node = resolve_type(value_type)
@@ -214,7 +214,7 @@ def resolve_type(t: typing.Any) -> Type:
 
     # Peel Annotated
     if origin is Annotated:
-        metadata = _extract_metadata(t.__metadata__)
+        metadata = _extract_metadata(getattr(t, "__metadata__"))
         t = get_type_args(t)[0]
         origin = get_type_origin(t)
     else:
@@ -323,7 +323,7 @@ def register_seq(cls: type, is_set: bool) -> None:
 
         # Check for Annotated
         if origin is Annotated:
-            metadata = base_type.__metadata__
+            metadata = getattr(base_type, "__metadata__")
             opentypes = [d for d in metadata if isinstance(d, OpenType)]
 
             if opentypes:
@@ -347,7 +347,8 @@ def register_seq(cls: type, is_set: bool) -> None:
                     d for d in metadata if not isinstance(d, OpenType)
                 )
                 if kept_args:
-                    base_type = Annotated[(inner_type, *kept_args)]
+                    inner_metadata = (inner_type,) + kept_args  # noqa: RUF005
+                    base_type = Annotated[inner_metadata]
                 else:
                     base_type = inner_type
 
