@@ -27,6 +27,7 @@ from ._object import SSLObject
 from ._session import SSLSession, TicketAEAD
 from ._socket import SSLSocket
 from ._utils import (
+    PasswordType,
     PeerCertRetDictType,
     PSKClientCbType,
     PSKServerCbType,
@@ -39,7 +40,7 @@ from ._utils import (
 )
 
 
-class SSLContext:
+class SSLContext(_ssl.SSLContext):
     """
     An SSLContext holds various SSL-related configuration options and
     data, such as certificates and possibly a private key.
@@ -96,8 +97,8 @@ class SSLContext:
         server_side: bool = False,
         do_handshake_on_connect: bool = True,
         suppress_ragged_eofs: bool = True,
-        server_hostname: str | None = None,
-        session: SSLSession | None = None,
+        server_hostname: str | bytes | None = None,
+        session: SSLSession | None = None,  # type: ignore
     ) -> SSLSocket:
         return self.sslsocket_class._create(
             sock=sock,
@@ -114,8 +115,8 @@ class SSLContext:
         incoming: _ssl.MemoryBIO,
         outgoing: _ssl.MemoryBIO,
         server_side: bool = False,
-        server_hostname: str | None = None,
-        session: SSLSession | None = None,
+        server_hostname: str | bytes | None = None,
+        session: SSLSession | None = None,  # type: ignore
     ) -> SSLObject:
         return self.sslobject_class._create(
             incoming,
@@ -158,7 +159,7 @@ class SSLContext:
             out.append(b)
         self._config["alpn_protocols"] = out
 
-    def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:
+    def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:  # type: ignore
         if callback is None:
             self._sni_callback = None
             return
@@ -280,12 +281,15 @@ class SSLContext:
         self,
         certfile: StrOrBytesPath,
         keyfile: StrOrBytesPath | None = None,
-        password: str | ReadableBuffer | None = None,
+        password: PasswordType | None = None,
     ) -> None:
+        if callable(password):
+            password = password()
+
         credential = tls.TLSCredential.from_certfile(
             certfile=certfile,
             keyfile=keyfile,
-            password=str_to_bytes(password),  # type: ignore
+            password=str_to_bytes(password),
         )
         self._config["credential"] = credential
 
@@ -293,8 +297,11 @@ class SSLContext:
         self,
         cafile: StrOrBytesPath | None = None,
         capath: StrOrBytesPath | None = None,
-        cadata: ReadableBuffer | None = None,
+        cadata: str | ReadableBuffer | None = None,
     ) -> None:
+        if isinstance(cadata, str):
+            cadata = cadata.encode("ascii")
+
         castore = tls.load_castore(
             cafile=cafile,
             capath=capath,
@@ -322,7 +329,7 @@ class SSLContext:
         else:
             self.load_verify_locations(cafile=certifi.where())
 
-    @property
+    @property  # type: ignore
     def minimum_version(self) -> TLSVersion:
         return self._minimum_version
 
@@ -330,7 +337,7 @@ class SSLContext:
     def minimum_version(self, value: TLSVersion) -> None:
         self._minimum_version = TLSVersion(value)
 
-    @property
+    @property  # type: ignore
     def maximum_version(self) -> TLSVersion:
         return self._maximum_version
 
@@ -338,7 +345,7 @@ class SSLContext:
     def maximum_version(self, value: TLSVersion) -> None:
         self._maximum_version = TLSVersion(value)
 
-    @property
+    @property  # type: ignore
     def options(self) -> Options:
         return self._options
 
@@ -362,6 +369,10 @@ class SSLContext:
     def hostname_checks_common_name(self) -> bool:
         return True
 
+    @hostname_checks_common_name.setter
+    def hostname_checks_common_name(self, value: bool) -> None:
+        raise NotImplementedError
+
     @property
     def post_handshake_auth(self) -> bool:
         return self._post_handshake_auth
@@ -379,10 +390,10 @@ class SSLContext:
         raise NotImplementedError
 
     @property
-    def protocol(self) -> _ssl._SSLMethod:
+    def protocol(self) -> _ssl._SSLMethod:  # type: ignore
         return _ssl._SSLMethod(self._protocol)
 
-    @property
+    @property  # type: ignore
     def verify_flags(self) -> VerifyFlags:
         return VerifyFlags.VERIFY_DEFAULT
 
@@ -390,7 +401,7 @@ class SSLContext:
     def verify_flags(self, value: VerifyFlags) -> None:
         raise NotImplementedError
 
-    @property
+    @property  # type: ignore
     def verify_mode(self) -> VerifyMode:
         return self._verify_mode
 

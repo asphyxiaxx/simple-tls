@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ssl as _ssl
-import typing
+from typing import TYPE_CHECKING, Literal, overload
 
 from cryptography.hazmat.primitives import serialization
 
@@ -16,12 +16,13 @@ from ._utils import (
     ReadableBuffer,
     SrvnmeCbType,
     SSLConnection,
+    WritableBuffer,
     get_cipher_tuple,
     get_version_name,
     parse_certificate,
 )
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from ._context import SSLContext
 
 
@@ -38,7 +39,7 @@ class SSLObject(_ssl.SSLObject):
         incoming: _ssl.MemoryBIO,
         outgoing: _ssl.MemoryBIO,
         server_side: bool = False,
-        server_hostname: str | None = None,
+        server_hostname: str | bytes | None = None,
         session: SSLSession | None = None,
         context: SSLContext | None = None,
     ) -> SSLObject:
@@ -46,7 +47,7 @@ class SSLObject(_ssl.SSLObject):
             raise ValueError("context not provided")
 
         self = cls.__new__(cls)
-        self._server_hostname = server_hostname
+        self._server_hostname = bytes_to_str(server_hostname)
         self._sni_callback = context._sni_callback
 
         if context.protocol == _ssl.PROTOCOL_TLS_SERVER and not server_side:
@@ -126,15 +127,9 @@ class SSLObject(_ssl.SSLObject):
         """
         return self._server_hostname
 
-    @typing.overload  # type: ignore[override]
-    def read(self, len: int = 1024, buffer: None = None) -> bytes: ...
-
-    @typing.overload  # type: ignore[override]
-    def read(self, len: int = 1024, buffer: bytearray = ...) -> int: ...
-
     def read(
-        self, len: int = 1024, buffer: bytearray | None = None
-    ) -> bytes | int:
+        self, len: int = 1024, buffer: WritableBuffer | None = None
+    ) -> bytes:
         """
         Read up to 'len' bytes from the SSL object and return them.
 
@@ -142,13 +137,13 @@ class SSLObject(_ssl.SSLObject):
         number of bytes read.
         """
         try:
-            return self._sslobj.read(len, buffer)
+            return self._sslobj.read(len, buffer)  # type: ignore
         except tls.TLSWantReadError:
             raise SSLWantReadError from None
         except tls.TLSEOFError:
             raise SSLEOFError from None
 
-    def write(self, data: ReadableBuffer) -> int:  # type: ignore[override]
+    def write(self, data: ReadableBuffer) -> int:
         """
         Write 'data' to the SSL object and return the number of bytes
         written.
@@ -163,15 +158,18 @@ class SSLObject(_ssl.SSLObject):
     def ech_accepted(self) -> bool:
         return self._sslobj.ech_accepted()
 
-    @typing.overload  # type: ignore[override]
+    @overload
     def getpeercert(
-        self, binary_form: typing.Literal[False] = False
+        self, binary_form: Literal[False] = False
     ) -> PeerCertRetDictType | None: ...
 
-    @typing.overload  # type: ignore[override]
+    @overload
+    def getpeercert(self, binary_form: Literal[True]) -> bytes | None: ...
+
+    @overload
     def getpeercert(
-        self, binary_form: typing.Literal[True]
-    ) -> bytes | None: ...
+        self, binary_form: bool
+    ) -> PeerCertRetDictType | bytes | None: ...
 
     def getpeercert(
         self, binary_form: bool = False

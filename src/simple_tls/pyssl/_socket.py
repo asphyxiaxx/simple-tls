@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import errno
 import ssl as _ssl
-import typing
+from collections.abc import Callable
 from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from cryptography.hazmat.primitives import serialization
 
@@ -29,7 +30,7 @@ from ._utils import (
     parse_certificate,
 )
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from socket import _Address, _RetAddress
 
     from ._context import SSLContext
@@ -55,7 +56,7 @@ class SSLSocket(_ssl.SSLSocket):
         server_side: bool = False,
         do_handshake_on_connect: bool = True,
         suppress_ragged_eofs: bool = True,
-        server_hostname: str | None = None,
+        server_hostname: str | bytes | None = None,
         context: SSLContext | None = None,
         session: SSLSession | None = None,
     ) -> SSLSocket:
@@ -83,7 +84,7 @@ class SSLSocket(_ssl.SSLSocket):
         self._pending_write = bytearray()
         self._sni_callback = context._sni_callback
         self.server_side = server_side
-        self.server_hostname = server_hostname
+        self.server_hostname = bytes_to_str(server_hostname)
         self.do_handshake_on_connect = do_handshake_on_connect
         self.suppress_ragged_eofs = suppress_ragged_eofs
 
@@ -224,7 +225,7 @@ class SSLSocket(_ssl.SSLSocket):
             f"Can't dup() {self.__class__.__name__} instances"
         )
 
-    def _checkClosed(self, msg: typing.Any | None = None) -> None:  # noqa: N802
+    def _checkClosed(self, msg: Any | None = None) -> None:  # noqa: N802
         # raise an exception here if you wish to check for spurious closes
         pass
 
@@ -236,17 +237,9 @@ class SSLSocket(_ssl.SSLSocket):
             # EAGAIN.
             self.getpeername()
 
-    @typing.overload  # type: ignore[override]
-    def read(self, len: int = 1024, buffer: None = None) -> bytes: ...
-
-    @typing.overload  # type: ignore[override]
-    def read(self, len: int = 1024, buffer: ReadableBuffer = ...) -> int: ...
-
     def read(
-        self,
-        len: int = 1024,
-        buffer: ReadableBuffer | None = None,
-    ) -> bytes | int:
+        self, len: int = 1024, buffer: WritableBuffer | None = None
+    ) -> bytes:
         """
         Read up to 'len' bytes and return them.
         Return zero-length string on EOF.
@@ -261,10 +254,10 @@ class SSLSocket(_ssl.SSLSocket):
             if self.suppress_ragged_eofs:
                 if buffer is None:
                     return b""
-                return 0
+                return 0  # type: ignore
             raise
 
-    def write(self, data: ReadableBuffer) -> int:  # type: ignore[override]
+    def write(self, data: ReadableBuffer) -> int:
         """
         Write 'data' to the underlying SSL channel.  Returns
         number of bytes of 'data' actually transmitted.
@@ -284,15 +277,18 @@ class SSLSocket(_ssl.SSLSocket):
             return False
         return self._sslobj.ech_accepted()
 
-    @typing.overload  # type: ignore[override]
+    @overload
     def getpeercert(
-        self, binary_form: typing.Literal[False] = False
+        self, binary_form: Literal[False] = False
     ) -> PeerCertRetDictType | None: ...
 
-    @typing.overload  # type: ignore[override]
+    @overload
+    def getpeercert(self, binary_form: Literal[True]) -> bytes | None: ...
+
+    @overload
     def getpeercert(
-        self, binary_form: typing.Literal[True]
-    ) -> bytes | None: ...
+        self, binary_form: bool
+    ) -> PeerCertRetDictType | bytes | None: ...
 
     def getpeercert(
         self, binary_form: bool = False
@@ -364,7 +360,7 @@ class SSLSocket(_ssl.SSLSocket):
         self._checkClosed()
         return None
 
-    def send(self, data: ReadableBuffer, flags: int = 0) -> int:  # type: ignore[override]
+    def send(self, data: ReadableBuffer, flags: int = 0) -> int:
         self._checkClosed()
         if self._sslobj is not None:
             if flags != 0:
@@ -376,7 +372,7 @@ class SSLSocket(_ssl.SSLSocket):
         else:
             return socket.send(self, data, flags)
 
-    def sendall(self, data: ReadableBuffer, flags: int = 0) -> None:  # type: ignore[override]
+    def sendall(self, data: ReadableBuffer, flags: int = 0) -> None:
         self._checkClosed()
         if self._sslobj is not None:
             if flags != 0:
@@ -394,7 +390,7 @@ class SSLSocket(_ssl.SSLSocket):
             return socket.sendall(self, data, flags)
 
     def sendfile(
-        self, file: typing.Any, offset: int = 0, count: int | None = None
+        self, file: Any, offset: int = 0, count: int | None = None
     ) -> int:
         """
         Send a file, possibly by using os.sendfile() if this is a
@@ -414,11 +410,8 @@ class SSLSocket(_ssl.SSLSocket):
         else:
             return socket.recv(self, buflen, flags)
 
-    def recv_into(  # type: ignore[override]
-        self,
-        buffer: WritableBuffer,
-        nbytes: int | None = None,
-        flags: int = 0,
+    def recv_into(
+        self, buffer: WritableBuffer, nbytes: int | None = None, flags: int = 0
     ) -> int:
         self._checkClosed()
 
@@ -437,7 +430,7 @@ class SSLSocket(_ssl.SSLSocket):
                     f"non-zero flags not allowed in calls to "
                     f"recv_into() on {self.__class__}"
                 )
-            return self.read(nbytes, buffer)
+            return self.read(nbytes, buffer)  # type: ignore
         else:
             return socket.recv_into(self, buffer, nbytes, flags)
 
@@ -474,17 +467,17 @@ class SSLSocket(_ssl.SSLSocket):
         finally:
             self.settimeout(timeout)
 
-    @typing.overload
+    @overload
     def _real_connect(
-        self, addr: _Address, connect_ex: typing.Literal[True]
+        self, addr: _Address, connect_ex: Literal[True]
     ) -> int: ...
 
-    @typing.overload
+    @overload
     def _real_connect(
-        self, addr: _Address, connect_ex: typing.Literal[False]
+        self, addr: _Address, connect_ex: Literal[False]
     ) -> None: ...
 
-    @typing.overload
+    @overload
     def _real_connect(
         self, addr: _Address, connect_ex: bool
     ) -> int | None: ...
@@ -592,9 +585,7 @@ class SSLSocket(_ssl.SSLSocket):
         context.credential = config.get("credential", None)
         context.verify_mode = config.get("verify_mode", context.verify_mode)
 
-    def _drive_tls(
-        self, func: typing.Callable, *args: typing.Any
-    ) -> typing.Any:
+    def _drive_tls(self, func: Callable, *args: Any) -> Any:
         """
         Drive a TLS operation safely in non-blocking mode.
         """
@@ -627,7 +618,7 @@ class SSLSocket(_ssl.SSLSocket):
         Flush pending TLS ciphertext to the underlying socket.
         Correctly handles partial writes.
         """
-        sslobj = typing.cast(SSLConnection, self._sslobj)
+        sslobj = cast(SSLConnection, self._sslobj)
 
         # Flush previously unsent ciphertext
         while self._pending_write:
@@ -666,7 +657,7 @@ class SSLSocket(_ssl.SSLSocket):
         """
         Read raw TLS ciphertext from socket and feed it into SSL BIO.
         """
-        sslobj = typing.cast(SSLConnection, self._sslobj)
+        sslobj = cast(SSLConnection, self._sslobj)
         try:
             data = socket.recv(self, 65535)
         except BlockingIOError:

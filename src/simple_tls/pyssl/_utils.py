@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import ssl as _ssl
 import sys
-import typing
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from os import PathLike
-from typing import TYPE_CHECKING, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, TypeAlias, Union
 
 from cryptography import x509
 from cryptography.x509.oid import AuthorityInformationAccessOID
@@ -40,7 +39,9 @@ StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
 PCTRTT: TypeAlias = tuple[tuple[str, str], ...]
 PCTRTTT: TypeAlias = tuple[PCTRTT, ...]
 PeerCertRetDictType: TypeAlias = dict[str, str | PCTRTTT | PCTRTT]
-
+PasswordType: TypeAlias = (
+    Callable[[], str | bytes | bytearray] | str | bytes | bytearray
+)
 PSKClientCbType: TypeAlias = Callable[
     [str | None],
     tuple[str | None, bytes],
@@ -67,10 +68,10 @@ def _parse_name(name: x509.Name) -> tuple[tuple[tuple[str, str], ...], ...]:
 
 
 def _parse_general_names(
-    general_names: typing.Iterable[x509.GeneralName],
+    general_names: Iterable[x509.GeneralName],
 ) -> tuple[tuple[str, str], ...]:
     out: list[tuple[str, str]] = []
-    value: typing.Any
+    value: Any
 
     for general_name in general_names:
         if isinstance(general_name, x509.DNSName):
@@ -110,7 +111,7 @@ def _parse_general_names(
     return tuple(out)
 
 
-def parse_certificate(certificate: x509.Certificate) -> dict[str, typing.Any]:
+def parse_certificate(certificate: x509.Certificate) -> dict[str, Any]:
     gmt_fmt = "%a, %d %b %Y %H:%M:%S GMT"
     out = {
         "subject": _parse_name(certificate.subject),
