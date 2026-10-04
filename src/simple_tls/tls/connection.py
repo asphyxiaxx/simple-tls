@@ -795,8 +795,8 @@ class TLSConnection:
         return content_type, out[:pt_len]
 
     def _skip_early_data(self, ciphertext_length: int) -> None:
-        self._early_data_ignored += max(0, ciphertext_length - 17)
-        if self._early_data_ignored > self._handshake.max_early_data:
+        self._early_data_ignored += ciphertext_length
+        if self._early_data_ignored > self._recv_record_limit:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
 
     def _record_version(self) -> int:
