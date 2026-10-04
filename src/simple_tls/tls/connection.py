@@ -264,26 +264,25 @@ class TLSConnection:
             content_type, data = self._open_record()
 
             if content_type != ContentType.APPLICATION_DATA:
-                if content_type == ContentType.HANDSHAKE:
-                    hs.feed_data(data)
-
-                    if not hs.done:
-                        assert hs.can_early_read
-                        hs.close_early_data()
-                    else:
-                        hs.trigger_post_handshake()
-                else:
+                if content_type != ContentType.HANDSHAKE:
                     self._send_alert(
                         AlertDescription.UNEXPECTED_MESSAGE,
                         f"Unexpected ContentType '{content_type}'",
                     )
 
+                hs.feed_data(data)
+
+                if not hs.done:
+                    assert hs.can_early_read
+                    hs.close_early_data()
+                else:
+                    hs.trigger_post_handshake()
+
                 continue
 
-            is_early_data_read = hs.is_server and hs.in_early_data
-            if is_early_data_read:
+            if hs.is_server and hs.in_early_data:
                 self._early_data_processed += len(data)
-                if self._early_data_processed >= hs.max_early_data:
+                if self._early_data_processed > hs.max_early_data:
                     self._send_alert(
                         AlertDescription.UNEXPECTED_MESSAGE,
                         "Too much early data",
@@ -323,27 +322,26 @@ class TLSConnection:
         if self._write_shutdown != Shutdown.NONE:
             raise TLSEOFError("protocol is shutdown")
 
-        max_send_frament = self._send_record_limit
+        max_send_fragment = self._send_record_limit
         is_early_data_write = (
             not self.is_server and hs.in_early_data and hs.can_early_write
         )
 
         if is_early_data_write:
-            if self._early_data_processed >= hs.max_early_data:
-                hs.close_early_data()
-
-            max_send_frament = min(
-                max_send_frament,
+            max_send_fragment = min(
+                max_send_fragment,
                 hs.max_early_data - self._early_data_processed,
             )
 
-        if len(data) > max_send_frament:
-            data = data[:max_send_frament]
+        if len(data) > max_send_fragment:
+            data = data[:max_send_fragment]
 
         self._write(ContentType.APPLICATION_DATA, data)
 
         if is_early_data_write:
             self._early_data_processed += len(data)
+            if self._early_data_processed >= hs.max_early_data:
+                hs.close_early_data()
 
         return len(data)
 
@@ -797,8 +795,8 @@ class TLSConnection:
         return content_type, out[:pt_len]
 
     def _skip_early_data(self, ciphertext_length: int) -> None:
-        self._early_data_ignored += ciphertext_length
-        if self._early_data_ignored >= _MAX_EARLY_DATA_SKIPPED:
+        self._early_data_ignored += max(0, ciphertext_length - 17)
+        if self._early_data_ignored > self._handshake.max_early_data:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
 
     def _record_version(self) -> int:
