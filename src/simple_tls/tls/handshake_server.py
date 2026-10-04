@@ -1119,6 +1119,12 @@ class TLSHandshakeServer(TLSHandshake):
             if psk_ext is None:
                 raise AlertIllegalParameter("Unexpected early data extension")
 
+            if self._session_reused:
+                assert session is not None
+                new_session.ticket_max_early_data = (
+                    session.ticket_max_early_data
+                )
+
             if (
                 self.configuration.early_data
                 # RFC8446 Section 4.2.10
@@ -1136,9 +1142,6 @@ class TLSHandshakeServer(TLSHandshake):
             ):
                 self._early_data_accepted = True
 
-                new_session.ticket_max_early_data = (
-                    session.ticket_max_early_data
-                )
                 if new_session.has_alps:
                     new_session.peer_alps = session.peer_alps
 
