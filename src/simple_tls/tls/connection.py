@@ -66,7 +66,6 @@ MessageCallback = typing.Callable[
 
 
 _HEADER_LENGTH = 5
-_MAX_EARLY_DATA_SKIPPED = 16384
 
 
 class SkipDataException(Exception):
