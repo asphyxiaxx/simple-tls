@@ -279,7 +279,7 @@ class TLSConnection:
 
                 continue
 
-            if hs.is_server and hs.in_early_data:
+            if hs.is_server and hs.can_early_read:
                 self._early_data_processed += len(data)
                 if self._early_data_processed > hs.max_early_data:
                     self._send_alert(
@@ -322,9 +322,7 @@ class TLSConnection:
             raise TLSEOFError("protocol is shutdown")
 
         max_send_fragment = self._send_record_limit
-        is_early_data_write = (
-            not self.is_server and hs.in_early_data and hs.can_early_write
-        )
+        is_early_data_write = not self.is_server and hs.can_early_write
 
         if is_early_data_write:
             max_send_fragment = min(
