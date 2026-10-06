@@ -65,7 +65,8 @@ MessageCallback = typing.Callable[
 ]
 
 
-_HEADER_LENGTH = 5
+HEADER_LENGTH = 5
+MAX_WARNING_ALERTS = 5
 
 
 class SkipDataException(Exception):
@@ -137,7 +138,7 @@ class TLSConnection:
         )
         """temporary buffer to store data decrypted"""
         self._write_buf: memoryview = memoryview(
-            bytearray(self._send_record_limit + 2 * (_HEADER_LENGTH + 2048))
+            bytearray(self._send_record_limit + 2 * (HEADER_LENGTH + 2048))
         )
         """temporary buffer to store data encrypted"""
         self._temp_buf: memoryview = memoryview(
@@ -156,6 +157,7 @@ class TLSConnection:
         self._read_state: ConnectionState = _NULL_READ_STATE
         self._early_data_ignored: int = 0
         self._early_data_processed: int = 0
+        self._alert_warning_received: int = 0
         self._ccs_sent: bool = False
 
     @property
@@ -474,7 +476,7 @@ class TLSConnection:
             )
             state = ConnectionState(epoch, cipher)
 
-            max_seal_overhead = _HEADER_LENGTH
+            max_seal_overhead = HEADER_LENGTH
             max_seal_overhead += cipher.max_overhead()
 
             if (
@@ -600,7 +602,7 @@ class TLSConnection:
         assert len(plaintext) <= self._send_record_limit
 
         state = self._write_state
-        data_buf = buf[_HEADER_LENGTH:]
+        data_buf = buf[HEADER_LENGTH:]
 
         if state.hide_content_type:
             pt_len = len(plaintext)
@@ -628,8 +630,8 @@ class TLSConnection:
 
         state.sequence_number += 1
 
-        buf[0:_HEADER_LENGTH] = header
-        out_len = _HEADER_LENGTH + ct_len
+        buf[0:HEADER_LENGTH] = header
+        out_len = HEADER_LENGTH + ct_len
 
         return out_len
 
@@ -650,12 +652,12 @@ class TLSConnection:
 
         # Parse header: ContentType (1), Version (2), Length (2)
         if self._header is None:
-            if inbio.pending < _HEADER_LENGTH:
+            if inbio.pending < HEADER_LENGTH:
                 raise TLSWantReadError()
-            self._header = inbio.read(_HEADER_LENGTH)
+            self._header = inbio.read(HEADER_LENGTH)
 
         header = self._header
-        assert len(header) == _HEADER_LENGTH
+        assert len(header) == HEADER_LENGTH
 
         content_type, record_version, length = struct.unpack("!BHH", header)
 
@@ -878,6 +880,14 @@ class TLSConnection:
             if description == AlertDescription.CLOSE_NOTIFY:
                 self._read_shutdown = Shutdown.CLOSE_NOTIFY
                 raise TLSEOFError()
+
+            self._alert_warning_received += 1
+
+            if self._alert_warning_received > MAX_WARNING_ALERTS:
+                self._send_alert(
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "Too many warning alerts received.",
+                )
 
             if (
                 self._has_final_version()
