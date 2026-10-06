@@ -405,7 +405,7 @@ class TLSConnection:
             try:
                 self._handshake_status = self._handshake.do_handshake()
             except AlertException as exc:
-                self._send_alert(exc.description, exc, exc.fatal)
+                self._send_alert(exc.description, exc.message, exc.fatal)
 
             if self._handshake_status == Status.OK:
                 assert self._handshake.done
