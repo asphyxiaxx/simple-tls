@@ -400,7 +400,7 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertIllegalParameter("Invalid compression methods")
 
         elif Compression.NULL not in client_hello.compression_methods:
-            AlertHandshakeFailure("No supported compression method")
+            raise AlertIllegalParameter("No supported compression method")
 
         # Cipher suites
         self._peer_cipher_suites = tuple(client_hello.cipher_suites)
