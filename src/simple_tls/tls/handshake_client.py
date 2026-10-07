@@ -310,6 +310,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._handle_dispatch = {
             ClientState.START_CONNECT: self._do_start_connect,
             ClientState.ENTER_EARLY_DATA: self._do_enter_early_data,
+            ClientState.ENTER_EARLY_DATA_COMPAT: self._do_enter_early_data_compat_css,
             ClientState.READ_SERVER_HELLO: self._do_read_server_hello,
             ClientState.READ_SERVER_CERTIFICATE: self._do_read_server_certificate,
             ClientState.READ_CERTIFICATE_STATUS: self._do_read_certificate_status,
@@ -319,12 +320,14 @@ class TLSHandshakeClient(TLSHandshake):
             ClientState.SEND_CLIENT_CERTIFICATE: self._do_send_client_certificate,
             ClientState.SEND_CLIENT_KEY_EXCHANGE: self._do_send_client_key_exchange,
             ClientState.SEND_CLIENT_CERTIFICATE_VERIFY: self._do_send_client_certificate_verify,
+            ClientState.SEND_CHANGE_CIPHER_SPEC: self._do_send_change_cipher_spec,
             ClientState.SEND_CLIENT_FINISHED: self._do_send_client_finished,
             ClientState.FINISH_FLIGHT: self._do_finish_flight,
             ClientState.READ_SESSION_TICKET: self._do_read_session_ticket,
             ClientState.PROCESS_CHANGE_CIPHER_SPEC: self._do_process_change_cipher_spec,
             ClientState.READ_SERVER_FINISHED: self._do_read_server_finished,
             # TLSv1.3
+            ClientState.COMPAT_CSS_TLS13: self._do_compat_ccs_tls13,
             ClientState.READ_HRR_TLS13: self._do_read_hrr_tlsv13,
             ClientState.SEND_SECOND_CLIENT_HELLO_TLS13: self._do_send_second_client_hello_tls13,
             ClientState.READ_SERVER_HELLO_TLS13: self._do_read_server_hello_tls13,
@@ -354,7 +357,6 @@ class TLSHandshakeClient(TLSHandshake):
         self._session_ticket: bytes | None = None
         self._selected_ech_config: ECHConfigContent | None = None
         self._ech_client_outer: ECHClientExtension | None = None
-        self._hello_retry_request_used: bool = False
         self._ticket_expected: bool = False
 
         self._pre_shared_keys: list[
@@ -552,6 +554,14 @@ class TLSHandshakeClient(TLSHandshake):
         self._in_early_data = True
         self._can_early_write = True
 
+        if self._configuration.middlebox_compat:
+            self._set_state(ClientState.ENTER_EARLY_DATA_COMPAT)
+            return Status.WRITE_CHANGE_CIPHER_SPEC
+
+        self._set_state(ClientState.READ_SERVER_HELLO)
+        return Status.EARLY_RETURN
+
+    def _do_enter_early_data_compat_css(self) -> Status:
         self._set_state(ClientState.READ_SERVER_HELLO)
         return Status.EARLY_RETURN
 
@@ -613,7 +623,7 @@ class TLSHandshakeClient(TLSHandshake):
                 )
 
         if self.protocol_version() >= TLSVersion.TLSv1_3:
-            self._set_state(ClientState.READ_HRR_TLS13)
+            self._set_state(ClientState.COMPAT_CSS_TLS13)
             return Status.OK
 
         # RFC8446 section 4.1.3
@@ -1048,7 +1058,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _do_send_client_certificate_verify(self) -> Status:
         if self._peer_cert_request is None or self._x509_certificates is None:
-            self._set_state(ClientState.SEND_CLIENT_FINISHED)
+            self._set_state(ClientState.SEND_CHANGE_CIPHER_SPEC)
             return Status.PACK_FLIGHT
 
         assert self._private_key is not None
@@ -1070,8 +1080,14 @@ class TLSHandshakeClient(TLSHandshake):
         self.message_cb(Direction.WRITE, cert_verify)
         self._add_message(cert_verify)
 
-        self._set_state(ClientState.SEND_CLIENT_FINISHED)
+        self._set_state(ClientState.SEND_CHANGE_CIPHER_SPEC)
         return Status.PACK_FLIGHT
+
+    def _do_send_change_cipher_spec(self) -> Status:
+        self._setup_traffic(Direction.WRITE)
+
+        self._set_state(ClientState.SEND_CLIENT_FINISHED)
+        return Status.WRITE_CHANGE_CIPHER_SPEC
 
     def _do_send_client_finished(self) -> Status:
         assert self._session is not None
@@ -1154,9 +1170,19 @@ class TLSHandshakeClient(TLSHandshake):
         self._next_message()
 
         if self._session_reused:
-            self._set_state(ClientState.SEND_CLIENT_FINISHED)
+            self._set_state(ClientState.SEND_CHANGE_CIPHER_SPEC)
         else:
             self._set_state(ClientState.FINISH_CLIENT_HANDSHAKE)
+
+        return Status.OK
+
+    def _do_compat_ccs_tls13(self) -> Status:
+        self._set_state(ClientState.READ_HRR_TLS13)
+        if (
+            self._configuration.middlebox_compat
+            and not self._early_data_offered
+        ):
+            return Status.WRITE_CHANGE_CIPHER_SPEC
         return Status.OK
 
     def _do_read_hrr_tlsv13(self) -> Status:
@@ -1654,15 +1680,12 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_end_of_early_data_tls13(self) -> Status:
-        if not self._early_data_accepted:
-            self._set_state(ClientState.SEND_CLIENT_ENCRYPTED_EXTENSIONS_TLS13)
-            return Status.OK
+        if self._early_data_accepted:
+            end_of_early_data = EndOfEarlyData()
+            self.message_cb(Direction.WRITE, end_of_early_data)
+            self._add_message(end_of_early_data)
 
-        end_of_early_data = EndOfEarlyData()
-        self.message_cb(Direction.WRITE, end_of_early_data)
-        self._add_message(end_of_early_data)
-
-        self._close_early_data()
+            self._close_early_data()
 
         self._set_state(ClientState.SEND_CLIENT_ENCRYPTED_EXTENSIONS_TLS13)
         return Status.PACK_FLIGHT

@@ -190,12 +190,15 @@ class TLSHandshakeServer(TLSHandshake):
             ServerState.READ_NEXT_PROTO: self._do_read_next_proto,
             ServerState.READ_CLIENT_FINISHED: self._do_read_client_finished,
             ServerState.SEND_SESSION_TICKET: self._do_send_session_ticket,
+            ServerState.SEND_CHANGE_CIPHER_SPEC: self._do_send_change_cipher_spec,
             ServerState.SEND_SERVER_FINISHED: self._do_send_server_finished,
             # TLSv1.3
             ServerState.SELECT_PARAMETERS_TLS13: self._do_select_parameters_tls13,
             ServerState.SEND_HELLO_RETRY_REQUEST_TLS13: self._do_send_hello_retry_request_tls13,
+            ServerState.HRR_COMPAT_CSS_TLS13: self._do_hrr_compat_ccs_tls13,
             ServerState.READ_SECOND_CLIENT_HELLO_TLS13: self._do_read_second_client_hello_tls13,
             ServerState.SEND_SERVER_HELLO_TLS13: self._do_send_server_hello_tls13,
+            ServerState.SERVER_HELLO_COMPAT_CSS_TLS13: self._do_server_hello_compat_ccs_tls13,
             ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13: self._do_send_encrypted_extensions_tls13,
             ServerState.SEND_SERVER_FINISHED_TLS13: self._do_send_server_finished_tls13,
             ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13: self._do_read_second_client_flight_tls13,
@@ -929,8 +932,12 @@ class TLSHandshakeServer(TLSHandshake):
                 self.message_cb(Direction.WRITE, new_session_ticket)
                 self._add_message(new_session_ticket)
 
-        self._set_state(ServerState.SEND_SERVER_FINISHED)
+        self._set_state(ServerState.SEND_CHANGE_CIPHER_SPEC)
         return Status.PACK_FLIGHT
+
+    def _do_send_change_cipher_spec(self) -> Status:
+        self._set_state(ServerState.SEND_SERVER_FINISHED)
+        return Status.WRITE_CHANGE_CIPHER_SPEC
 
     def _do_send_server_finished(self) -> Status:
         assert self._session is not None
@@ -1200,8 +1207,16 @@ class TLSHandshakeServer(TLSHandshake):
         self.message_cb(Direction.WRITE, hrr)
         self._add_message(hrr)
 
-        self._set_state(ServerState.READ_SECOND_CLIENT_HELLO_TLS13)
+        self._hello_retry_request_used = True
+
+        self._set_state(ServerState.HRR_COMPAT_CSS_TLS13)
         return Status.FLUSH_MESSAGE
+
+    def _do_hrr_compat_ccs_tls13(self) -> Status:
+        self._set_state(ServerState.READ_SECOND_CLIENT_HELLO_TLS13)
+        if self._configuration.middlebox_compat:
+            return Status.WRITE_CHANGE_CIPHER_SPEC
+        return Status.OK
 
     def _do_read_second_client_hello_tls13(self) -> Status:
         message = self._get_message()
@@ -1358,8 +1373,17 @@ class TLSHandshakeServer(TLSHandshake):
             transcript=self._transcript,
         )
 
-        self._set_state(ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13)
+        self._set_state(ServerState.SERVER_HELLO_COMPAT_CSS_TLS13)
         return Status.PACK_FLIGHT
+
+    def _do_server_hello_compat_ccs_tls13(self) -> Status:
+        self._set_state(ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13)
+        if (
+            self._configuration.middlebox_compat
+            and not self._hello_retry_request_used
+        ):
+            return Status.WRITE_CHANGE_CIPHER_SPEC
+        return Status.OK
 
     def _do_send_encrypted_extensions_tls13(self) -> Status:
         assert self._key_schedule is not None

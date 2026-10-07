@@ -199,6 +199,7 @@ class TLSHandshake:
         self._can_early_read: bool = False
         self._early_data_offered: bool = False
         self._early_data_accepted: bool = False
+        self._hello_retry_request_used: bool = False
         self._extended_master_secret: bool = False
         self._encrypt_then_mac: bool = False
         self._secure_renegotiation: bool = False

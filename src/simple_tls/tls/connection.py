@@ -158,7 +158,6 @@ class TLSConnection:
         self._early_data_ignored: int = 0
         self._early_data_processed: int = 0
         self._alert_warning_received: int = 0
-        self._ccs_sent: bool = False
 
     @property
     def configuration(self) -> TLSConfiguration:
@@ -394,6 +393,8 @@ class TLSConnection:
                 self._read_handshake()
             elif self._handshake_status == Status.READ_CHANGE_CIPHER_SPEC:
                 self._read_ccs()
+            elif self._handshake_status == Status.WRITE_CHANGE_CIPHER_SPEC:
+                self._write_ccs()
             elif self._handshake_status == Status.EARLY_RETURN:
                 if isinstance(self._handshake, TLSHandshakeClient):
                     assert self._handshake.ech_status != ECHStatus.REJECTED
@@ -494,18 +495,6 @@ class TLSConnection:
 
         if direction == Direction.WRITE:
             assert len(self._handshake.pending_flight()) == 0
-
-            if self._handshake.version <= TLSVersion.TLSv1_2:
-                assert epoch == Epoch.APPLICATION_DATA
-                self._add_ccs()
-            elif (
-                self._handshake.configuration.middlebox_compat
-                and not self._ccs_sent
-            ):
-                self._add_ccs()
-
-            self._ccs_sent = True
-
             if state is None:
                 state = _NULL_WRITE_STATE
             self._write_state = state
@@ -514,7 +503,7 @@ class TLSConnection:
                 state = _NULL_READ_STATE
             self._read_state = state
 
-    def _add_ccs(self) -> None:
+    def _write_ccs(self) -> None:
         header = self._get_header(
             content_type=ContentType.CHANGE_CIPHER_SPEC,
             record_version=self._record_version(),
@@ -704,8 +693,12 @@ class TLSConnection:
             if (
                 self._has_final_version()
                 and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
-                and not self._handshake.done
             ):
+                if self._handshake.session_established:
+                    self._send_alert(
+                        AlertDescription.UNEXPECTED_MESSAGE,
+                        "Unexpected change cipher spec message",
+                    )
                 raise SkipDataException()
 
         if (
