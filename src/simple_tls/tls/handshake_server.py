@@ -415,10 +415,6 @@ class TLSHandshakeServer(TLSHandshake):
         )
         if sigalgs_ext is not None:
             self._peer_signature_algorithms = tuple(sigalgs_ext.data)
-        elif version >= TLSVersion.TLSv1_3:
-            raise AlertMissingExtension(
-                "Missing signature algorithms extension"
-            )
 
         # Supported groups
         supported_groups_ext = typing.cast(
@@ -427,8 +423,6 @@ class TLSHandshakeServer(TLSHandshake):
         )
         if supported_groups_ext is not None:
             self._peer_supported_groups = tuple(supported_groups_ext.data)
-        elif version >= TLSVersion.TLSv1_3:
-            raise AlertMissingExtension("Missing supported groups extension")
 
         # SNI
         sni_ext = typing.cast(
@@ -984,18 +978,6 @@ class TLSHandshakeServer(TLSHandshake):
         except ValueError as exc:
             raise AlertInternalError(str(exc)) from exc
 
-        _, supported_sigalgs = self._sigalgs_for_pubkey(
-            version=self.protocol_version(),
-            public_key=public_key,
-            public_key_oid=x509_leaf.public_key_algorithm_oid,
-            supported_sigalgs=self._signature_algorithms,
-        )
-        self._signature_algorithm = negotiate(
-            supported_sigalgs,
-            self._peer_signature_algorithms,
-            AlertHandshakeFailure("No supported signature algorithm"),
-        )
-
         key_share_ext = client_hello.get_extension(KeyShareClientExtension)
         psk_ext = client_hello.get_extension(PSKClientExtension)
         psk_kex_modes_ext = client_hello.get_extension(
@@ -1057,6 +1039,23 @@ class TLSHandshakeServer(TLSHandshake):
             new_session = session.copy()
             new_session.renew_timeout()
         else:
+            if self._peer_signature_algorithms is None:
+                raise AlertMissingExtension(
+                    "Missing signature algorithms extension"
+                )
+
+            _, supported_sigalgs = self._sigalgs_for_pubkey(
+                version=self.protocol_version(),
+                public_key=public_key,
+                public_key_oid=x509_leaf.public_key_algorithm_oid,
+                supported_sigalgs=self._signature_algorithms,
+            )
+            self._signature_algorithm = negotiate(
+                supported_sigalgs,
+                self._peer_signature_algorithms,
+                AlertHandshakeFailure("No supported signature algorithm"),
+            )
+
             new_session = self._get_new_session()
             key_schedule = KeySchedule(cipher_suite.prf_hash)
             key_schedule.extract(None)
@@ -1066,8 +1065,11 @@ class TLSHandshakeServer(TLSHandshake):
         if self._cookie is not None:
             hrr = True
 
-        if psk_kex_mode != PSKKeyExchangeMode.PSK_KE:
-            assert self._peer_supported_groups is not None
+        if psk_kex_mode == PSKKeyExchangeMode.PSK_DHE_KE:
+            if self._peer_supported_groups is None:
+                raise AlertMissingExtension(
+                    "Missing supported groups extension"
+                )
 
             if key_share_ext is None:
                 raise AlertMissingExtension("Missing key share extension")
@@ -1388,9 +1390,6 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_encrypted_extensions_tls13(self) -> Status:
         assert self._key_schedule is not None
         assert self._session is not None
-        assert self._signature_algorithm is not None
-        assert self._x509_certificates is not None
-        assert self._private_key is not None
 
         self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
@@ -1437,6 +1436,10 @@ class TLSHandshakeServer(TLSHandshake):
             self._add_message(cert_request)
 
             self._certificate_requested = True
+
+        assert self._signature_algorithm is not None
+        assert self._x509_certificates is not None
+        assert self._private_key is not None
 
         certificate = self._create_certificate_tls13(
             x509_certs=self._x509_certificates,
