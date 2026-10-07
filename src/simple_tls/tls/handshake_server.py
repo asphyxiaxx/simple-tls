@@ -999,7 +999,6 @@ class TLSHandshakeServer(TLSHandshake):
             psk_kex_mode = negotiate(
                 self._psk_kex_modes, psk_kex_modes_ext.data
             )
-
             if psk_kex_mode is not None:
                 binders = psk_ext.binders
                 transcript = self._transcript.copy()
