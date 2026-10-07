@@ -73,6 +73,7 @@ def run_handshake(client, server, stop_condition=None):
                 Status.READ_MESSAGE,
                 Status.READ_CHANGE_CIPHER_SPEC,
                 Status.READ_END_OF_EARLY_DATA,
+                Status.WRITE_CHANGE_CIPHER_SPEC,
             ):
                 new_status = client.do_handshake()
                 # Check if it success read data
@@ -101,6 +102,7 @@ def run_handshake(client, server, stop_condition=None):
                 Status.READ_MESSAGE,
                 Status.READ_CHANGE_CIPHER_SPEC,
                 Status.READ_END_OF_EARLY_DATA,
+                Status.WRITE_CHANGE_CIPHER_SPEC,
             ):
                 new_status = server.do_handshake()
                 # Check if it success read data
