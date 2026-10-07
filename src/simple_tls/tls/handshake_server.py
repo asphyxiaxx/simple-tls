@@ -978,30 +978,27 @@ class TLSHandshakeServer(TLSHandshake):
         except ValueError as exc:
             raise AlertInternalError(str(exc)) from exc
 
-        key_share_ext = client_hello.get_extension(KeyShareClientExtension)
-        psk_ext = client_hello.get_extension(PSKClientExtension)
-        psk_kex_modes_ext = client_hello.get_extension(
-            PSKKeyExchangeModesExtension
-        )
-
         cipher_suite = self._cipher_suite
         session = None
         key_schedule = None
         psk_kex_mode = None
 
-        if psk_kex_modes_ext is not None:
-            psk_kex_mode = negotiate(
-                self._psk_kex_modes, psk_kex_modes_ext.data
-            )
-
+        psk_ext = client_hello.get_extension(PSKClientExtension)
         if psk_ext is not None:
+            psk_kex_modes_ext = client_hello.get_extension(
+                PSKKeyExchangeModesExtension
+            )
             # RFC 8446, section 4.2.9
-            # servers MUST abort the handshake if the client pre_shared_key
-            # without psk_key_exchange_modes.
+            # servers MUST abort the handshake if the client send
+            # pre_shared_key without psk_key_exchange_modes.
             if psk_kex_modes_ext is None:
                 raise AlertMissingExtension(
                     "Missing pre shared key modes extension"
                 )
+
+            psk_kex_mode = negotiate(
+                self._psk_kex_modes, psk_kex_modes_ext.data
+            )
 
             if psk_kex_mode is not None:
                 binders = psk_ext.binders
@@ -1065,14 +1062,18 @@ class TLSHandshakeServer(TLSHandshake):
         if self._cookie is not None:
             hrr = True
 
-        if psk_kex_mode == PSKKeyExchangeMode.PSK_DHE_KE:
+        if (
+            not self._session_reused
+            or psk_kex_mode == PSKKeyExchangeMode.PSK_DHE_KE
+        ):
+            key_share_ext = client_hello.get_extension(KeyShareClientExtension)
+            if key_share_ext is None:
+                raise AlertMissingExtension("Missing key share extension")
+
             if self._peer_supported_groups is None:
                 raise AlertMissingExtension(
                     "Missing supported groups extension"
                 )
-
-            if key_share_ext is None:
-                raise AlertMissingExtension("Missing key share extension")
 
             shared_key_shares = {
                 ks.group: ks.key_exchange for ks in key_share_ext.key_shares
