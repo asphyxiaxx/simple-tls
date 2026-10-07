@@ -1962,7 +1962,8 @@ class TLSHandshakeClient(TLSHandshake):
             extensions=extensions_encoded,
         )
 
-        if self._pre_shared_keys:
+        if psk_ext is not None:
+            assert self._pre_shared_keys
             self._update_binders(
                 self._pre_shared_keys,
                 inner_transcript.copy(),
