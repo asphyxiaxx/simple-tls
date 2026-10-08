@@ -535,7 +535,6 @@ class TLSHandshake:
 
     def _derive_key(self, secret: bytes) -> None:
         assert self._cipher_suite is not None
-
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         encrypt_then_mac = self._encrypt_then_mac
@@ -1049,11 +1048,10 @@ class TLSHandshake:
         cert_verify: CertificateVerify | CertificateVerifyTLS12,
         supported_sigalgs: typing.Sequence[int] | None,
     ) -> None:
-        assert session.x509_peer is not None
-
         if not cert_verify.signature:
             raise AlertIllegalParameter("Empty signature")
 
+        assert session.x509_peer is not None
         version = self.protocol_version()
         x509_peer = session.x509_peer
         try:
