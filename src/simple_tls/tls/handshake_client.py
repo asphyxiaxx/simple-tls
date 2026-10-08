@@ -376,10 +376,6 @@ class TLSHandshakeClient(TLSHandshake):
         self._inner_client_random: bytes | None = None
         self._inner_extensions_sent: set[int] | None = None
 
-        # Identity
-        self._private_key: BasePrivateKey | None = None
-        self._x509_certificates: tuple[x509.Certificate, ...] | None = None
-
         # Peer item
         self._peer_cookie: bytes | None = None
         self._peer_key: bytes | None = None
@@ -934,17 +930,9 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.OK
 
         version = self.protocol_version()
-        signature_algorithm: int | None = None
-        cert_request = typing.cast(
-            CertificateRequest | CertificateRequestTLS12,
-            self._peer_cert_request,
-        )
 
         if self._credential is not None:
-            private_key = self._credential.private_key
-            x509_certificates = tuple(self._credential.x509_certificates)
-            x509_leaf = x509_certificates[0]
-
+            x509_leaf = self._credential.x509_certificates[0]
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -957,37 +945,29 @@ class TLSHandshakeClient(TLSHandshake):
                 public_key_oid=public_key_oid,
                 supported_sigalgs=self._signature_algorithms,
             )
+            cert_request = typing.cast(
+                CertificateRequest | CertificateRequestTLS12,
+                self._peer_cert_request,
+            )
             cert_type = self._get_certificate_type(public_key_oid)
-            supported_cert_types = cert_request.certificate_types
 
-            if version == TLSVersion.TLSv1_2:
-                cert_request = typing.cast(
-                    CertificateRequestTLS12, cert_request
-                )
-                if cert_type in supported_cert_types:
-                    signature_algorithm = negotiate(
+            if cert_type in cert_request.certificate_types:
+                if version == TLSVersion.TLSv1_2:
+                    cert_request = typing.cast(
+                        CertificateRequestTLS12, self._peer_cert_request
+                    )
+                    self._signature_algorithm = negotiate(
                         supported_sigalgs,
                         cert_request.signature_algorithms,
                     )
+                elif default_sigalg is not None:
+                    self._signature_algorithm = default_sigalg
 
-            elif (
-                default_sigalg is not None
-                and cert_type in supported_cert_types
-            ):
-                signature_algorithm = default_sigalg
-
-        else:
-            private_key = None
-            x509_certificates = None
-
-        if signature_algorithm is not None:
-            assert x509_certificates is not None
-            assert private_key is not None
-
-            certificate = self._create_certificate(x509_certificates)
-            self._private_key = private_key
-            self._x509_certificates = x509_certificates
-            self._signature_algorithm = signature_algorithm
+        if self._signature_algorithm is not None:
+            assert self._credential is not None
+            certificate = self._create_certificate(
+                self._credential.x509_certificates
+            )
         else:
             certificate = self._create_certificate(())
 
@@ -1057,28 +1037,26 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_certificate_verify(self) -> Status:
-        if self._peer_cert_request is None or self._x509_certificates is None:
-            self._set_state(ClientState.SEND_CHANGE_CIPHER_SPEC)
-            return Status.PACK_FLIGHT
+        if (
+            self._peer_cert_request is not None
+            and self._signature_algorithm is not None
+        ):
+            assert self._credential is not None
+            priv_key = self._credential.private_key
+            signature_algorithm = self._signature_algorithm
+            transcript = self._transcript.get()
+            signature = priv_key.sign(transcript, signature_algorithm)
 
-        assert self._private_key is not None
-        assert self._signature_algorithm is not None
+            cert_verify: CertificateVerifyTLS12 | CertificateVerify
+            if self.protocol_version() == TLSVersion.TLSv1_2:
+                cert_verify = CertificateVerifyTLS12(
+                    signature, signature_algorithm
+                )
+            else:
+                cert_verify = CertificateVerify(signature)
 
-        priv_key = self._private_key
-        signature_algorithm = self._signature_algorithm
-        transcript = self._transcript.get()
-        signature = priv_key.sign(transcript, signature_algorithm)
-
-        cert_verify: CertificateVerifyTLS12 | CertificateVerify
-        if self.protocol_version() == TLSVersion.TLSv1_2:
-            cert_verify = CertificateVerifyTLS12(
-                signature, signature_algorithm
-            )
-        else:
-            cert_verify = CertificateVerify(signature)
-
-        self.message_cb(Direction.WRITE, cert_verify)
-        self._add_message(cert_verify)
+            self.message_cb(Direction.WRITE, cert_verify)
+            self._add_message(cert_verify)
 
         self._set_state(ClientState.SEND_CHANGE_CIPHER_SPEC)
         return Status.PACK_FLIGHT
@@ -2538,8 +2516,6 @@ class TLSHandshakeClient(TLSHandshake):
             pass
 
         elif self._credential is not None:
-            assert self._signature_algorithms is not None
-
             private_key = self._credential.private_key
             x509_certificates = self._credential.x509_certificates
             x509_leaf = x509_certificates[0]

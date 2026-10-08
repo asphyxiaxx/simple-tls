@@ -23,7 +23,6 @@ from __future__ import annotations
 import typing
 from dataclasses import dataclass
 
-from cryptography import x509
 from cryptography.x509.oid import PublicKeyAlgorithmOID
 
 from simple_tls.codec import Parser, Writer
@@ -112,7 +111,7 @@ from .extensions import (
     SupportedVersionServerExtension,
 )
 from .handshake import Handshake, TLSHandshake
-from .key import BasePrivateKey, RSAPrivateKey, load_certificate_public_key
+from .key import RSAPrivateKey, load_certificate_public_key
 from .keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
 from .messages import (
     CertificateRequest,
@@ -297,10 +296,6 @@ class TLSHandshakeServer(TLSHandshake):
         self._pre_shared_key: tuple[bytes, bytes] | None = None
         self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
 
-        # Identity
-        self._private_key: BasePrivateKey | None = None
-        self._x509_certificates: tuple[x509.Certificate, ...] | None = None
-
         # Peer item
         self._peer_cipher_suites: tuple[int, ...] | None = None
         self._peer_signature_algorithms: tuple[int, ...] | None = None
@@ -455,11 +450,6 @@ class TLSHandshakeServer(TLSHandshake):
             self._credential = handshake_context.credential
             self._verify_mode = handshake_context.verify_mode
 
-        credential = self._credential
-        if credential is not None:
-            self._private_key = credential.private_key
-            self._x509_certificates = tuple(credential.x509_certificates)
-
         self._cipher_suite = self._negotiate_cipher_suite()
         self._process_extensions(ext_map)
 
@@ -494,8 +484,8 @@ class TLSHandshakeServer(TLSHandshake):
                 self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
             )
 
-        if self._x509_certificates is not None:
-            x509_leaf = self._x509_certificates[0]
+        if self._credential is not None:
+            x509_leaf = self._credential.x509_certificates[0]
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -523,9 +513,7 @@ class TLSHandshakeServer(TLSHandshake):
                 self._signature_algorithm = default_sigalg
 
         elif cipher_suite.auth != Authentication.ANON:
-            raise AlertHandshakeFailure(
-                "No private key and certificates provided"
-            )
+            raise AlertHandshakeFailure("credential not provided")
 
         ticket_ext = client_hello.get_extension(SessionTicketExtension)
 
@@ -629,8 +617,10 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.SEND_SERVER_KEY_EXCHANGE)
             return Status.OK
 
-        assert self._x509_certificates is not None
-        certificate = self._create_certificate(self._x509_certificates)
+        assert self._credential is not None
+        certificate = self._create_certificate(
+            self._credential.x509_certificates
+        )
         self.message_cb(Direction.WRITE, certificate)
         self._add_message(certificate)
 
@@ -669,12 +659,13 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertInternalError("Unsupported cipher suite selected")
 
         if cipher_suite.auth != Authentication.ANON:
-            assert self._private_key is not None
+            assert self._credential is not None
             assert self._signature_algorithm is not None
 
+            private_key = self._credential.private_key
             ske_data = writer.tobytes()
             data = self._client_random + self._server_random + ske_data
-            signature = self._private_key.sign(data, self._signature_algorithm)
+            signature = private_key.sign(data, self._signature_algorithm)
 
             if version == TLSVersion.TLSv1_2:
                 writer.write_int(self._signature_algorithm, 2)
@@ -772,12 +763,14 @@ class TLSHandshakeServer(TLSHandshake):
         # Derive premaster secret
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
+            assert self._credential is not None
 
-            if not isinstance(self._private_key, RSAPrivateKey):
+            private_key = self._credential.private_key
+            if not isinstance(private_key, RSAPrivateKey):
                 raise AlertInternalError("Invalid key type")
 
             enc_premaster_secret = parser.read_prefixed_bytes(2)
-            premaster_secret = self._private_key.decrypt(enc_premaster_secret)
+            premaster_secret = private_key.decrypt(enc_premaster_secret)
 
             if (
                 premaster_secret is None
@@ -964,17 +957,6 @@ class TLSHandshakeServer(TLSHandshake):
         # Update session id
         self._session_id = client_hello.session_id
 
-        if self._private_key is None or self._x509_certificates is None:
-            raise AlertHandshakeFailure(
-                "certificate and private key not provided"
-            )
-
-        x509_leaf = self._x509_certificates[0]
-        try:
-            public_key = load_certificate_public_key(x509_leaf)
-        except ValueError as exc:
-            raise AlertInternalError(str(exc)) from exc
-
         assert self._cipher_suite is not None
         cipher_suite = self._cipher_suite
         session = None
@@ -1033,10 +1015,19 @@ class TLSHandshakeServer(TLSHandshake):
             new_session = session.copy()
             new_session.renew_timeout()
         else:
+            if self._credential is None:
+                raise AlertHandshakeFailure("credential not provided")
+
             if self._peer_signature_algorithms is None:
                 raise AlertMissingExtension(
                     "Missing signature algorithms extension"
                 )
+
+            x509_leaf = self._credential.x509_certificates[0]
+            try:
+                public_key = load_certificate_public_key(x509_leaf)
+            except ValueError as exc:
+                raise AlertInternalError(str(exc)) from exc
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=self.protocol_version(),
@@ -1432,21 +1423,21 @@ class TLSHandshakeServer(TLSHandshake):
 
             self._certificate_requested = True
 
+        assert self._credential is not None
         assert self._signature_algorithm is not None
-        assert self._x509_certificates is not None
-        assert self._private_key is not None
 
         certificate = self._create_certificate_tls13(
-            x509_certs=self._x509_certificates,
+            x509_certs=self._credential.x509_certificates,
             compression=self._certificate_compression,
         )
         self.message_cb(Direction.WRITE, certificate)
         self._add_message(certificate)
 
+        private_key = self._credential.private_key
         data = self._key_schedule.certificate_verify_data(
             TLS13_SERVER_CONTEXT_STRING, self._transcript
         )
-        signature = self._private_key.sign(data, self._signature_algorithm)
+        signature = private_key.sign(data, self._signature_algorithm)
         cert_verify = CertificateVerifyTLS12(
             signature, self._signature_algorithm
         )
@@ -1760,8 +1751,8 @@ class TLSHandshakeServer(TLSHandshake):
         peer_cipher_suites = self._peer_cipher_suites
         peer_supported_groups = self._peer_supported_groups
 
-        if self._x509_certificates:
-            x509_leaf = self._x509_certificates[0]
+        if self._credential is not None:
+            x509_leaf = self._credential.x509_certificates[0]
             algorithm_oid = x509_leaf.public_key_algorithm_oid
 
             if algorithm_oid in (
