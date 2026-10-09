@@ -157,7 +157,7 @@ class TLSConnection:
         self._read_state: ConnectionState = _NULL_READ_STATE
         self._early_data_ignored: int = 0
         self._early_data_processed: int = 0
-        self._alert_warning_received: int = 0
+        self._warning_alert_received: int = 0
 
     @property
     def configuration(self) -> TLSConfiguration:
@@ -513,9 +513,10 @@ class TLSConnection:
         self._pending_flight.extend(b"\x01")
 
     def _read_ccs(self) -> None:
-        content_type, _ = self._open_record()
+        content_type, data = self._open_record()
         if content_type != ContentType.CHANGE_CIPHER_SPEC:
             self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
+        self._verify_ccs(data)
         self._current_read_epoch = Epoch.APPLICATION_DATA
 
     def _read_handshake(self) -> None:
@@ -678,28 +679,19 @@ class TLSConnection:
 
         self._header = None
 
-        if content_type == ContentType.CHANGE_CIPHER_SPEC:
-            if length != 1:
-                self._send_alert(
-                    AlertDescription.DECODE_ERROR, "Malformed CCS message"
-                )
+        if (
+            content_type == ContentType.CHANGE_CIPHER_SPEC
+            and self._has_final_version()
+            and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+        ):
+            self._verify_ccs(ciphertext)
 
-            # RFC 8446 section 5
-            if ciphertext != b"\x01":
+            if self._handshake.session_established:
                 self._send_alert(
-                    AlertDescription.UNEXPECTED_MESSAGE, "Invalid CCS message"
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "Unexpected change cipher spec message",
                 )
-
-            if (
-                self._has_final_version()
-                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
-            ):
-                if self._handshake.session_established:
-                    self._send_alert(
-                        AlertDescription.UNEXPECTED_MESSAGE,
-                        "Unexpected change cipher spec message",
-                    )
-                raise SkipDataException()
+            raise SkipDataException()
 
         if (
             self._handshake.skip_early_data
@@ -874,9 +866,9 @@ class TLSConnection:
                 self._read_shutdown = Shutdown.CLOSE_NOTIFY
                 raise TLSEOFError()
 
-            self._alert_warning_received += 1
+            self._warning_alert_received += 1
 
-            if self._alert_warning_received > MAX_WARNING_ALERTS:
+            if self._warning_alert_received > MAX_WARNING_ALERTS:
                 self._send_alert(
                     AlertDescription.UNEXPECTED_MESSAGE,
                     "Too many warning alerts received.",
@@ -898,6 +890,18 @@ class TLSConnection:
         self._send_alert(
             AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type"
         )
+
+    def _verify_ccs(self, data: Buffer) -> None:
+        if len(data) != 1:
+            self._send_alert(
+                AlertDescription.DECODE_ERROR, "Malformed CCS message"
+            )
+
+        # RFC 8446 section 5
+        if data != b"\x01":
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE, "Invalid CCS message"
+            )
 
     @staticmethod
     def _get_header(
