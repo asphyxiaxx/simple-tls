@@ -70,10 +70,12 @@ class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
         session_id = parser.read_prefixed_bytes(1)
         if len(session_id) > 32:
             raise ParseError("session_id not within 32 bytes")
-
         cipher_suites = parser.read_prefixed_int_list(2, 2)
         compression_methods = parser.read_prefixed_int_list(1, 1)
         extensions = cls._parse_exts(parser)
+
+        if parser.remaining():
+            raise ParseError("trailing data")
 
         return ClientHello(
             version=version,
@@ -130,10 +132,12 @@ class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
         session_id = parser.read_prefixed_bytes(1)
         if len(session_id) > 32:
             raise ParseError("session_id not within 32 bytes")
-
         cipher_suite = parser.read_int(2)
         compression_method = parser.read_int(1)
         extensions = cls._parse_exts(parser)
+
+        if parser.remaining():
+            raise ParseError("trailing data")
 
         return ServerHello(
             version=version,
@@ -231,6 +235,10 @@ class EncryptedExtensions(HandshakeMessage, ExtensionsMessage):
     def from_bytes(cls, data: bytes) -> EncryptedExtensions:
         parser = Parser(data)
         extensions = cls._parse_exts(parser)
+
+        if parser.remaining():
+            raise ParseError("trailing data")
+
         return EncryptedExtensions(extensions)
 
     def serialize(self) -> bytes:
@@ -308,6 +316,9 @@ class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
         ticket = parser.read_prefixed_bytes(2)
         extensions = cls._parse_exts(parser)
 
+        if parser.remaining():
+            raise ParseError("trailing data")
+
         return NewSessionTicketTLS13(
             ticket_lifetime=ticket_lifetime,
             ticket_age_add=ticket_age_add,
@@ -371,7 +382,6 @@ class CertificateStatus(HandshakeMessage):
         status_type = parser.read_int(1)
         if not status_type == CertificateStatusType.OCSP:
             raise ParseError("unknown status_type")
-
         ocsp = parser.read_prefixed_bytes(3)
 
         if parser.remaining():
