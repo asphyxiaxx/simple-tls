@@ -26,9 +26,7 @@ import enum
 import re
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers import Cipher
-from cryptography.hazmat.primitives.ciphers.algorithms import AES
-from cryptography.hazmat.primitives.ciphers.modes import CBC, GCM
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
 
 from .utils import get_random_bytes
@@ -73,13 +71,15 @@ def encode(
 
         salt = get_random_bytes(8)
         cipher_alg = _PEM_CIPHERS[algorithm].get_algorithm(password, salt)
-        block_size = cipher_alg.block_size
-        if block_size >= len(salt):
-            salt += get_random_bytes(block_size - len(salt))
+
+        block_len = cipher_alg.block_size
+        if block_len >= len(salt):
+            salt += get_random_bytes((block_len // 8) - len(salt))
 
         mode = _PEM_CIPHERS[algorithm].get_mode(salt)
-        if isinstance(mode, CBC):
-            padder = PKCS7(block_size).padder()
+
+        if isinstance(mode, modes.CBC):
+            padder = PKCS7(cipher_alg.block_size).padder()
             data = padder.update(data) + padder.finalize()
 
         cipher = Cipher(cipher_alg, mode).encryptor()
@@ -141,7 +141,7 @@ def decode(
             )
         except KeyError:
             raise ValueError(
-                f"Unsupported PEM decryption algorithm '{enc_algo!s}"
+                f"Unsupported PEM decryption algorithm '{enc_algo!s}'"
             ) from None
 
         mode = _PEM_CIPHERS[enc_algo].get_mode(salt)
@@ -156,9 +156,10 @@ def decode(
         assert mode is not None
         enc_flag = True
         cipher = Cipher(cipher_alg, mode).decryptor()
-        data = cipher.update(data) + cipher.finalize()
+        data = cipher.update(data)
 
-        if isinstance(mode, CBC):
+        if isinstance(mode, modes.CBC):
+            data += cipher.finalize()
             unpadder = PKCS7(cipher_alg.block_size).unpadder()
             data = unpadder.update(data) + unpadder.finalize()
     else:
@@ -226,24 +227,24 @@ class _PEMCipher:
     def __init__(
         self,
         key_len: int,
-        algorithm: type[AES],
-        mode: type[CBC] | type[GCM],
+        algorithm: type[algorithms.AES],
+        mode: type[modes.CBC] | type[modes.GCM],
     ) -> None:
         self.key_len = key_len
         self.algorithm = algorithm
         self.mode = mode
 
-    def get_algorithm(self, password: bytes, salt: bytes) -> AES:
+    def get_algorithm(self, password: bytes, salt: bytes) -> algorithms.AES:
         key, _ = _evp_bytes_to_key(password, salt, self.key_len, 0)
         return self.algorithm(key)
 
-    def get_mode(self, iv: bytes) -> CBC | GCM:
+    def get_mode(self, iv: bytes) -> modes.CBC | modes.GCM:
         return self.mode(iv)
 
 
 _PEM_CIPHERS: dict[bytes, _PEMCipher] = {
-    EncryptionAlgorithm.AES128_CBC: _PEMCipher(16, AES, CBC),
-    EncryptionAlgorithm.AES192_CBC: _PEMCipher(24, AES, CBC),
-    EncryptionAlgorithm.AES256_CBC: _PEMCipher(32, AES, CBC),
-    EncryptionAlgorithm.AES256_GCM: _PEMCipher(32, AES, GCM),
+    EncryptionAlgorithm.AES128_CBC: _PEMCipher(16, algorithms.AES, modes.CBC),
+    EncryptionAlgorithm.AES192_CBC: _PEMCipher(24, algorithms.AES, modes.CBC),
+    EncryptionAlgorithm.AES256_CBC: _PEMCipher(32, algorithms.AES, modes.CBC),
+    EncryptionAlgorithm.AES256_GCM: _PEMCipher(32, algorithms.AES, modes.GCM),
 }
