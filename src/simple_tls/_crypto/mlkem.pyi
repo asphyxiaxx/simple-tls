@@ -22,8 +22,44 @@ from __future__ import annotations
 
 from typing_extensions import Buffer
 
-def keygen(level: int, coins: Buffer, /) -> tuple[bytes, bytes]: ...
+def keygen(level: int, coins: Buffer, /) -> tuple[bytes, bytes]:
+    """Generate a public and private keypair
+
+    :param level: The security parameter level. Must be 512, 768, or 1024.
+    :type level: int
+    :param coins:
+        seed entropy/randomness for key generation. Must be 64 bytes
+    :type coins: bytes
+    :return: public key and private key
+    :rtype: tuple[bytes, bytes]
+    """
+
 def encaps(
-    level: int, publickey: Buffer, coins: Buffer, /
-) -> tuple[bytes, bytes]: ...
-def decaps(level: int, ciphertext: Buffer, privatekey: Buffer, /) -> bytes: ...
+    level: int, public_key: Buffer, coins: Buffer, /
+) -> tuple[bytes, bytes]:
+    """Generates cipher text and shared secret for given public key
+
+    :param level: The security parameter level. Must be 512, 768, or 1024.
+    :type level: int
+    :param public_key:
+        public key received
+    :type public_key: bytes
+    :param coins:
+        seed entropy/randomness for key encapsulation. Must be 32 bytes
+    :type coins: bytes
+    :return: cipher text and shared secret
+    :rtype: tuple[bytes, bytes]
+    """
+
+def decaps(level: int, ciphertext: Buffer, private_key: Buffer, /) -> bytes:
+    """Generates shared secret from given cipher text
+
+    :param level: The security parameter level. Must be 512, 768, or 1024.
+    :type level: int
+    :param ciphertext: cipher text recevied
+    :type ciphertext: bytes
+    :param private_key: private key recevied
+    :type private_key: bytes
+    :return: shared secret
+    :rtype: bytes
+    """

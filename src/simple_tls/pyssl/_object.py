@@ -1,25 +1,37 @@
 from __future__ import annotations
 
 import ssl as _ssl
-import typing
+from typing import TYPE_CHECKING, Literal, overload
+
+from cryptography.hazmat.primitives import serialization
 
 from simple_tls import tls
-from simple_tls.io import serialization
+from simple_tls.crypto.utils import bytes_to_str, str_to_bytes
 
-from ._constant import Options
-from ._exception import SSLEOFError, SSLError, SSLWantReadError
+from ._constants import Options
+from ._exceptions import SSLEOFError, SSLWantReadError
 from ._session import SSLSession
-from ._types import PeerCertRetDictType, ReadableBuffer
-from ._util import parse_certificate, parse_cipher
+from ._utils import (
+    PeerCertRetDictType,
+    ReadableBuffer,
+    SrvnmeCbType,
+    SSLConnection,
+    WritableBuffer,
+    get_cipher_tuple,
+    get_version_name,
+    parse_certificate,
+)
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from ._context import SSLContext
 
 
 class SSLObject(_ssl.SSLObject):
     _context: SSLContext
-    _sslobj: tls.TLSConnection
+    _sslobj: SSLConnection
     _session: SSLSession | None
+    _sni_callback: SrvnmeCbType | None
+    _server_hostname: str | None
 
     @classmethod
     def _create(
@@ -27,7 +39,7 @@ class SSLObject(_ssl.SSLObject):
         incoming: _ssl.MemoryBIO,
         outgoing: _ssl.MemoryBIO,
         server_side: bool = False,
-        server_hostname: str | None = None,
+        server_hostname: str | bytes | None = None,
         session: SSLSession | None = None,
         context: SSLContext | None = None,
     ) -> SSLObject:
@@ -35,27 +47,49 @@ class SSLObject(_ssl.SSLObject):
             raise ValueError("context not provided")
 
         self = cls.__new__(cls)
-        context._context.sni_callback_arg = self
+        self._server_hostname = bytes_to_str(server_hostname)
+        self._sni_callback = context._sni_callback
+
+        if context.protocol == _ssl.PROTOCOL_TLS_SERVER and not server_side:
+            raise TypeError(
+                "Cannot create a client socket with a PROTOCOL_TLS_SERVER "
+                "context"
+            )
+        if context.protocol == _ssl.PROTOCOL_TLS_CLIENT and server_side:
+            raise TypeError(
+                "Cannot create a server socket with a PROTOCOL_TLS_CLIENT "
+                "context"
+            )
 
         if not server_side:
-            session_ticket_handler = self._session_ticket_handler
+            sni_callback = None
+            new_session_handler = self._new_session_handler
+            if session is not None:
+                tls_session = session.session
+            else:
+                tls_session = None
         else:
-            session_ticket_handler = None
+            sni_callback = self._do_sni_callback
+            new_session_handler = None
+            tls_session = None
 
         if context.options & Options.OP_NO_TICKET:
-            session_ticket_handler = None
-            context._context.session_keys = None
-            context._context.session_storage = None
+            new_session_handler = None
 
-        sslobj = tls.TLSConnection(
-            context=context._context,
+        config = tls.TLSConfiguration(
+            is_server=server_side,
+            server_hostname=str_to_bytes(server_hostname),
+            session=tls_session,
+            **context._config_data(),
+        )
+        sslobj = SSLConnection(
+            configuration=config,
             inbio=incoming,
             outbio=outgoing,
-            server_side=server_side,
-            server_hostname=server_hostname,
-            session=(session.session if session is not None else session),
-            session_ticket_handler=session_ticket_handler,
+            new_session_handler=new_session_handler,
+            sni_callback=sni_callback,
         )
+
         self._sslobj = sslobj
         self._context = context
         return self
@@ -68,13 +102,8 @@ class SSLObject(_ssl.SSLObject):
         return self._context
 
     @context.setter
-    def context(self, value: SSLContext) -> None:
-        if not isinstance(value, SSLContext):
-            raise TypeError("Not SSLContext")
-
-        self._context = value
-        self._sslobj.context = value._context
-        self._sslobj.context.sni_callback_arg = self
+    def context(self, context: SSLContext) -> None:
+        self._context = context
 
     @property
     def session(self) -> SSLSession | None:  # type: ignore[override]
@@ -88,7 +117,7 @@ class SSLObject(_ssl.SSLObject):
     @property
     def server_side(self) -> bool:
         """Whether this is a server-side socket."""
-        return self._sslobj.server_side
+        return self._sslobj.is_server
 
     @property
     def server_hostname(self) -> str | None:
@@ -96,17 +125,11 @@ class SSLObject(_ssl.SSLObject):
         The currently set server hostname (for SNI), or ``None`` if no
         server hostname is set.
         """
-        return self._sslobj.server_hostname
-
-    @typing.overload  # type: ignore[override]
-    def read(self, len: int = 1024, buffer: None = None) -> bytes: ...
-
-    @typing.overload  # type: ignore[override]
-    def read(self, len: int = 1024, buffer: bytearray = ...) -> int: ...
+        return self._server_hostname
 
     def read(
-        self, len: int = 1024, buffer: bytearray | None = None
-    ) -> bytes | int:
+        self, len: int = 1024, buffer: WritableBuffer | None = None
+    ) -> bytes:
         """
         Read up to 'len' bytes from the SSL object and return them.
 
@@ -114,13 +137,13 @@ class SSLObject(_ssl.SSLObject):
         number of bytes read.
         """
         try:
-            return self._sslobj.read(len, buffer)
+            return self._sslobj.read(len, buffer)  # type: ignore
         except tls.TLSWantReadError:
             raise SSLWantReadError from None
         except tls.TLSEOFError:
             raise SSLEOFError from None
 
-    def write(self, data: ReadableBuffer) -> int:  # type: ignore[override]
+    def write(self, data: ReadableBuffer) -> int:
         """
         Write 'data' to the SSL object and return the number of bytes
         written.
@@ -129,21 +152,24 @@ class SSLObject(_ssl.SSLObject):
         """
         return self._sslobj.write(data)  # type: ignore
 
-    def get_ech_retry_configs(self) -> bytes | None:
-        return self._sslobj.ech_retry_config(binary_form=True)
+    def get_peer_ech_retry_configs(self) -> bytes | None:
+        return self._sslobj.get_peer_ech_retry_configs(binary_form=True)
 
     def ech_accepted(self) -> bool:
         return self._sslobj.ech_accepted()
 
-    @typing.overload  # type: ignore[override]
+    @overload
     def getpeercert(
-        self, binary_form: typing.Literal[False] = False
+        self, binary_form: Literal[False] = False
     ) -> PeerCertRetDictType | None: ...
 
-    @typing.overload  # type: ignore[override]
+    @overload
+    def getpeercert(self, binary_form: Literal[True]) -> bytes | None: ...
+
+    @overload
     def getpeercert(
-        self, binary_form: typing.Literal[True]
-    ) -> bytes | None: ...
+        self, binary_form: bool
+    ) -> PeerCertRetDictType | bytes | None: ...
 
     def getpeercert(
         self, binary_form: bool = False
@@ -170,36 +196,40 @@ class SSLObject(_ssl.SSLObject):
         If certificate verification was disabled method acts the same as
         ``SSLSocket.get_unverified_chain``.
         """
-        return self._sslobj.get_verified_chain()
+        chain = self._sslobj.get_verified_chain()
+        return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def get_unverified_chain(self) -> list[bytes]:
         """Returns raw certificate chain provided by the other
         end of the SSL channel as a list of DER-encoded bytes.
         """
-        return self._sslobj.get_unverified_chain()
+        chain = self._sslobj.get_unverified_chain()
+        return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:
         """
         Return the currently selected NPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if NPN is not supported by one
         of the peers."""
-        return self._sslobj.selected_npn_protocol()
+        return bytes_to_str(self._sslobj.selected_npn_protocol())
 
     def selected_alpn_protocol(self) -> str | None:
         """
         Return the currently selected ALPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if ALPN is not supported by
         one of the peers."""
-        return self._sslobj.selected_alpn_protocol()
+        return bytes_to_str(self._sslobj.selected_alpn_protocol())
 
     def cipher(self) -> tuple[str, str, int] | None:
         """
         Return the currently selected cipher as a 3-tuple ``(name,
         ssl_version, secret_bits)``.
         """
-        cipher = self._sslobj.cipher()
-        if cipher is not None:
-            return parse_cipher(cipher)
+        cipher_suite = self._sslobj.cipher()
+        if cipher_suite is not None:
+            cipher = get_cipher_tuple(cipher_suite)
+            assert cipher is not None
+            return cipher
         return None
 
     def shared_ciphers(self) -> list[tuple[str, str, int]] | None:
@@ -207,9 +237,15 @@ class SSLObject(_ssl.SSLObject):
         Return a list of ciphers shared by the client during the handshake or
         None if this is not a valid server connection.
         """
-        shared_ciphers = self._sslobj.shared_ciphers()
-        if shared_ciphers is not None:
-            return [parse_cipher(c) for c in shared_ciphers]
+        cipher_suites = self._sslobj.shared_ciphers()
+        if cipher_suites is not None:
+            ciphers = []
+            for cipher_suite in cipher_suites:
+                cipher = get_cipher_tuple(cipher_suite)
+                if cipher is None:
+                    continue
+                ciphers.append(cipher)
+            return ciphers
         return None
 
     def compression(self) -> None:
@@ -248,17 +284,30 @@ class SSLObject(_ssl.SSLObject):
         """
         raise NotImplementedError()
 
-    def version(self) -> str:
+    def version(self) -> str | None:
         """
         Return a string identifying the protocol version used by the
         current SSL channel.
         """
-        return self._sslobj.version()
+        version = self._sslobj.version()
+        if version is not None:
+            return get_version_name(version)
+        return None
 
     def verify_client_post_handshake(self) -> None:
-        if not self._sslobj.server_side:
-            raise SSLError("Not server")
-        return self._sslobj.verify_client_post_handshake()
+        raise NotImplementedError("Post handshake auth is not supported")
 
-    def _session_ticket_handler(self, session: tls.TLSSession) -> None:
+    def _new_session_handler(self, session: tls.TLSSession) -> None:
         self._session = SSLSession(session)
+
+    def _do_sni_callback(
+        self, info: tls.ClientHelloInfo, context: tls.HandshakeContext
+    ) -> None:
+        if self._sni_callback is None:
+            return
+        sni = bytes_to_str(info.server_name)
+        alert_description = self._sni_callback(self, sni, self.context)
+        config = self.context._config_data()
+        context.alert_description = alert_description
+        context.credential = config.get("credential", None)
+        context.verify_mode = config.get("verify_mode", context.verify_mode)

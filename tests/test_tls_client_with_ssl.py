@@ -2,6 +2,7 @@ import ssl
 import warnings
 
 import pytest
+
 from simple_tls import tls
 
 from .utils import (
@@ -76,20 +77,26 @@ def create_ssl_context(certfile, keyfile):
 
 @pytest.fixture
 def rsa_server():
-    ctx = create_ssl_context(SERVER_RSA_CERTFILE, SERVER_RSA_KEYFILE)
+    ctx = create_ssl_context(
+        certfile=SERVER_RSA_CERTFILE, keyfile=SERVER_RSA_KEYFILE
+    )
     return VirtualTLSServer(ctx)
 
 
 @pytest.fixture
 def dsa_server():
-    ctx = create_ssl_context(SERVER_DSA_CERTFILE, SERVER_DSA_KEYFILE)
+    ctx = create_ssl_context(
+        certfile=SERVER_DSA_CERTFILE,
+        keyfile=SERVER_DSA_KEYFILE,
+    )
     return VirtualTLSServer(ctx)
 
 
 @pytest.fixture
 def ec_server():
     ctx = create_ssl_context(
-        SERVER_EC_SECP256R1_CERTFILE, SERVER_EC_SECP256R1_KEYFILE
+        certfile=SERVER_EC_SECP256R1_CERTFILE,
+        keyfile=SERVER_EC_SECP256R1_KEYFILE,
     )
     return VirtualTLSServer(ctx)
 
@@ -129,11 +136,12 @@ def do_handshake(conn, virtual_server):
     ),
 )
 def test_tls13_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.minimum_version = tls.TLSVersion.TLSv1_3
-    context.maximum_version = tls.TLSVersion.TLSv1_3
-    context.cipher_suites = [cipher_suite]
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_3,
+        maximum_version=tls.TLSVersion.TLSv1_3,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, rsa_server)
@@ -145,7 +153,7 @@ def test_tls13_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1.3"
-        assert conn.version() == "TLSv1.3"
+        assert conn.version() == tls.TLSVersion.TLSv1_3
 
 
 @pytest.mark.parametrize(
@@ -179,7 +187,6 @@ def test_tls13_handshake(cipher_suite, rsa_server):
         tls.CipherSuite.TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
         tls.CipherSuite.TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
         tls.CipherSuite.TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-        tls.CipherSuite.TLS_DHE_RSA_WITH_CHACHA20_POLY1305_draft_00,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_NULL_SHA,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_RC4_128_SHA,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
@@ -189,16 +196,16 @@ def test_tls13_handshake(cipher_suite, rsa_server):
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        tls.CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_draft_00,
         tls.CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     ),
 )
 def test_tls12_rsa_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_2
-    context.maximum_version = tls.TLSVersion.TLSv1_2
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_2,
+        maximum_version=tls.TLSVersion.TLSv1_2,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, rsa_server)
@@ -210,7 +217,7 @@ def test_tls12_rsa_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1.2"
-        assert conn.version() == "TLSv1.2"
+        assert conn.version() == tls.TLSVersion.TLSv1_2
 
 
 @pytest.mark.parametrize(
@@ -229,16 +236,16 @@ def test_tls12_rsa_handshake(cipher_suite, rsa_server):
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-        tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_draft_00,
         tls.CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
     ),
 )
 def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_2
-    context.maximum_version = tls.TLSVersion.TLSv1_2
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_3,
+        maximum_version=tls.TLSVersion.TLSv1_3,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, ec_server)
@@ -250,7 +257,7 @@ def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
             raise
     else:
         assert ec_server.tls.version() == "TLSv1.2"
-        assert conn.version() == "TLSv1.2"
+        assert conn.version() == tls.TLSVersion.TLSv1_2
 
 
 @pytest.mark.parametrize(
@@ -266,11 +273,12 @@ def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
     ),
 )
 def test_tls12_dss_handshake(cipher_suite, dsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_2
-    context.maximum_version = tls.TLSVersion.TLSv1_2
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_2,
+        maximum_version=tls.TLSVersion.TLSv1_2,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, dsa_server)
@@ -282,7 +290,7 @@ def test_tls12_dss_handshake(cipher_suite, dsa_server):
             raise
     else:
         assert dsa_server.tls.version() == "TLSv1.2"
-        assert conn.version() == "TLSv1.2"
+        assert conn.version() == tls.TLSVersion.TLSv1_2
 
 
 @pytest.mark.parametrize(
@@ -306,11 +314,12 @@ def test_tls12_dss_handshake(cipher_suite, dsa_server):
     ),
 )
 def test_tls11_rsa_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_1
-    context.maximum_version = tls.TLSVersion.TLSv1_1
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_1,
+        maximum_version=tls.TLSVersion.TLSv1_1,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, rsa_server)
@@ -322,7 +331,7 @@ def test_tls11_rsa_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1.1"
-        assert conn.version() == "TLSv1.1"
+        assert conn.version() == tls.TLSVersion.TLSv1_1
 
 
 @pytest.mark.parametrize(
@@ -336,11 +345,12 @@ def test_tls11_rsa_handshake(cipher_suite, rsa_server):
     ),
 )
 def test_tls11_ecdsa_handshake(cipher_suite, ec_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_1
-    context.maximum_version = tls.TLSVersion.TLSv1_1
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_1,
+        maximum_version=tls.TLSVersion.TLSv1_1,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, ec_server)
@@ -352,7 +362,7 @@ def test_tls11_ecdsa_handshake(cipher_suite, ec_server):
             raise
     else:
         assert ec_server.tls.version() == "TLSv1.1"
-        assert conn.version() == "TLSv1.1"
+        assert conn.version() == tls.TLSVersion.TLSv1_1
 
 
 @pytest.mark.parametrize(
@@ -364,11 +374,12 @@ def test_tls11_ecdsa_handshake(cipher_suite, ec_server):
     ),
 )
 def test_tls11_dss_handshake(cipher_suite, dsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1_1
-    context.maximum_version = tls.TLSVersion.TLSv1_1
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1_1,
+        maximum_version=tls.TLSVersion.TLSv1_1,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, dsa_server)
@@ -380,7 +391,7 @@ def test_tls11_dss_handshake(cipher_suite, dsa_server):
             raise
     else:
         assert dsa_server.tls.version() == "TLSv1.1"
-        assert conn.version() == "TLSv1.1"
+        assert conn.version() == tls.TLSVersion.TLSv1_1
 
 
 @pytest.mark.parametrize(
@@ -404,11 +415,12 @@ def test_tls11_dss_handshake(cipher_suite, dsa_server):
     ),
 )
 def test_tls1_rsa_handshake(cipher_suite, rsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1
-    context.maximum_version = tls.TLSVersion.TLSv1
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1,
+        maximum_version=tls.TLSVersion.TLSv1,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, rsa_server)
@@ -420,7 +432,7 @@ def test_tls1_rsa_handshake(cipher_suite, rsa_server):
             raise
     else:
         assert rsa_server.tls.version() == "TLSv1"
-        assert conn.version() == "TLSv1"
+        assert conn.version() == tls.TLSVersion.TLSv1
 
 
 @pytest.mark.parametrize(
@@ -434,11 +446,12 @@ def test_tls1_rsa_handshake(cipher_suite, rsa_server):
     ),
 )
 def test_tls1_ecdsa_handshake(cipher_suite, ec_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1
-    context.maximum_version = tls.TLSVersion.TLSv1
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1,
+        maximum_version=tls.TLSVersion.TLSv1,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, ec_server)
@@ -450,7 +463,7 @@ def test_tls1_ecdsa_handshake(cipher_suite, ec_server):
             raise
     else:
         assert ec_server.tls.version() == "TLSv1"
-        assert conn.version() == "TLSv1"
+        assert conn.version() == tls.TLSVersion.TLSv1
 
 
 @pytest.mark.parametrize(
@@ -462,11 +475,12 @@ def test_tls1_ecdsa_handshake(cipher_suite, ec_server):
     ),
 )
 def test_tls1_dss_handshake(cipher_suite, dsa_server):
-    context = tls.TLSContext()
-    context.cipher_suites = [cipher_suite]
-    context.minimum_version = tls.TLSVersion.TLSv1
-    context.maximum_version = tls.TLSVersion.TLSv1
-    conn = tls.TLSConnection(context)
+    config = tls.TLSConfiguration(
+        minimum_version=tls.TLSVersion.TLSv1,
+        maximum_version=tls.TLSVersion.TLSv1,
+        cipher_suites=[cipher_suite],
+    )
+    conn = tls.TLSConnection(config)
 
     try:
         do_handshake(conn, dsa_server)
@@ -478,4 +492,4 @@ def test_tls1_dss_handshake(cipher_suite, dsa_server):
             raise
     else:
         assert dsa_server.tls.version() == "TLSv1"
-        assert conn.version() == "TLSv1"
+        assert conn.version() == tls.TLSVersion.TLSv1

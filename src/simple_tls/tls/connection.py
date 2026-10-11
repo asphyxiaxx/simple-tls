@@ -1,0 +1,910 @@
+# Copyright (c) 2026 The simple-tls Contributors
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+from __future__ import annotations
+
+import struct
+import typing
+from ssl import MemoryBIO
+
+from cryptography import x509
+
+from simple_tls.crypto.utils import int_to_bytes
+
+from .alerts import AlertException
+from .cipher import InvalidTag, NullCipher, TLSCipher, get_key_iv_lens
+from .configuration import TLSConfiguration
+from .constants import (
+    UNSPECIFIED,
+    AlertDescription,
+    AlertLevel,
+    CipherSuite,
+    ContentType,
+    KeyUpdateMessageType,
+    TLSVersion,
+)
+from .enums import Direction, ECHStatus, Epoch, Shutdown, Status
+from .exceptions import (
+    TLSEOFError,
+    TLSLocalAlert,
+    TLSRemoteAlert,
+    TLSWantReadError,
+)
+from .extensions import ECHConfig
+from .handshake import TLSHandshake, TrafficContext
+from .handshake_client import NewSessionHandler, TLSHandshakeClient
+from .handshake_server import SNICallback, TLSHandshakeServer
+from .messages import HandshakeMessage
+from .utils import (
+    Buffer,
+    WritableBuffer,
+    get_algorithm,
+    hkdf_expand_label,
+    version_to_wire,
+)
+
+MessageCallback = typing.Callable[
+    ["TLSConnection", Direction, int, int, bytes], None
+]
+
+
+HEADER_LENGTH = 5
+MAX_WARNING_ALERTS = 5
+
+
+class SkipDataException(Exception):
+    pass
+
+
+class ConnectionState:
+    def __init__(self, epoch: Epoch, cipher: TLSCipher):
+        self.epoch = epoch
+        self.cipher = cipher
+
+        self.record_splitting = False
+        self.hide_content_type = False
+        self.max_seal_overhead = 0
+
+        self.sequence_number = 0
+
+    @classmethod
+    def create_initial(cls, direction: Direction) -> ConnectionState:
+        cipher = NullCipher(direction)
+        return ConnectionState(Epoch.INITIAL, cipher)
+
+
+_NULL_WRITE_STATE = ConnectionState.create_initial(Direction.WRITE)
+_NULL_READ_STATE = ConnectionState.create_initial(Direction.READ)
+
+
+class TLSConnection:
+    def __init__(
+        self,
+        configuration: TLSConfiguration,
+        inbio: MemoryBIO | None = None,
+        outbio: MemoryBIO | None = None,
+        new_session_handler: NewSessionHandler | None = None,
+        sni_callback: SNICallback | None = None,
+        message_callback: MessageCallback | None = None,
+    ) -> None:
+        self._message_callback = message_callback
+
+        handshake: TLSHandshakeClient | TLSHandshakeServer
+        if configuration.is_server:
+            handshake = TLSHandshakeServer(configuration)
+            handshake.sni_callback = sni_callback
+        else:
+            handshake = TLSHandshakeClient(configuration)
+            handshake.new_session_cb = new_session_handler
+
+        handshake.message_cb = self._do_hs_callback
+        handshake.setup_traffic_cb = self._setup_traffic
+
+        self._handshake: TLSHandshake = typing.cast(TLSHandshake, handshake)
+        """handshake object"""
+        self._handshake_status: Status = Status.OK
+        """current handshake status"""
+        self._send_record_limit: int = 2**14
+        """send record limit"""
+        self._recv_record_limit: int = 2**14
+        """received record limit"""
+
+        self._inbio: MemoryBIO = inbio or MemoryBIO()
+        """incoming encrypted bytes"""
+        self._outbio: MemoryBIO = outbio or MemoryBIO()
+        """outgoing encrypted bytes (waiting to be send)"""
+
+        self._header: bytes | None = None
+        """cached record header"""
+        self._read_buf: memoryview = memoryview(
+            bytearray(self._recv_record_limit + 2048)
+        )
+        """temporary buffer to store data decrypted"""
+        self._write_buf: memoryview = memoryview(
+            bytearray(self._send_record_limit + 2 * (HEADER_LENGTH + 2048))
+        )
+        """temporary buffer to store data encrypted"""
+        self._temp_buf: memoryview = memoryview(
+            bytearray(self._send_record_limit + 2048)
+        )
+        """temporary buffer to store plaintext for TLSv1.3"""
+
+        self._pending_flight: bytearray = bytearray()
+        """pending encrypted handshake record to send"""
+        self._pending_app_data: bytearray = bytearray()
+        """unconsumed decrypted application data"""
+
+        self._write_shutdown: Shutdown = Shutdown.NONE
+        self._read_shutdown: Shutdown = Shutdown.NONE
+        self._write_state: ConnectionState = _NULL_WRITE_STATE
+        self._read_state: ConnectionState = _NULL_READ_STATE
+        self._early_data_ignored: int = 0
+        self._early_data_processed: int = 0
+        self._warning_alert_received: int = 0
+
+    @property
+    def configuration(self) -> TLSConfiguration:
+        return self._handshake.configuration
+
+    @property
+    def is_server(self) -> bool:
+        return self._handshake.is_server
+
+    @property
+    def server_hostname(self) -> bytes | None:
+        return self._handshake.hostname
+
+    def handshake_complete(self) -> bool:
+        return self._handshake.session_established
+
+    def session_reused(self) -> bool:
+        return self._handshake.session_reused
+
+    def ech_accepted(self) -> bool:
+        return self._handshake.ech_status == ECHStatus.ACCEPTED
+
+    @typing.overload
+    def get_peer_ech_retry_configs(
+        self, binary_form: typing.Literal[True] = ...
+    ) -> bytes | None: ...
+
+    @typing.overload
+    def get_peer_ech_retry_configs(
+        self, binary_form: typing.Literal[False] = ...
+    ) -> list[ECHConfig] | None: ...
+
+    @typing.overload
+    def get_peer_ech_retry_configs(
+        self, binary_form: bool = ...
+    ) -> list[ECHConfig] | bytes | None: ...
+
+    def get_peer_ech_retry_configs(
+        self, binary_form: bool = True
+    ) -> list[ECHConfig] | bytes | None:
+        ech_retry_config = self._handshake.peer_ech_retry_configs
+        if ech_retry_config is not None:
+            if binary_form:
+                body = b"".join(c.serialize() for c in ech_retry_config)
+                return int_to_bytes(len(body), 2) + body
+            return ech_retry_config
+        return None
+
+    def get_peer_application_settings(self) -> bytes | None:
+        return self._handshake.peer_application_settings
+
+    def early_data_accepted(self) -> bool:
+        return self._handshake.early_data_accepted
+
+    def early_data_offered(self) -> bool:
+        return self._handshake.early_data_offered
+
+    def version(self) -> TLSVersion | None:
+        if self._has_final_version():
+            protocol = self.configuration.protocol
+            version = self._handshake.protocol_version()
+            wire_version = version_to_wire(protocol, version)
+            return TLSVersion(wire_version)
+        return None
+
+    def bio_write(self, data: Buffer) -> None:
+        """
+        Data from the network
+        """
+        self._inbio.write(data)
+
+    def bio_read(self, bufsiz: int) -> bytes:
+        """
+        Return data to send
+        """
+        data = self._outbio.read(bufsiz)
+        if not data:
+            raise TLSWantReadError()
+        return data
+
+    @typing.overload
+    def read(self, length: int = 1024, buffer: None = ...) -> bytes: ...
+
+    @typing.overload
+    def read(
+        self, length: int = 1024, buffer: WritableBuffer = ...
+    ) -> int: ...
+
+    def read(
+        self, length: int = 1024, buffer: WritableBuffer | None = None
+    ) -> int | bytes:
+        """
+        Read up to 'len' bytes from the SSL object and return them.
+
+        If 'buffer' is provided, read into this buffer and return the number of
+        bytes read.
+        """
+        hs = self._handshake
+
+        while not self._pending_app_data:
+            if not (hs.done or hs.can_early_read):
+                self.do_handshake()
+
+            content_type, data = self._open_record()
+
+            if content_type != ContentType.APPLICATION_DATA:
+                if content_type != ContentType.HANDSHAKE:
+                    self._send_alert(
+                        AlertDescription.UNEXPECTED_MESSAGE,
+                        f"Unexpected ContentType '{content_type}'",
+                    )
+
+                hs.feed_data(data)
+
+                if not hs.done:
+                    assert hs.can_early_read
+                    hs.close_early_data()
+                else:
+                    hs.trigger_post_handshake()
+
+                continue
+
+            if hs.is_server and hs.can_early_read:
+                self._early_data_processed += len(data)
+                if self._early_data_processed > hs.max_early_data:
+                    self._send_alert(
+                        AlertDescription.UNEXPECTED_MESSAGE,
+                        "Too much early data",
+                    )
+
+            data_len = len(data)
+            if data_len > 0 and data_len <= length:
+                if buffer is None:
+                    return data.tobytes()
+                else:
+                    if len(buffer) < data_len:
+                        raise ValueError("buffer too small")
+                    buffer[:data_len] = data
+                    return data_len
+
+            self._pending_app_data.extend(data)
+
+        app_data = self._pending_app_data[:length]
+        data_len = len(app_data)
+
+        if buffer is not None:
+            if len(buffer) < data_len:
+                raise ValueError("buffer too small")
+            buffer[:data_len] = app_data
+            del self._pending_app_data[:length]
+            return data_len
+        else:
+            del self._pending_app_data[:length]
+            return bytes(app_data)
+
+    def write(self, data: Buffer) -> int:
+        hs = self._handshake
+
+        if not (hs.done or hs.can_early_write):
+            self.do_handshake()
+
+        if self._write_shutdown != Shutdown.NONE:
+            raise TLSEOFError("protocol is shutdown")
+
+        max_send_fragment = self._send_record_limit
+        is_early_data_write = not self.is_server and hs.can_early_write
+
+        if is_early_data_write:
+            max_send_fragment = min(
+                max_send_fragment,
+                hs.max_early_data - self._early_data_processed,
+            )
+
+        if len(data) > max_send_fragment:
+            data = data[:max_send_fragment]
+
+        self._write(ContentType.APPLICATION_DATA, data)
+
+        if is_early_data_write:
+            self._early_data_processed += len(data)
+            if self._early_data_processed >= hs.max_early_data:
+                hs.close_early_data()
+
+        return len(data)
+
+    def update_key(self, request_receiver_update: bool = False) -> None:
+        if request_receiver_update:
+            message_type = KeyUpdateMessageType.UPDATE_REQUESTED
+        else:
+            message_type = KeyUpdateMessageType.UPDATE_NOT_REQUESTED
+
+        self._handshake.send_key_update(message_type)
+
+    def getpeercert(self) -> x509.Certificate | None:
+        return self._handshake.getpeercert()
+
+    def get_verified_chain(self) -> list[x509.Certificate]:
+        return self._handshake.get_verified_chain()
+
+    def get_unverified_chain(self) -> list[x509.Certificate]:
+        return self._handshake.get_unverified_chain()
+
+    def selected_npn_protocol(self) -> bytes | None:
+        return self._handshake.npn_selected
+
+    def selected_alpn_protocol(self) -> bytes | None:
+        return self._handshake.alpn_selected
+
+    def cipher(self) -> CipherSuite | None:
+        return self._handshake.cipher_suite
+
+    def shared_ciphers(self) -> list[CipherSuite] | None:
+        if self._handshake.peer_cipher_suites is not None:
+            out: list[CipherSuite] = []
+            for cipher_suite in self._handshake.peer_cipher_suites:
+                try:
+                    out.append(CipherSuite(cipher_suite))
+                except ValueError:
+                    continue
+            return out
+        return None
+
+    def pending(self) -> int:
+        return len(self._pending_app_data)
+
+    def do_handshake(self) -> None:
+        while True:
+            if self._handshake_status == Status.PACK_FLIGHT:
+                self._pack_handshake()
+            elif self._handshake_status == Status.FLUSH_MESSAGE:
+                self._flush_handshake()
+            elif self._handshake_status == Status.READ_MESSAGE:
+                self._read_handshake()
+            elif self._handshake_status == Status.READ_CHANGE_CIPHER_SPEC:
+                self._read_ccs()
+            elif self._handshake_status == Status.WRITE_CHANGE_CIPHER_SPEC:
+                self._write_ccs()
+            elif self._handshake_status == Status.EARLY_RETURN:
+                if isinstance(self._handshake, TLSHandshakeClient):
+                    assert self._handshake.ech_status != ECHStatus.REJECTED
+                self._handshake_status = Status.OK
+                break
+            elif self._handshake_status == Status.READ_END_OF_EARLY_DATA:
+                if self._handshake.can_early_read:
+                    break
+                self._handshake_status = Status.OK
+
+            try:
+                self._handshake_status = self._handshake.do_handshake()
+            except AlertException as exc:
+                self._send_alert(exc.description, exc.message, exc.fatal)
+
+            if self._handshake_status == Status.OK:
+                assert self._handshake.done
+                if isinstance(self._handshake, TLSHandshakeClient):
+                    assert self._handshake.ech_status != ECHStatus.REJECTED
+                break
+
+    def shutdown(self) -> None:
+        if self._write_shutdown == Shutdown.NONE:
+            self._send_alert(AlertDescription.CLOSE_NOTIFY, fatal=False)
+            self._write_shutdown = Shutdown.CLOSE_NOTIFY
+
+    # Callbacks
+
+    def _do_hs_callback(
+        self, direction: Direction, message: HandshakeMessage
+    ) -> None:
+        if self._message_callback is None:
+            return
+        version = self._handshake.version
+        content_type = ContentType.HANDSHAKE
+        data = message.serialize()
+        self._message_callback(self, direction, version, content_type, data)
+
+    # Record layer
+
+    def _setup_traffic(
+        self,
+        direction: Direction,
+        epoch: Epoch,
+        context: TrafficContext | None,
+    ) -> None:
+        state = None
+
+        if context is not None:
+            version = context.version
+            cipher_suite = context.cipher_suite
+
+            if version >= TLSVersion.TLSv1_3:
+                assert context.secret is not None
+                algorithm = get_algorithm(cipher_suite.prf_hash)
+                key_len, iv_len = get_key_iv_lens(cipher_suite)
+                enc_key = hkdf_expand_label(
+                    context.secret, b"key", b"", key_len, algorithm
+                )
+                fixed_iv = hkdf_expand_label(
+                    context.secret, b"iv", b"", iv_len, algorithm
+                )
+                mac_key = b""
+            else:
+                assert context.enc_key is not None
+                assert context.mac_key is not None
+                assert context.fixed_iv is not None
+                enc_key = context.enc_key
+                fixed_iv = context.fixed_iv
+                mac_key = context.mac_key
+
+            cipher = TLSCipher(
+                direction=direction,
+                version=version,
+                cipher_suite=cipher_suite,
+                enc_key=enc_key,
+                fixed_iv=fixed_iv,
+                mac_key=mac_key,
+                encrypt_then_mac=context.encrypt_then_mac,
+            )
+            state = ConnectionState(epoch, cipher)
+
+            max_seal_overhead = HEADER_LENGTH
+            max_seal_overhead += cipher.max_overhead()
+
+            if (
+                context.version < TLSVersion.TLSv1_1
+                and cipher.is_block_cipher()
+            ):
+                state.record_splitting = True
+                max_seal_overhead *= 2
+
+            if context.version >= TLSVersion.TLSv1_3:
+                state.hide_content_type = True
+                max_seal_overhead += 1
+
+            state.max_seal_overhead = max_seal_overhead
+
+        if direction == Direction.WRITE:
+            assert len(self._handshake.pending_flight()) == 0
+            if state is None:
+                state = _NULL_WRITE_STATE
+            self._write_state = state
+        else:
+            if state is None:
+                state = _NULL_READ_STATE
+            self._read_state = state
+
+    def _write_ccs(self) -> None:
+        header = self._get_header(
+            content_type=ContentType.CHANGE_CIPHER_SPEC,
+            record_version=self._record_version(),
+            length=1,
+        )
+        self._pending_flight.extend(header)
+        self._pending_flight.extend(b"\x01")
+
+    def _read_ccs(self) -> None:
+        content_type, data = self._open_record()
+        if content_type != ContentType.CHANGE_CIPHER_SPEC:
+            self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
+        self._verify_ccs(data)
+        self._current_read_epoch = Epoch.APPLICATION_DATA
+
+    def _read_handshake(self) -> None:
+        content_type, data = self._open_record()
+        if content_type != ContentType.HANDSHAKE:
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE,
+                f"Unexpected content type '0x{content_type:02X}'",
+            )
+        self._handshake.feed_data(data)
+
+    def _pack_handshake(self) -> None:
+        pending_hs_data = b"".join(self._handshake.pending_flight())
+        if not pending_hs_data:
+            return
+
+        fragment_size = self._send_record_limit - 1
+        content_type = ContentType.HANDSHAKE
+
+        with memoryview(pending_hs_data) as view:
+            for i in range(0, len(view), fragment_size):
+                record_data = self._seal_record(
+                    content_type, view[i : i + fragment_size]
+                )
+                self._pending_flight.extend(record_data)
+
+        self._handshake.clear_flight()
+
+    def _flush_handshake(self) -> None:
+        self._pack_handshake()
+
+        if not self._pending_flight:
+            return
+
+        if self._write_shutdown != Shutdown.NONE:
+            return
+
+        self._outbio.write(self._pending_flight)
+        self._pending_flight.clear()
+
+    def _write(self, content_type: int, data: Buffer) -> None:
+        self._flush_handshake()
+
+        if not data:
+            return
+
+        record_data = self._seal_record(content_type, data)
+        self._outbio.write(record_data)
+
+    def _seal_record(self, content_type: int, plaintext: Buffer) -> memoryview:
+        state = self._write_state
+        original_buf = self._write_buf
+        buf = original_buf
+        written = 0
+
+        if (
+            state.record_splitting
+            and content_type == ContentType.APPLICATION_DATA
+            and len(plaintext) > 1
+        ):
+            written = self._seal_record_internal(
+                content_type, plaintext[:1], buf
+            )
+            plaintext = plaintext[1:]
+            buf = buf[written:]
+
+        written += self._seal_record_internal(content_type, plaintext, buf)
+        return original_buf[:written]
+
+    def _seal_record_internal(
+        self, content_type: int, plaintext: Buffer, buf: WritableBuffer
+    ) -> int:
+        assert len(plaintext) <= self._send_record_limit
+
+        state = self._write_state
+        data_buf = buf[HEADER_LENGTH:]
+
+        if state.hide_content_type:
+            pt_len = len(plaintext)
+            temp_view = self._temp_buf[0 : pt_len + 1]
+            temp_view[0:pt_len] = plaintext
+            temp_view[pt_len] = content_type
+            plaintext = temp_view
+            content_type = ContentType.APPLICATION_DATA
+
+        cipher = state.cipher
+        seq_num = state.sequence_number
+        record_version = self._record_version()
+        ciphertext_len = cipher.ciphertext_length(len(plaintext))
+        header = self._get_header(content_type, record_version, ciphertext_len)
+
+        ct_len = cipher.seal(
+            content_type,
+            record_version,
+            plaintext,
+            seq_num,
+            header,
+            data_buf,
+        )
+        assert ct_len == ciphertext_len
+
+        state.sequence_number += 1
+
+        buf[0:HEADER_LENGTH] = header
+        out_len = HEADER_LENGTH + ct_len
+
+        return out_len
+
+    def _open_record(self) -> tuple[int, memoryview]:
+        while True:
+            try:
+                return self._open_record_internal()
+            except SkipDataException:
+                pass
+
+    def _open_record_internal(self) -> tuple[int, memoryview]:
+        if self._read_shutdown != Shutdown.NONE:
+            raise TLSEOFError()
+
+        state = self._read_state
+        out = self._read_buf
+        inbio = self._inbio
+
+        # Parse header: ContentType (1), Version (2), Length (2)
+        if self._header is None:
+            if inbio.pending < HEADER_LENGTH:
+                raise TLSWantReadError()
+            self._header = inbio.read(HEADER_LENGTH)
+
+        header = self._header
+        assert len(header) == HEADER_LENGTH
+
+        content_type, record_version, length = struct.unpack("!BHH", header)
+
+        if isinstance(state.cipher, NullCipher):
+            version_ok = record_version >> 8 == 0x03
+        else:
+            version_ok = record_version == self._record_version()
+
+        if not version_ok:
+            self._send_alert(
+                AlertDescription.PROTOCOL_VERSION, "Wrong version number"
+            )
+
+        # Check the record header fields
+        # 2**14 (default record size limit)
+        # 1024 (maximum compression overhead)
+        # 1024 (maximum encryption overhead)
+        if length > self._recv_record_limit + 1024 + 1024:
+            self._send_alert(
+                AlertDescription.RECORD_OVERFLOW, "record too large"
+            )
+
+        # Extract full record
+        if inbio.pending < length:
+            raise TLSWantReadError()
+
+        ciphertext = inbio.read(length)
+        assert length == len(ciphertext)
+
+        self._header = None
+
+        if (
+            content_type == ContentType.CHANGE_CIPHER_SPEC
+            and self._has_final_version()
+            and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+        ):
+            self._verify_ccs(ciphertext)
+
+            if self._handshake.session_established:
+                self._send_alert(
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "Unexpected change cipher spec message",
+                )
+            raise SkipDataException()
+
+        if (
+            self._handshake.skip_early_data
+            and isinstance(state.cipher, NullCipher)
+            and content_type == ContentType.APPLICATION_DATA
+        ):
+            self._skip_early_data(len(ciphertext))
+            raise SkipDataException()
+
+        # Check for cleartext alerts received during an encrypted epoch.
+        # In TLS 1.3, encrypted records ALWAYS have an outer content_type
+        # of 23. If it is 21, the peer aborted before/during key generation.
+        if (
+            content_type == ContentType.ALERT
+            and state.hide_content_type
+            and state.sequence_number == 0
+        ):
+            self._process_alert(ciphertext)
+
+        seq_num = state.sequence_number
+        try:
+            pt_len = state.cipher.open(
+                content_type,
+                record_version,
+                ciphertext,
+                seq_num,
+                header,
+                out,
+            )
+        except InvalidTag:
+            if self._handshake.skip_early_data:
+                self._skip_early_data(len(ciphertext))
+                raise SkipDataException() from None
+            self._send_alert(
+                AlertDescription.BAD_RECORD_MAC, "Payload decryption failed"
+            )
+        else:
+            state.sequence_number += 1
+
+        if self._handshake.skip_early_data:
+            self._handshake.close_early_data()
+
+        if state.hide_content_type:
+            if content_type != ContentType.APPLICATION_DATA:
+                self._send_alert(AlertDescription.ILLEGAL_PARAMETER)
+            pt_limit = self._recv_record_limit + 1
+        else:
+            pt_limit = self._recv_record_limit
+
+        # RFC 5246 section 6.2.1
+        # RFC 8446 section 5.4
+        if pt_len > pt_limit:
+            self._send_alert(AlertDescription.RECORD_OVERFLOW)
+
+        if state.hide_content_type:
+            content_type, pt_len = self._unpad_data_tlsv1_3(out[:pt_len])
+
+        # RFC 8446 Section 5.1
+        # Implementations MUST NOT send zero-length fragments of Handshake
+        # types, even if those fragments contain padding.
+        # RFC 5246 Section 6.2.1
+        # Implementations MUST NOT send zero-length fragments of content
+        # types other than Application Data.
+        if content_type != ContentType.APPLICATION_DATA and pt_len == 0:
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE, "Empty handshake message"
+            )
+
+        if content_type == ContentType.ALERT:
+            self._process_alert(out[:pt_len])
+
+        # RFC 8446 Section 5.1
+        # TLS 1.3 Handshake messages MUST NOT be interleaved with other
+        # messages
+        if (
+            content_type != ContentType.HANDSHAKE
+            and self._handshake.has_unprocessed_data()
+            and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+        ):
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE,
+                "Interleaved handshake message",
+            )
+
+        return content_type, out[:pt_len]
+
+    def _skip_early_data(self, ciphertext_length: int) -> None:
+        self._early_data_ignored += ciphertext_length
+        if self._early_data_ignored > self._recv_record_limit:
+            self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
+
+    def _record_version(self) -> int:
+        if self._handshake.version == UNSPECIFIED:
+            return TLSVersion.TLSv1
+        return min(TLSVersion.TLSv1_2, self._handshake.version)
+
+    def _has_final_version(self) -> bool:
+        if self._handshake.version == UNSPECIFIED:
+            return False
+        if self._handshake.is_early_version:
+            return False
+        return True
+
+    def _unpad_data_tlsv1_3(self, data: Buffer) -> tuple[int, int]:
+        for pos in range(len(data) - 1, -1, -1):
+            value = data[pos]
+            if value != 0:
+                break
+        else:
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE, "Missing content type"
+            )
+        return value, pos
+
+    @typing.overload
+    def _send_alert(
+        self,
+        description: int,
+        reason: typing.Any | None = ...,
+        fatal: typing.Literal[True] = ...,
+    ) -> typing.NoReturn: ...
+
+    @typing.overload
+    def _send_alert(
+        self,
+        description: int,
+        reason: typing.Any | None = ...,
+        fatal: typing.Literal[False] = ...,
+    ) -> None: ...
+
+    @typing.overload
+    def _send_alert(
+        self,
+        description: int,
+        reason: typing.Any | None = ...,
+        fatal: bool = ...,
+    ) -> None: ...
+
+    def _send_alert(
+        self,
+        description: int,
+        reason: typing.Any | None = None,
+        fatal: bool = True,
+    ) -> None:
+        if self._write_shutdown == Shutdown.NONE:
+            if not fatal:
+                self._write(
+                    ContentType.ALERT,
+                    bytes([AlertLevel.WARNING]) + bytes([description]),
+                )
+            else:
+                self._write(
+                    ContentType.ALERT,
+                    bytes([AlertLevel.FATAL]) + bytes([description]),
+                )
+                self._write_shutdown = Shutdown.ERROR
+
+        if fatal:
+            raise TLSLocalAlert(description, reason)
+
+    def _process_alert(self, data: Buffer) -> typing.NoReturn:
+        if len(data) != 2:
+            self._send_alert(
+                AlertDescription.DECODE_ERROR, "Malformed alert message"
+            )
+
+        level = data[0]
+        description = data[1]
+
+        if level == AlertLevel.WARNING:
+            if description == AlertDescription.CLOSE_NOTIFY:
+                self._read_shutdown = Shutdown.CLOSE_NOTIFY
+                raise TLSEOFError()
+
+            self._warning_alert_received += 1
+
+            if self._warning_alert_received > MAX_WARNING_ALERTS:
+                self._send_alert(
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "Too many warning alerts received.",
+                )
+
+            if (
+                self._has_final_version()
+                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+                and description != AlertDescription.USER_CANCELLED
+            ):
+                self._send_alert(AlertDescription.DECODE_ERROR)
+
+            raise SkipDataException()
+
+        if level == AlertLevel.FATAL:
+            self._read_shutdown = Shutdown.ERROR
+            raise TLSRemoteAlert(description)
+
+        self._send_alert(
+            AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type"
+        )
+
+    def _verify_ccs(self, data: Buffer) -> None:
+        if len(data) != 1:
+            self._send_alert(
+                AlertDescription.DECODE_ERROR, "Malformed CCS message"
+            )
+
+        # RFC 8446 section 5
+        if data != b"\x01":
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE, "Invalid CCS message"
+            )
+
+    @staticmethod
+    def _get_header(
+        content_type: int, record_version: int, length: int
+    ) -> bytes:
+        return struct.pack("!BHH", content_type, record_version, length)

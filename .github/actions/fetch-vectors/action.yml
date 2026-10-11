@@ -1,0 +1,22 @@
+name: "Fetch Test Vectors"
+description: "Clones test vectors"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Clone Wycheproof
+      shell: bash
+      env:
+        # Commits on Jul 21, 2026
+        COMMIT_ID: "b61843a9a5115bb758134b6a1f5d5e502d445342"
+      run: |
+        if [ ! -d "wycheproof" ]; then
+          mkdir wycheproof
+          cd wycheproof
+          git init
+          git remote add origin https://github.com/C2SP/wycheproof.git
+          git fetch --depth 1 origin "$COMMIT_ID"
+          git checkout FETCH_HEAD
+        else
+          echo "Wycheproof directory already exists, skipping clone."
+        fi

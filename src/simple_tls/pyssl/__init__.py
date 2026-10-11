@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from ._constant import (
+from ._constants import (
     ALERT_DESCRIPTION_ACCESS_DENIED,
     ALERT_DESCRIPTION_BAD_CERTIFICATE,
     ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE,
@@ -80,7 +80,7 @@ from ._constant import (
     VerifyMode,
 )
 from ._context import SSLContext
-from ._exception import (
+from ._exceptions import (
     SSLEOFError,
     SSLError,
     SSLSyscallError,
@@ -92,15 +92,7 @@ from ._exception import (
 from ._object import SSLObject
 from ._session import SSLSession
 from ._socket import SSLSocket
-from ._util import (
-    DER_cert_to_PEM_cert,
-    PEM_cert_to_DER_cert,
-    cert_time_to_seconds,
-    create_default_context,
-    get_default_verify_paths,
-    get_protocol_name,
-    get_server_certificate,
-)
+from ._utils import create_default_context
 
 __all__ = [
     "ALERT_DESCRIPTION_ACCESS_DENIED",
@@ -152,9 +144,7 @@ __all__ = [
     "SSL_ERROR_WANT_READ",
     "SSL_ERROR_WANT_WRITE",
     "AlertDescription",
-    "DER_cert_to_PEM_cert",
     "Options",
-    "PEM_cert_to_DER_cert",
     "PROTOCOL_TLSv1",
     "PROTOCOL_TLSv1_1",
     "PROTOCOL_TLSv1_2",
@@ -172,11 +162,7 @@ __all__ = [
     "TLSVersion",
     "VerifyFlags",
     "VerifyMode",
-    "cert_time_to_seconds",
     "create_default_context",
-    "get_default_verify_paths",
-    "get_protocol_name",
-    "get_server_certificate",
     "socket_error",
 ]
 

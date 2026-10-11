@@ -1,0 +1,798 @@
+# Copyright (c) 2026 The simple-tls Contributors
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+from __future__ import annotations
+
+import struct
+import typing
+from dataclasses import dataclass
+
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives import hmac
+from cryptography.hazmat.primitives.ciphers import Cipher, CipherContext, aead
+from cryptography.hazmat.primitives.ciphers.algorithms import AES
+from cryptography.hazmat.primitives.ciphers.modes import CBC
+
+from simple_tls.crypto.constant_time import (
+    cbc_remove_pad_and_mac,
+    compare_digest,
+)
+from simple_tls.crypto.utils import get_random_bytes, strxor
+
+from .constants import CipherSuite, Symmetric, TLSVersion
+from .enums import Direction
+from .utils import Buffer, WritableBuffer, get_algorithm
+
+try:
+    from cryptography.hazmat.decrepit.ciphers.algorithms import (  # type: ignore
+        ARC4,
+        TripleDES,
+    )
+except ImportError:
+    from cryptography.hazmat.primitives.ciphers.algorithms import (  # type: ignore
+        ARC4,
+        TripleDES,
+    )
+
+__all__ = [
+    "InvalidTag",
+    "NullCipher",
+    "TLSCipher",
+    "get_key_iv_lens",
+]
+
+_CipherType: typing.TypeAlias = CipherContext
+_AEADCipherType: typing.TypeAlias = typing.Union[
+    aead.AESCCM,
+    aead.AESGCM,
+    aead.ChaCha20Poly1305,
+]
+
+
+def get_key_iv_lens(cipher_suite: CipherSuite) -> tuple[int, int]:
+    spec: _Cipher | _AEADCipher
+    if cipher_suite.aead:
+        spec = _AEAD_CIPHERS[cipher_suite.symmetric]
+        if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
+            iv_len = 12
+        else:
+            iv_len = spec.iv_length
+    else:
+        if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
+            raise ValueError("cipher suite is not supported for TLSv1.3")
+        spec = _CIPHERS[cipher_suite.symmetric]
+        iv_len = spec.iv_length
+
+    return (spec.key_length, iv_len)
+
+
+class TLSCipher:
+    def __init__(
+        self,
+        direction: Direction,
+        version: int,
+        cipher_suite: CipherSuite,
+        enc_key: bytes,
+        fixed_iv: bytes,
+        mac_key: bytes,
+        encrypt_then_mac: bool = False,
+    ) -> None:
+        self.open: typing.Callable[
+            [int, int, Buffer, int, bytes, WritableBuffer], int
+        ]
+        self.seal: typing.Callable[
+            [int, int, Buffer, int, bytes, WritableBuffer], int
+        ]
+
+        self._cipher: _AEADCipherType | _CipherType | None = None
+        self._mac: hmac.HMAC | None = None
+        self._max_overhead: int = 0
+        self._fixed_nonce: bytes = b""
+        self._block_size: int = 1
+        self._variable_nonce_len: int = 0
+        self._variable_nonce_included_in_record: bool = False
+        self._xor_fixed_nonce: bool = False
+        self._aad_is_header: bool = False
+        self._is_etm: bool = encrypt_then_mac
+
+        if cipher_suite.aead:
+            if encrypt_then_mac:
+                raise ValueError(
+                    "encrypt-then-mac is not supported for this cipher suite"
+                )
+            if len(mac_key) != 0:
+                raise ValueError("mac_key must be empty for aead cipher suite")
+
+            aead_spec = _AEAD_CIPHERS[cipher_suite.symmetric]
+            key_len = aead_spec.key_length
+            tag_len = aead_spec.tag_length
+            nonce_len = 12
+
+            if version >= TLSVersion.TLSv1_3:
+                iv_len = nonce_len
+            else:
+                iv_len = aead_spec.iv_length
+
+            if len(enc_key) != key_len:
+                raise ValueError("incorrect enc_key length")
+            if len(fixed_iv) != iv_len:
+                raise ValueError("incorrect fixed_iv length")
+
+            if (
+                cipher_suite.minimum_version >= TLSVersion.TLSv1_3
+                or cipher_suite.symmetric == Symmetric.CHACHA20_POLY1305
+            ):
+                self._xor_fixed_nonce = True
+                self._variable_nonce_len = 8
+                self._max_overhead = tag_len
+                assert len(fixed_iv) >= self._variable_nonce_len
+
+            else:
+                assert len(fixed_iv) <= nonce_len
+                self._variable_nonce_len = nonce_len - len(fixed_iv)
+                self._variable_nonce_included_in_record = True
+                self._max_overhead = tag_len + self._variable_nonce_len
+
+            self._fixed_nonce = fixed_iv
+
+            if version >= TLSVersion.TLSv1_3:
+                self._aad_is_header = True
+
+            self._cipher = aead_spec.create(enc_key)
+
+            if direction == Direction.WRITE:
+                self.seal = self._encrypt_aead
+            else:
+                self.open = self._decrypt_aead
+
+        else:
+            if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
+                raise ValueError("cipher suite is not supported for TLSv1.3")
+            if cipher_suite.digest is None:
+                raise ValueError("cipher suite is not supported")
+
+            spec = _CIPHERS[cipher_suite.symmetric]
+            key_len = spec.key_length
+            iv_len = spec.iv_length
+
+            if len(enc_key) != key_len:
+                raise ValueError("incorrect enc_key length")
+            if len(fixed_iv) != iv_len:
+                raise ValueError("incorrect fixed_iv length")
+
+            algorithm = get_algorithm(cipher_suite.digest)
+            cipher = spec.create(enc_key, fixed_iv)
+            self._mac = hmac.HMAC(mac_key, algorithm)
+
+            if version >= TLSVersion.TLSv1_1 and iv_len > 0:
+                self._fixed_nonce = get_random_bytes(iv_len)
+                self._variable_nonce_len = iv_len
+
+            if cipher_suite.symmetric in (
+                Symmetric.AES_128_CBC,
+                Symmetric.AES_256_CBC,
+                Symmetric.TRIPLE_DES_EDE_CBC,
+            ):
+                if cipher_suite.symmetric == Symmetric.TRIPLE_DES_EDE_CBC:
+                    self._block_size = 8
+                else:
+                    self._block_size = 16
+
+                if self._is_etm:
+                    seal = self._encrypt_then_mac
+                    open = self._mac_then_decrypt
+                else:
+                    seal = self._mac_then_encrypt
+                    open = self._decrypt_then_mac
+
+                self._max_overhead = (
+                    self._block_size
+                    + algorithm.digest_size
+                    + self._variable_nonce_len
+                )
+
+            else:
+                if self._is_etm:
+                    raise ValueError(
+                        "encrypt-then-mac is not supported for selected "
+                        "cipher suite"
+                    )
+
+                seal = self._mac_then_encrypt_stream
+                open = self._decrypt_stream_then_mac
+
+                self._max_overhead = algorithm.digest_size
+
+            if direction == Direction.WRITE:
+                if cipher is not None:
+                    self._cipher = typing.cast(_CipherType, cipher.encryptor())
+                self.seal = seal
+            else:
+                if cipher is not None:
+                    self._cipher = typing.cast(_CipherType, cipher.decryptor())
+                self.open = open
+
+    def ciphertext_length(self, plaintext_length: int) -> int:
+        """
+        Return the exact ciphertext length produced by seal()
+        for a given plaintext length.
+        """
+        # AEAD and stream ciphers are simple
+        if not self.is_block_cipher():
+            return plaintext_length + self._max_overhead
+
+        # CBC block ciphers
+        block_size = self._block_size
+        mac_size = self._mac.algorithm.digest_size if self._mac else 0
+        iv_len = self._variable_nonce_len
+
+        if self._is_etm:
+            # In ETM, only the raw plaintext is padded and encrypted.
+            data_to_pad = plaintext_length
+        else:
+            # In standard MtE, the plaintext + MAC are padded and encrypted.
+            data_to_pad = plaintext_length + mac_size
+
+        # TLS requires at least 1 byte of padding (0x00), up to a full block.
+        # This formula rounds up to the next exact multiple of block_size.
+        pad_bytes = block_size - (data_to_pad % block_size)
+        padded_ciphertext_len = data_to_pad + pad_bytes
+
+        if self._is_etm:
+            # IV (clear) + Padded Ciphertext + MAC (clear)
+            return iv_len + padded_ciphertext_len + mac_size
+        else:
+            # IV (clear) + Padded Ciphertext (which already contains the MAC)
+            return iv_len + padded_ciphertext_len
+
+    def max_overhead(self) -> int:
+        return self._max_overhead
+
+    def is_block_cipher(self) -> bool:
+        return self._block_size > 1
+
+    @staticmethod
+    def _get_pad(data_len: int, block_size: int) -> bytes:
+        pad_len = block_size - 1 - (data_len % block_size)
+        return bytes([pad_len]) * (pad_len + 1)
+
+    @staticmethod
+    def _get_mac(
+        mac: hmac.HMAC,
+        seq_num: int,
+        content_type: int,
+        record_version: int,
+        plaintext: Buffer,
+    ) -> bytes:
+        aad = struct.pack(
+            "!QBHH", seq_num, content_type, record_version, len(plaintext)
+        )
+        m = mac.copy()
+        m.update(aad)
+        m.update(plaintext)  # type: ignore
+        return m.finalize()
+
+    def _encrypt_aead(
+        self,
+        content_type: int,
+        record_version: int,
+        plaintext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        assert self._variable_nonce_len == 8
+
+        if len(out) < len(plaintext) + self._max_overhead:
+            raise ValueError("out buffer too small")
+
+        if self._aad_is_header:
+            aad = header
+        else:
+            aad = struct.pack(
+                "!QBHH", seq_num, content_type, record_version, len(plaintext)
+            )
+
+        seq_bytes = struct.pack("!Q", seq_num)
+
+        if self._xor_fixed_nonce:
+            pad = bytes(len(self._fixed_nonce) - len(seq_bytes))
+            nonce = strxor(pad + seq_bytes, self._fixed_nonce)
+        else:
+            nonce = self._fixed_nonce + seq_bytes
+
+        cipher = typing.cast(_AEADCipherType, self._cipher)
+        ciphertext = cipher.encrypt(nonce, plaintext, aad)  # type: ignore
+
+        written = 0
+        if self._variable_nonce_included_in_record:
+            assert not self._xor_fixed_nonce
+            out[written : written + len(seq_bytes)] = seq_bytes
+            written = len(seq_bytes)
+
+        out[written : written + len(ciphertext)] = ciphertext
+        written += len(ciphertext)
+
+        return written
+
+    def _encrypt_then_mac(
+        self,
+        content_type: int,
+        record_version: int,
+        plaintext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        mac = typing.cast(hmac.HMAC, self._mac)
+        cipher = typing.cast(CipherContext, self._cipher)
+        block_size = self._block_size
+        mac_size = mac.algorithm.digest_size
+        rand_iv = self._fixed_nonce
+
+        if len(out) < len(plaintext) + self._max_overhead:
+            raise ValueError("out buffer too small")
+
+        pad_bytes = self._get_pad(len(plaintext), block_size)
+        data_len = len(rand_iv) + len(plaintext) + len(pad_bytes)
+        out_len = data_len + mac_size
+
+        written = 0
+        if not isinstance(out, memoryview):
+            out = memoryview(out)
+        for b in (rand_iv, plaintext, pad_bytes):
+            written += cipher.update_into(b, out[written:])  # type: ignore
+        assert written == data_len
+
+        mac_bytes = self._get_mac(
+            mac=mac,
+            seq_num=seq_num,
+            content_type=content_type,
+            record_version=record_version,
+            plaintext=out[:data_len],  # encrypt-then-mac use ciphertext
+        )
+        out[data_len:out_len] = mac_bytes
+
+        return out_len
+
+    def _mac_then_encrypt(
+        self,
+        content_type: int,
+        record_version: int,
+        plaintext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        mac = typing.cast(hmac.HMAC, self._mac)
+        cipher = typing.cast(CipherContext, self._cipher)
+        block_size = self._block_size
+        rand_iv = self._fixed_nonce
+
+        if len(out) < len(plaintext) + self._max_overhead:
+            raise ValueError("out buffer too small")
+
+        mac_bytes = self._get_mac(
+            mac=mac,
+            seq_num=seq_num,
+            content_type=content_type,
+            record_version=record_version,
+            plaintext=plaintext,
+        )
+
+        data_len = len(rand_iv) + len(plaintext) + len(mac_bytes)
+        pad_bytes = self._get_pad(data_len, block_size)
+        out_len = data_len + len(pad_bytes)
+
+        written = 0
+        if not isinstance(out, memoryview):
+            out = memoryview(out)
+        for b in (rand_iv, plaintext, mac_bytes, pad_bytes):
+            written += cipher.update_into(b, out[written:])  # type: ignore
+        assert written == out_len
+
+        return written
+
+    def _mac_then_encrypt_stream(
+        self,
+        content_type: int,
+        record_version: int,
+        plaintext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        mac = typing.cast(hmac.HMAC, self._mac)
+        cipher = typing.cast(CipherContext | None, self._cipher)
+
+        if len(out) < len(plaintext) + self._max_overhead:
+            raise ValueError("out buffer too small")
+
+        mac_bytes = self._get_mac(
+            mac=mac,
+            seq_num=seq_num,
+            content_type=content_type,
+            record_version=record_version,
+            plaintext=plaintext,
+        )
+
+        written = 0
+        if cipher is not None:
+            if not isinstance(out, memoryview):
+                out = memoryview(out)
+            for b in (plaintext, mac_bytes):
+                written += cipher.update_into(b, out[written:])  # type: ignore
+            assert written == len(plaintext) + len(mac_bytes)
+        else:
+            out[written : written + len(plaintext)] = plaintext
+            written += len(plaintext)
+            out[written : written + len(mac_bytes)] = mac_bytes
+            written += len(mac_bytes)
+
+        return written
+
+    def _decrypt_aead(
+        self,
+        content_type: int,
+        record_version: int,
+        ciphertext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        assert self._variable_nonce_len == 8
+
+        if len(out) < len(ciphertext):
+            raise ValueError("out buffer too small")
+
+        if self._aad_is_header:
+            aad = header
+        else:
+            plaintext_len = len(ciphertext) - self.max_overhead()
+            aad = struct.pack(
+                "!QBHH", seq_num, content_type, record_version, plaintext_len
+            )
+
+        seq_bytes = struct.pack("!Q", seq_num)
+
+        if self._variable_nonce_included_in_record:
+            assert not self._xor_fixed_nonce
+
+            if self._variable_nonce_len > len(ciphertext):
+                raise InvalidTag("Truncated nonce")
+
+            nonce = self._fixed_nonce + ciphertext[: self._variable_nonce_len]
+            ciphertext = ciphertext[self._variable_nonce_len :]
+
+        elif self._xor_fixed_nonce:
+            pad = bytes(len(self._fixed_nonce) - len(seq_bytes))
+            nonce = strxor(pad + seq_bytes, self._fixed_nonce)
+
+        else:
+            nonce = self._fixed_nonce + seq_bytes
+
+        cipher = typing.cast(_AEADCipherType, self._cipher)
+        plaintext = cipher.decrypt(nonce, ciphertext, aad)  # type: ignore
+        out[: len(plaintext)] = plaintext
+
+        return len(plaintext)
+
+    def _mac_then_decrypt(
+        self,
+        content_type: int,
+        record_version: int,
+        ciphertext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        mac = typing.cast(hmac.HMAC, self._mac)
+        cipher = typing.cast(_CipherType, self._cipher)
+        block_size = self._block_size
+        mac_size = mac.algorithm.digest_size
+        rand_iv_len = self._variable_nonce_len
+
+        if len(out) < len(ciphertext) + block_size:
+            raise ValueError("out buffer too small")
+
+        if len(ciphertext) < mac_size + rand_iv_len:
+            raise InvalidTag("Truncated mac")
+
+        if not isinstance(ciphertext, memoryview):
+            ciphertext = memoryview(ciphertext)
+
+        extracted_mac = ciphertext[-mac_size:]
+        ciphertext = ciphertext[:-mac_size]
+
+        expected_mac = self._get_mac(
+            mac=mac,
+            seq_num=seq_num,
+            content_type=content_type,
+            record_version=record_version,
+            plaintext=ciphertext,  # encrypt-then-mac use ciphertext
+        )
+        if not compare_digest(extracted_mac, expected_mac):
+            raise InvalidTag("MAC mismatch")
+
+        # For TLSv1.1+, remove explicit IV
+        iv, ciphertext = ciphertext[:rand_iv_len], ciphertext[rand_iv_len:]
+
+        written = cipher.update_into(iv, out)  # type: ignore
+        assert written == rand_iv_len
+
+        written = cipher.update_into(ciphertext, out)  # type: ignore
+        if written != len(ciphertext):
+            raise InvalidTag("ciphertext length not multiple of block_length")
+
+        try:
+            plaintext_len, _ = cbc_remove_pad_and_mac(
+                out[:written], 0, block_size
+            )
+        except ValueError as exc:
+            raise InvalidTag(exc) from exc
+
+        return plaintext_len
+
+    def _decrypt_then_mac(
+        self,
+        content_type: int,
+        record_version: int,
+        ciphertext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        mac = typing.cast(hmac.HMAC, self._mac)
+        cipher = typing.cast(_CipherType, self._cipher)
+        block_size = self._block_size
+        mac_size = mac.algorithm.digest_size
+        rand_iv_len = self._variable_nonce_len
+
+        if len(out) < len(ciphertext) + self._block_size:
+            raise ValueError("out buffer too small")
+
+        if len(ciphertext) < mac_size + rand_iv_len:
+            raise InvalidTag("Truncated mac")
+
+        # For TLSv1.1+, remove explicit IV
+        iv, ciphertext = ciphertext[:rand_iv_len], ciphertext[rand_iv_len:]
+
+        written = cipher.update_into(iv, out)  # type: ignore
+        assert written == rand_iv_len
+
+        written = cipher.update_into(ciphertext, out)  # type: ignore
+        if written != len(ciphertext):
+            raise InvalidTag("ciphertext length not multiple of block_length")
+
+        try:
+            plaintext_len, extracted_mac = cbc_remove_pad_and_mac(
+                out[:written], mac_size, block_size
+            )
+        except ValueError as exc:
+            raise InvalidTag(exc) from exc
+
+        expected_mac = self._get_mac(
+            mac=mac,
+            seq_num=seq_num,
+            content_type=content_type,
+            record_version=record_version,
+            plaintext=out[:plaintext_len],
+        )
+        if not compare_digest(extracted_mac, expected_mac):
+            raise InvalidTag("MAC mismatch")
+
+        return plaintext_len
+
+    def _decrypt_stream_then_mac(
+        self,
+        content_type: int,
+        record_version: int,
+        ciphertext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        mac = typing.cast(hmac.HMAC, self._mac)
+        cipher = typing.cast(_CipherType | None, self._cipher)
+        block_size = 1
+        mac_size = mac.algorithm.digest_size
+
+        if len(out) < len(ciphertext):
+            raise ValueError("out buffer too small")
+
+        if cipher is not None:
+            written = cipher.update_into(ciphertext, out)  # type: ignore
+            assert written == len(ciphertext)
+        else:
+            out[0 : len(ciphertext)] = ciphertext
+            written = len(ciphertext)
+
+        try:
+            plaintext_len, extracted_mac = cbc_remove_pad_and_mac(
+                out[:written], mac_size, block_size
+            )
+        except ValueError as exc:
+            raise InvalidTag(exc) from exc
+
+        expected_mac = self._get_mac(
+            mac=mac,
+            seq_num=seq_num,
+            content_type=content_type,
+            record_version=record_version,
+            plaintext=out[:plaintext_len],
+        )
+
+        if not compare_digest(expected_mac, extracted_mac):
+            raise InvalidTag("Mac mismatch")
+
+        return plaintext_len
+
+
+class NullCipher(TLSCipher):
+    def __init__(self, direction: Direction):
+        self._max_overhead = 0
+        self._block_size = 1
+
+        if direction == Direction.WRITE:
+            self.seal = self._encrypt_raw
+        else:
+            self.open = self._decrypt_raw
+
+    def ciphertext_length(self, plaintext_length: int) -> int:
+        return plaintext_length
+
+    def _encrypt_raw(
+        self,
+        content_type: int,
+        record_version: int,
+        plaintext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        if len(out) < len(plaintext) + self._max_overhead:
+            raise ValueError("out buffer too small")
+
+        out[0 : len(plaintext)] = plaintext
+        return len(plaintext)
+
+    def _decrypt_raw(
+        self,
+        content_type: int,
+        record_version: int,
+        ciphertext: Buffer,
+        seq_num: int,
+        header: bytes,
+        out: WritableBuffer,
+    ) -> int:
+        if len(out) < len(ciphertext):
+            raise ValueError("out buffer too small")
+
+        out[0 : len(ciphertext)] = ciphertext
+        return len(ciphertext)
+
+
+# Internal
+
+
+@dataclass(frozen=True)
+class _Cipher:
+    key_length: int
+    iv_length: int
+    cipher_factory: typing.Callable[[bytes, bytes], Cipher | None]
+
+    def create(self, key: bytes, iv: bytes) -> Cipher | None:
+        return self.cipher_factory(key, iv)
+
+
+_CIPHERS = {
+    Symmetric.AES_128_CBC: _Cipher(
+        key_length=16,
+        iv_length=16,
+        cipher_factory=lambda key, iv: Cipher(AES(key), CBC(iv)),
+    ),
+    Symmetric.AES_256_CBC: _Cipher(
+        key_length=32,
+        iv_length=16,
+        cipher_factory=lambda key, iv: Cipher(AES(key), CBC(iv)),
+    ),
+    Symmetric.RC4_128: _Cipher(
+        key_length=16,
+        iv_length=0,
+        cipher_factory=lambda key, iv: Cipher(ARC4(key), None),
+    ),
+    Symmetric.TRIPLE_DES_EDE_CBC: _Cipher(
+        key_length=24,
+        iv_length=8,
+        cipher_factory=lambda key, iv: Cipher(TripleDES(key), CBC(iv)),
+    ),
+    Symmetric.NULL: _Cipher(
+        key_length=0,
+        iv_length=0,
+        cipher_factory=lambda key, iv: None,
+    ),
+}
+
+
+@dataclass(frozen=True)
+class _AEADCipher:
+    key_length: int
+    iv_length: int
+    tag_length: int
+    cipher_type: type[_AEADCipherType]
+
+    def create(self, key: bytes) -> _AEADCipherType:
+        if issubclass(self.cipher_type, aead.AESCCM):
+            return aead.AESCCM(key, self.tag_length)
+        else:
+            assert self.tag_length == 16
+            return self.cipher_type(key)
+
+
+_AEAD_CIPHERS = {
+    Symmetric.AES_256_GCM: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESGCM,
+    ),
+    Symmetric.AES_128_GCM: _AEADCipher(
+        key_length=16,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESGCM,
+    ),
+    Symmetric.AES_256_CCM_8: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=8,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.AES_128_CCM_8: _AEADCipher(
+        key_length=16,
+        iv_length=4,
+        tag_length=8,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.AES_256_CCM: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.AES_128_CCM: _AEADCipher(
+        key_length=16,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.AESCCM,
+    ),
+    Symmetric.CHACHA20_POLY1305: _AEADCipher(
+        key_length=32,
+        iv_length=12,
+        tag_length=16,
+        cipher_type=aead.ChaCha20Poly1305,
+    ),
+    Symmetric.CHACHA20_DRAFT_00: _AEADCipher(
+        key_length=32,
+        iv_length=4,
+        tag_length=16,
+        cipher_type=aead.ChaCha20Poly1305,
+    ),
+}

@@ -1,6 +1,7 @@
 import certifi
 import requests
 from requests.adapters import HTTPAdapter
+
 from simple_tls.pyssl import SSLContext, create_default_context
 
 URL = "https://tls.browserleaks.com/"

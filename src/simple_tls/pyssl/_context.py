@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import ssl as _ssl
 import sys
-import typing
 import warnings
+from collections.abc import Callable, Iterable, Sequence
 from socket import socket
+from typing import Any, ClassVar, Literal, overload
 
-from simple_tls import tls, x509
-from simple_tls.io import serialization
-from simple_tls.utils.math import str_to_bytes
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
-from ._cipher import parse_cipher_string
-from ._constant import (
+from simple_tls import tls
+from simple_tls.crypto import verification
+from simple_tls.crypto.utils import str_to_bytes
+
+from ._constants import (
     PROTOCOL_TLS,
     PROTOCOL_TLS_CLIENT,
     PROTOCOL_TLS_SERVER,
@@ -22,21 +25,23 @@ from ._constant import (
     VerifyMode,
 )
 from ._object import SSLObject
-from ._session import SSLSession
+from ._session import SSLSession, TicketAEAD
 from ._socket import SSLSocket
-from ._types import (
-    ExtensionsCbType,
+from ._utils import (
+    PasswordType,
     PeerCertRetDictType,
     PSKClientCbType,
     PSKServerCbType,
     ReadableBuffer,
     SrvnmeCbType,
     StrOrBytesPath,
+    get_cipher,
+    parse_certificate,
+    parse_cipher_string,
 )
-from ._util import parse_certificate
 
 
-class SSLContext:
+class SSLContext(_ssl.SSLContext):
     """
     An SSLContext holds various SSL-related configuration options and
     data, such as certificates and possibly a private key.
@@ -47,9 +52,23 @@ class SSLContext:
     sslsocket_class: type[SSLSocket] = SSLSocket
     sslobject_class: type[SSLObject] = SSLObject
 
-    def __init__(self, protocol: int = PROTOCOL_TLS):
-        self._context = tls.TLSContext()
-        self._options = (
+    def __init__(self, protocol: int = PROTOCOL_TLS_CLIENT) -> None:
+        if protocol == PROTOCOL_TLS_CLIENT:
+            verify_mode = VerifyMode.CERT_REQUIRED
+            check_hostname = True
+            ticket_aead = None
+        elif protocol == PROTOCOL_TLS_SERVER:
+            verify_mode = VerifyMode.CERT_NONE
+            check_hostname = False
+            ticket_aead = TicketAEAD()
+        elif protocol == PROTOCOL_TLS:
+            raise ValueError("PROTOCOL_TLS is unsupported.")
+        else:
+            raise ValueError(f"unsupported protocol {protocol}")
+
+        self._config: dict[str, Any] = {}
+        self._protocol = protocol
+        self._options: Options = (
             Options.OP_ENABLE_MIDDLEBOX_COMPAT
             | Options.OP_SINGLE_DH_USE
             | Options.OP_SINGLE_ECDH_USE
@@ -61,21 +80,17 @@ class SSLContext:
             | Options.OP_NO_TLSv1_1
         )
 
-        if protocol == PROTOCOL_TLS_CLIENT:
-            self.verify_mode = VerifyMode.CERT_REQUIRED
-            self.check_hostname = True
-        elif protocol == PROTOCOL_TLS_SERVER:
-            self.verify_mode = VerifyMode.CERT_NONE
-            self.check_hostname = False
-
-    def _set_options(self) -> None:
-        if self._options & Options.OP_NO_TICKET:
-            self._context.session_keys = None
-            self._context.session_storage = None
-
-        self._context.middlebox_compat = bool(
-            self._options & Options.OP_ENABLE_MIDDLEBOX_COMPAT
+        self._minimum_version: TLSVersion = _ssl.TLSVersion.MINIMUM_SUPPORTED
+        self._maximum_version: TLSVersion = _ssl.TLSVersion.MAXIMUM_SUPPORTED
+        self._cipher_suites: Sequence[tls.CipherSuite] = (
+            tls.TLSConfiguration.cipher_suites
         )
+        self._castore: verification.Store = verification.Store()
+        self._verify_mode: _ssl.VerifyMode = verify_mode
+        self._check_hostname: bool = check_hostname
+        self._post_handshake_auth: bool = False
+        self._ticket_aead: TicketAEAD | None = ticket_aead
+        self._sni_callback: SrvnmeCbType | None = None
 
     def wrap_socket(
         self,
@@ -83,10 +98,9 @@ class SSLContext:
         server_side: bool = False,
         do_handshake_on_connect: bool = True,
         suppress_ragged_eofs: bool = True,
-        server_hostname: bytes | str | None = None,
-        session: SSLSession | None = None,
+        server_hostname: str | bytes | None = None,
+        session: SSLSession | None = None,  # type: ignore
     ) -> SSLSocket:
-        self._set_options()
         return self.sslsocket_class._create(
             sock=sock,
             server_side=server_side,
@@ -102,10 +116,9 @@ class SSLContext:
         incoming: _ssl.MemoryBIO,
         outgoing: _ssl.MemoryBIO,
         server_side: bool = False,
-        server_hostname: str | None = None,
-        session: SSLSession | None = None,
+        server_hostname: str | bytes | None = None,
+        session: SSLSession | None = None,  # type: ignore
     ) -> SSLObject:
-        self._set_options()
         return self.sslobject_class._create(
             incoming,
             outgoing,
@@ -115,51 +128,47 @@ class SSLContext:
             context=self,
         )
 
-    def get_ciphers(self) -> list:
-        raise NotImplementedError
+    def get_ciphers(self) -> list[_ssl._Cipher]:
+        ciphers = []
+        for cipher_suite in self._cipher_suites:
+            cipher = get_cipher(cipher_suite)
+            if cipher is not None:
+                ciphers.append(cipher)
+        return ciphers
 
     def session_stats(self) -> dict[str, int]:
         raise NotImplementedError
 
     def set_ciphers(self, cipherlist: str) -> None:
-        cipher_suites = parse_cipher_string(cipherlist)
-        self._context.cipher_suites = cipher_suites
+        self._cipher_suites = parse_cipher_string(cipherlist)
 
-    def set_npn_protocols(self, npn_protocols: typing.Iterable[str]) -> None:
-        out = []
+    def set_npn_protocols(self, npn_protocols: Iterable[str]) -> None:
+        out: list[bytes] = []
         for protocol in npn_protocols:
             b = bytes(protocol, "ascii")
             if len(b) == 0 or len(b) > 255:
                 raise ValueError("NPN protocols must be 1 to 255 in length")
             out.append(b)
+        self._config["npn_protocols"] = out
 
-        self._context.npn_protocols = out
-
-    def set_alpn_protocols(self, alpn_protocols: typing.Iterable[str]) -> None:
-        out = []
+    def set_alpn_protocols(self, alpn_protocols: Iterable[str]) -> None:
+        out: list[bytes] = []
         for protocol in alpn_protocols:
             b = bytes(protocol, "ascii")
             if len(b) == 0 or len(b) > 255:
                 raise ValueError("NPN protocols must be 1 to 255 in length")
             out.append(b)
+        self._config["alpn_protocols"] = out
 
-        self._context.alpn_protocols = out
-
-    def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:
+    def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:  # type: ignore
         if callback is None:
-            self._context.sni_callback = None
-        else:
-            if not callable(callback):
-                raise TypeError("not a callable object")
+            self._sni_callback = None
+            return
 
-            def shim_cb(
-                _: tls.TLSConnection,
-                servername: str,
-                arg: typing.Any,
-            ) -> int | None:
-                return callback(arg, servername, self)
+        if not callable(callback):
+            raise TypeError("not a callable object")
 
-            self._context.sni_callback = shim_cb
+        self._sni_callback = callback
 
     def set_psk_client_callback(
         self, callback: PSKClientCbType | None
@@ -173,27 +182,22 @@ class SSLContext:
     ) -> None:
         raise NotImplementedError
 
-    def set_exts_order_callback(
-        self, callback: ExtensionsCbType | None
-    ) -> None:
-        if callback is not None and not callable(callback):
-            raise TypeError("Not a callback object")
-        self._context.extensions_order_cb = callback
+    _ECDH_CURVES: ClassVar[dict[str, int]] = {
+        "prime256v1": tls.NamedGroup.SECP256R1,
+        "secp256r1": tls.NamedGroup.SECP256R1,
+        "secp384r1": tls.NamedGroup.SECP384R1,
+        "x25519": tls.NamedGroup.X25519,
+        "x448": tls.NamedGroup.X448,
+        "x25519mlkem768": tls.NamedGroup.X25519MLKEM768,
+    }
 
     def set_ecdh_curve(self, curve: str) -> None:
-        lookup_map = {
-            "prime256v1": tls.NamedGroup.SECP256R1,
-            "secp384r1": tls.NamedGroup.SECP384R1,
-            "x25519": tls.NamedGroup.X25519,
-            "x448": tls.NamedGroup.X448,
-            "x25519mlkem768": tls.NamedGroup.X25519MLKEM768,
-        }
-        groups = []
+        groups: list[int] = []
         for c in curve.split(":"):
             if not c:
                 continue
             try:
-                group = lookup_map[c]
+                group = self._ECDH_CURVES[c]
             except KeyError:
                 raise ValueError(
                     f"Unknown elliptic curve name '{c}'"
@@ -204,14 +208,15 @@ class SSLContext:
         if not groups:
             raise ValueError(f"Unknown elliptic curve name '{curve}'")
 
-        self._context.supported_groups = groups
-        self._context.key_share_groups = groups[:2]
+        self._config["supported_groups"] = groups
 
-    def load_dh_params(self, path: str) -> None:
-        return self._context.load_dh_params(path)
+    def load_dh_params(self, path: StrOrBytesPath) -> None:
+        with open(path, "rb") as fp:
+            dh_parameters = tls.load_pem_parameters(fp.read())
+        self._config["dh_parameters"] = dh_parameters
 
-    def set_ech_configs(self, ech_config: bytes | None) -> None:
-        self._context.ech_configs = str_to_bytes(ech_config)
+    def set_ech_configs(self, ech_configs: ReadableBuffer | None) -> None:
+        self._config["ech_configs"] = ech_configs
 
     def _load_windows_store_certs(
         self, storename: str, purpose: Purpose
@@ -220,8 +225,6 @@ class SSLContext:
             return
 
         enum_certificates = _ssl.enum_certificates
-        certs = bytearray()
-
         try:
             for cert, encoding, trust in enum_certificates(storename):
                 # CA certs are never PKCS#7 encoded
@@ -229,21 +232,17 @@ class SSLContext:
                     if trust is False:
                         continue
                     if trust is True or purpose.oid in trust:
-                        certs.extend(cert)
-
+                        self.load_verify_locations(cadata=cert)
         except PermissionError:
             warnings.warn(
                 "unable to enumerate Windows certificate store",
                 stacklevel=2,
             )
 
-        if certs:
-            self.load_verify_locations(cadata=bytes(certs))
-
     def cert_store_stats(self) -> dict[str, int]:
         data = {"x509": 0, "crl": 0, "x509_ca": 0}
 
-        for c in self._context.castore:
+        for c in self._castore:
             data["x509"] += 1
 
             try:
@@ -258,36 +257,42 @@ class SSLContext:
 
         return data
 
-    @typing.overload
+    @overload
     def get_ca_certs(
-        self, binary_form: typing.Literal[False] = False
+        self, binary_form: Literal[False] = False
     ) -> list[PeerCertRetDictType]: ...
 
-    @typing.overload
-    def get_ca_certs(
-        self, binary_form: typing.Literal[True]
-    ) -> list[bytes]: ...
+    @overload
+    def get_ca_certs(self, binary_form: Literal[True]) -> list[bytes]: ...
 
-    @typing.overload
+    @overload
     def get_ca_certs(
         self, binary_form: bool = False
     ) -> list[PeerCertRetDictType] | list[bytes]: ...
 
-    def get_ca_certs(self, binary_form: bool = False) -> typing.Any:
-        ca_certs = self._context.get_ca_certs()
+    def get_ca_certs(
+        self, binary_form: bool = False
+    ) -> list[PeerCertRetDictType] | list[bytes]:
+        castore = self._castore
         if not binary_form:
-            return [parse_certificate(c) for c in ca_certs]
-        return [c.public_bytes(serialization.Encoding.DER) for c in ca_certs]
+            return [parse_certificate(c) for c in castore]
+        return [c.public_bytes(serialization.Encoding.DER) for c in castore]
 
     def load_cert_chain(
         self,
-        certfile: str | bytes,
-        keyfile: str | bytes | None = None,
-        password: str | bytes | None = None,
+        certfile: StrOrBytesPath,
+        keyfile: StrOrBytesPath | None = None,
+        password: PasswordType | None = None,
     ) -> None:
-        return self._context.load_cert_chain(
-            certfile=certfile, keyfile=keyfile, password=password
+        if callable(password):
+            password = password()
+
+        credential = tls.TLSCredential.from_certfile(
+            certfile=certfile,
+            keyfile=keyfile,
+            password=str_to_bytes(password),
         )
+        self._config["credential"] = credential
 
     def load_verify_locations(
         self,
@@ -295,11 +300,15 @@ class SSLContext:
         capath: StrOrBytesPath | None = None,
         cadata: str | ReadableBuffer | None = None,
     ) -> None:
-        self._context.load_verify_locations(
-            cafile=cafile,  # type: ignore
-            capath=capath,  # type: ignore
+        if isinstance(cadata, str):
+            cadata = cadata.encode("ascii")
+
+        castore = tls.load_castore(
+            cafile=cafile,
+            capath=capath,
             cadata=cadata,  # type: ignore
         )
+        self._castore.extend(castore)
 
     def load_default_certs(
         self, purpose: Purpose = Purpose.SERVER_AUTH
@@ -321,90 +330,28 @@ class SSLContext:
         else:
             self.load_verify_locations(cafile=certifi.where())
 
-    @staticmethod
-    def _get_version(
-        value: TLSVersion, default: tls.TLSVersion
-    ) -> tls.TLSVersion:
-        if value == TLSVersion.MAXIMUM_SUPPORTED:
-            return tls.TLSVersion.TLSv1_3
-        elif value == TLSVersion.MINIMUM_SUPPORTED:
-            return tls.TLSVersion.TLSv1
-        try:
-            return tls.TLSVersion(value)
-        except ValueError:
-            return default
-
-    @property
+    @property  # type: ignore
     def minimum_version(self) -> TLSVersion:
-        return TLSVersion(self._context.minimum_version)
+        return self._minimum_version
 
     @minimum_version.setter
     def minimum_version(self, value: TLSVersion) -> None:
-        ver = self._get_version(value, tls.TLSVersion.TLSv1)
-        if value > self._context.maximum_version:
-            self._context.maximum_version = ver
-        self._context.minimum_version = ver
+        self._minimum_version = TLSVersion(value)
 
-    @property
+    @property  # type: ignore
     def maximum_version(self) -> TLSVersion:
-        return TLSVersion(self._context.maximum_version)
+        return self._maximum_version
 
     @maximum_version.setter
     def maximum_version(self, value: TLSVersion) -> None:
-        ver = self._get_version(value, tls.TLSVersion.TLSv1_3)
-        if value < self._context.minimum_version:
-            self._context.minimum_version = ver
-        self._context.maximum_version = ver
+        self._maximum_version = TLSVersion(value)
 
-    @property
-    def application_settings(self) -> bool:
-        return b"h2" in self._context.alps
-
-    @application_settings.setter
-    def application_settings(self, value: bool) -> None:
-        if value:
-            self._context.alps[b"h2"] = b""
-        else:
-            self._context.alps.clear()
-
-    @property
-    def grease(self) -> bool:
-        return self._context.grease
-
-    @grease.setter
-    def grease(self, value: bool) -> None:
-        self._context.grease = value
-
-    @property
-    def grease_ech(self) -> bool:
-        return self._context.grease_ech
-
-    @grease_ech.setter
-    def grease_ech(self, value: bool) -> None:
-        self._context.grease_ech = value
-
-    @property
-    def client_hello_padding(self) -> bool:
-        return self._context.client_hello_padding
-
-    @client_hello_padding.setter
-    def client_hello_padding(self, value: bool) -> None:
-        self._context.client_hello_padding = value
-
-    @property
-    def encrypt_then_mac(self) -> bool:
-        return self._context.encrypt_then_mac
-
-    @encrypt_then_mac.setter
-    def encrypt_then_mac(self, value: bool) -> None:
-        self._context.encrypt_then_mac = value
-
-    @property
+    @property  # type: ignore
     def options(self) -> Options:
         return self._options
 
     @options.setter
-    def options(self, value: Options | int) -> None:
+    def options(self, value: Options) -> None:
         try:
             value = Options(value)
         except ValueError:
@@ -413,37 +360,41 @@ class SSLContext:
 
     @property
     def check_hostname(self) -> bool:
-        return self._context.check_hostname
+        return self._check_hostname
 
     @check_hostname.setter
     def check_hostname(self, value: bool) -> None:
-        self._context.check_hostname = value
+        self._check_hostname = value
 
     @property
     def hostname_checks_common_name(self) -> bool:
         return True
 
-    @property
-    def post_handshake_auth(self) -> bool:
-        return self._context.post_handshake_auth
-
-    @post_handshake_auth.setter
-    def post_handshake_auth(self, value: bool) -> None:
-        self._context.post_handshake_auth = value
-
-    @property
-    def _msg_callback(self) -> typing.Callable | None:
-        return None
-
-    @_msg_callback.setter
-    def _msg_callback(self, callback: typing.Callable | None) -> None:
+    @hostname_checks_common_name.setter
+    def hostname_checks_common_name(self, value: bool) -> None:
         raise NotImplementedError
 
     @property
-    def protocol(self) -> _ssl._SSLMethod:
-        return _ssl._SSLMethod(self.protocol)
+    def post_handshake_auth(self) -> bool:
+        return self._post_handshake_auth
+
+    @post_handshake_auth.setter
+    def post_handshake_auth(self, value: bool) -> None:
+        self._post_handshake_auth = value
 
     @property
+    def _msg_callback(self) -> Callable | None:
+        return None
+
+    @_msg_callback.setter
+    def _msg_callback(self, callback: Callable | None) -> None:
+        raise NotImplementedError
+
+    @property
+    def protocol(self) -> _ssl._SSLMethod:  # type: ignore
+        return _ssl._SSLMethod(self._protocol)
+
+    @property  # type: ignore
     def verify_flags(self) -> VerifyFlags:
         return VerifyFlags.VERIFY_DEFAULT
 
@@ -451,23 +402,51 @@ class SSLContext:
     def verify_flags(self, value: VerifyFlags) -> None:
         raise NotImplementedError
 
-    @property
+    @property  # type: ignore
     def verify_mode(self) -> VerifyMode:
-        value = self._context.verify_mode
-        if value == tls.TLSVerifyMode.CERT_NONE:
-            return VerifyMode.CERT_NONE
-        elif value == tls.TLSVerifyMode.CERT_OPTIONAL:
-            return VerifyMode.CERT_OPTIONAL
-        else:
-            return VerifyMode.CERT_REQUIRED
+        return self._verify_mode
 
     @verify_mode.setter
     def verify_mode(self, value: VerifyMode) -> None:
-        if value == VerifyMode.CERT_NONE:
-            self._context.verify_mode = tls.TLSVerifyMode.CERT_NONE
-        elif value == VerifyMode.CERT_OPTIONAL:
-            self._context.verify_mode = tls.TLSVerifyMode.CERT_OPTIONAL
-        elif value == VerifyMode.CERT_REQUIRED:
-            self._context.verify_mode = tls.TLSVerifyMode.CERT_REQUIRED
+        self._verify_mode = value
+
+    @staticmethod
+    def _get_version(value: TLSVersion) -> tls.TLSVersion | None:
+        if value == TLSVersion.MAXIMUM_SUPPORTED:
+            return tls.TLSVersion.TLSv1_3
+        elif value == TLSVersion.MINIMUM_SUPPORTED:
+            return tls.TLSVersion.TLSv1
+        try:
+            return tls.TLSVersion(value)
+        except ValueError:
+            return None
+
+    def _config_data(self) -> dict[str, Any]:
+        config = self._config.copy()
+
+        minimum_version = self._get_version(self._minimum_version)
+        if minimum_version is not None:
+            config["minimum_version"] = minimum_version
+
+        maximum_version = self._get_version(self._maximum_version)
+        if maximum_version is not None:
+            config["maximum_version"] = maximum_version
+
+        if self._verify_mode == VerifyMode.CERT_NONE:
+            config["verify_mode"] = tls.VerifyMode.CERT_NONE
+        elif self._verify_mode == VerifyMode.CERT_OPTIONAL:
+            config["verify_mode"] = tls.VerifyMode.CERT_OPTIONAL
+        elif self._verify_mode == VerifyMode.CERT_REQUIRED:
+            config["verify_mode"] = tls.VerifyMode.CERT_REQUIRED
         else:
-            raise ValueError(f"Unsupported verify_mode '{value}'")
+            raise ValueError(f"Unsupported verify_mode '{self._verify_mode}'")
+
+        if not (self.options & Options.OP_NO_TICKET):
+            config["ticket_aead"] = self._ticket_aead
+
+        config["cipher_suites"] = self._cipher_suites
+        config["castore"] = self._castore
+        config["check_hostname"] = self._check_hostname
+        config["post_handshake_auth"] = self._post_handshake_auth
+
+        return config

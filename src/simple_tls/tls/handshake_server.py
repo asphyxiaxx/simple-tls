@@ -1,0 +1,1948 @@
+# Copyright (c) 2026 The simple-tls Contributors
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+from __future__ import annotations
+
+import typing
+from dataclasses import dataclass
+
+from cryptography.x509.oid import PublicKeyAlgorithmOID
+
+from simple_tls.codec import Parser, Writer
+from simple_tls.crypto.constant_time import compare_digest
+from simple_tls.crypto.utils import (
+    bytes_to_int,
+    get_random_bytes,
+    int_to_bytes,
+)
+
+from .alerts import (
+    Alert,
+    AlertDecodeError,
+    AlertDecryptError,
+    AlertHandshakeFailure,
+    AlertIllegalParameter,
+    AlertInappropriateFallback,
+    AlertInternalError,
+    AlertMissingExtension,
+    AlertProtocolVersion,
+    AlertUnexpectedMessage,
+    AlertUnsupportedExtension,
+)
+from .configuration import TLSConfiguration, TLSCredential
+from .constants import (
+    CERTIFICATE_COMPRESSIONS,
+    DSA_SIGNATURE_ALGORITHMS,
+    ECC_GROUPS,
+    ECDSA_SIGNATURE_ALGORITHMS,
+    EDDSA_SIGNATURE_ALGORITHMS,
+    FFDHE_GROUPS,
+    KEM_GROUPS,
+    RSA_SIGNATURE_ALGORITHMS,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
+    TLS11_DOWNGRADE_SENTINEL,
+    TLS12_DOWNGRADE_SENTINEL,
+    TLS13_HRR_SENTINEL,
+    TLS13_SERVER_CONTEXT_STRING,
+    AlertDescription,
+    Authentication,
+    CipherSuite,
+    ClientCertificateType,
+    Compression,
+    ECCurveType,
+    ECPointFormat,
+    ExtensionType,
+    HandshakeType,
+    KeyExchange,
+    KeyUpdateMessageType,
+    PSKKeyExchangeMode,
+    Symmetric,
+    TLSVersion,
+)
+from .enums import Direction, Epoch, ServerState, Status, VerifyMode
+from .extensions import (
+    ALPNClientExtension,
+    ALPNServerExtension,
+    ALPSClientExtension,
+    ALPSExtension,
+    CompressedCertificateExtension,
+    CookieExtension,
+    EarlyDataExtension,
+    EarlyDataServerExtension,
+    ECPointFormatsExtension,
+    EncryptThenMacExtension,
+    ExtendedMasterSecretExtension,
+    Extension,
+    ExtensionSource,
+    KeyShareClientExtension,
+    KeyShareEntry,
+    KeyShareHRRExtension,
+    KeyShareServerExtension,
+    NPNClientExtension,
+    NPNServerExtension,
+    PostHandshakeAuthExtension,
+    PSKClientExtension,
+    PSKKeyExchangeModesExtension,
+    PSKServerExtension,
+    RenegotiationInfoExtension,
+    SessionTicketExtension,
+    SignatureAlgorithmsExtension,
+    SNIClientExtension,
+    SupportedGroupsClientExtension,
+    SupportedVersionsClientExtension,
+    SupportedVersionServerExtension,
+)
+from .handshake import Handshake, TLSHandshake
+from .key import RSAPrivateKey, load_certificate_public_key
+from .keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
+from .messages import (
+    CertificateRequest,
+    CertificateRequestTLS12,
+    CertificateRequestTLS13,
+    CertificateVerify,
+    CertificateVerifyTLS12,
+    ClientHello,
+    ClientKeyExchange,
+    EncryptedExtensions,
+    EndOfEarlyData,
+    Finished,
+    KeyUpdate,
+    NewSessionTicket,
+    NewSessionTicketTLS13,
+    NextProtocol,
+    ServerHello,
+    ServerHelloDone,
+    ServerKeyExchange,
+)
+from .session import TLSSession
+from .utils import KeySchedule, filter, negotiate
+
+SNICallback = typing.Callable[["ClientHelloInfo", "HandshakeContext"], None]
+
+
+@dataclass(frozen=True)
+class ClientHelloInfo:
+    """Details extracted from the client's ClientHello message."""
+
+    server_name: bytes | None
+    cipher_suites: typing.Sequence[int]
+
+
+@dataclass
+class HandshakeContext:
+    """Mutable interface for configuring handshake settings per SNI."""
+
+    credential: TLSCredential | None
+    """Set the certificate and private key for this connection."""
+
+    verify_mode: VerifyMode
+    """Override client certificate verification"""
+
+    alert_description: int | None = None
+    """"""
+
+
+class TLSHandshakeServer(TLSHandshake):
+    is_server = True
+
+    def __init__(self, configuration: TLSConfiguration) -> None:
+        self.sni_callback: SNICallback | None = None
+
+        ## Initialization
+        super().__init__(configuration)
+
+        ## Dispatch function
+        # ruff: disable[E501]
+        self._handle_dispatch = {
+            ServerState.START_ACCEPT: self._do_start_accept,
+            ServerState.READ_CLIENT_HELLO: self._do_read_client_hello,
+            ServerState.SELECT_PARAMETERS: self._do_select_parameters,
+            ServerState.SEND_SERVER_HELLO: self._do_send_server_hello,
+            ServerState.SEND_SERVER_CERTIFICATE: self._do_send_server_certificate,
+            ServerState.SEND_SERVER_KEY_EXCHANGE: self._do_send_server_key_exchange,
+            ServerState.SEND_SERVER_HELLO_DONE: self._do_send_server_hello_done,
+            ServerState.READ_CLIENT_CERTIFICATE: self._do_read_client_certificate,
+            ServerState.VERIFY_CLIENT_CERTIFICATE: self._do_verify_client_certificate,
+            ServerState.READ_CLIENT_KEY_EXCHANGE: self._do_read_client_key_exchange,
+            ServerState.READ_CLIENT_CERTIFICATE_VERIFY: self._do_read_client_certificate_verify,
+            ServerState.READ_CHANGE_CIPHER_SPEC: self._do_read_change_cipher_spec,
+            ServerState.PROCESS_CHANGE_CIPHER_SPEC: self._do_process_change_cipher_spec,
+            ServerState.READ_NEXT_PROTO: self._do_read_next_proto,
+            ServerState.READ_CLIENT_FINISHED: self._do_read_client_finished,
+            ServerState.SEND_SESSION_TICKET: self._do_send_session_ticket,
+            ServerState.SEND_CHANGE_CIPHER_SPEC: self._do_send_change_cipher_spec,
+            ServerState.SEND_SERVER_FINISHED: self._do_send_server_finished,
+            # TLSv1.3
+            ServerState.SELECT_PARAMETERS_TLS13: self._do_select_parameters_tls13,
+            ServerState.SEND_HELLO_RETRY_REQUEST_TLS13: self._do_send_hello_retry_request_tls13,
+            ServerState.HRR_COMPAT_CSS_TLS13: self._do_hrr_compat_ccs_tls13,
+            ServerState.READ_SECOND_CLIENT_HELLO_TLS13: self._do_read_second_client_hello_tls13,
+            ServerState.SEND_SERVER_HELLO_TLS13: self._do_send_server_hello_tls13,
+            ServerState.SERVER_HELLO_COMPAT_CSS_TLS13: self._do_server_hello_compat_ccs_tls13,
+            ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13: self._do_send_encrypted_extensions_tls13,
+            ServerState.SEND_SERVER_FINISHED_TLS13: self._do_send_server_finished_tls13,
+            ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13: self._do_read_second_client_flight_tls13,
+            ServerState.PROCESS_END_OF_EARLY_DATA_TLS13: self._do_process_end_of_early_data_tls13,
+            ServerState.READ_CLIENT_ENCRYPTED_EXTENSIONS_TLS13: self._do_read_client_encrypted_extensions_tls13,
+            ServerState.READ_CLIENT_CERTIFICATE_TLS13: self._do_read_client_certificate_tls13,
+            ServerState.READ_CLIENT_CERTIFICATE_VERIFY_TLS13: self._do_read_client_certificate_verify_tls13,
+            ServerState.READ_CLIENT_FINISHED_TLS13: self._do_read_client_finished_tls13,
+            ServerState.SEND_NEWSESSION_TICKET_TLS13: self._do_send_new_session_ticket_tls13,
+            # Finish handshake
+            ServerState.FINISHED_SERVER_HANDSHAKE: self._do_finish_server_handshake,
+            # Post handshake
+            ServerState.READ_POST_HANDSHAKE: self._do_read_post_handshake,
+            ServerState.PROCESS_UPDATE_TRAFFIC: self._do_process_update_traffic,
+            ServerState.COMPLETE_UPDATE_TRAFFIC: self._do_complete_update_traffic,
+        }
+        # ruff: enable[E501]
+
+        ## Configurations
+        # Cipher Suites
+        self._cipher_suites: tuple[CipherSuite, ...] = tuple(
+            configuration.cipher_suites
+        )
+
+        # Supported groups
+        self._supported_groups: tuple[int, ...] = filter(
+            configuration.supported_groups,
+            SUPPORTED_GROUPS,
+            SUPPORTED_GROUPS,
+        )
+
+        # Signature algorithms
+        self._signature_algorithms: tuple[int, ...] = filter(
+            configuration.signature_algorithms,
+            SIGNATURE_ALGORITHMS,
+            SIGNATURE_ALGORITHMS,
+        )
+
+        # Certificate Compression Algorithm
+        self._certificate_compressions: tuple[int, ...] | None = filter(
+            configuration.certificate_compressions, CERTIFICATE_COMPRESSIONS
+        )
+
+        # EC point formats
+        self._ec_point_formats: tuple[int, ...] = (ECPointFormat.UNCOMPRESSED,)
+
+        # PSK Key Exchange Mode
+        self._psk_kex_modes: tuple[int, ...] = (PSKKeyExchangeMode.PSK_DHE_KE,)
+
+        # Encrypt Then Mac
+        self._enable_etm: bool = configuration.encrypt_then_mac
+
+        # Extended Master Secret
+        self._enable_ems: bool = configuration.extended_master_secret
+
+        # Post Handshake Authentication
+        self._enable_pha: bool = configuration.post_handshake_auth
+
+        # Early data
+        self._enable_early_data: bool = configuration.early_data
+
+        # Ticket max early data
+        self._ticket_max_early_data: int = configuration.max_early_data_size
+
+        # ALPN protocols
+        self._alpn_protocols: tuple[bytes, ...] | None = (
+            tuple(configuration.alpn_protocols)
+            if configuration.alpn_protocols
+            else None
+        )
+
+        # NPN Protocols
+        self._npn_protocols: tuple[bytes, ...] | None = (
+            tuple(configuration.npn_protocols)
+            if configuration.npn_protocols
+            else None
+        )
+
+        # Application Settings
+        self._alps: dict[bytes, bytes] = {}
+        if self._alpn_protocols is not None and configuration.alps is not None:
+            for protocol, settings in configuration.alps.items():
+                if protocol in self._alpn_protocols:
+                    self._alps[protocol] = settings
+
+        # Cookie for HRR
+        self._cookie: bytes | None = None
+
+        ## Temporary State
+        self._state = ServerState.START_ACCEPT
+        self._extensions_recv: set[int] = set()
+        self._npn_expected: bool = False
+        self._ticket_expected: bool = False
+        self._certificate_requested: bool = False
+
+        self._pre_shared_key: tuple[bytes, bytes] | None = None
+        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
+
+        # Peer item
+        self._peer_cipher_suites: tuple[int, ...] | None = None
+        self._peer_signature_algorithms: tuple[int, ...] | None = None
+        self._peer_supported_groups: tuple[int, ...] | None = None
+        self._peer_key: bytes | None = None
+
+        # Negotiated variable
+        self._psk_index: int | None = None
+        """PSK index selected"""
+        self._group_id: int | None = None
+        """gorup id (TLSv1)"""
+        self._group_id_tls13: int | None = None
+        """gorup id for key share (TLSv1.3)"""
+        self._signature_algorithm: int | None = None
+        """signature algorithm to be used with signing"""
+        self._post_handshake_auth: bool = False
+        """True when PHA negotiated"""
+        self._certificate_compression: int | None = None
+        """Certificate compression algorithm negotiated"""
+
+    @property
+    def done(self) -> bool:
+        return self._state == ServerState.DONE
+
+    @property
+    def peer_cipher_suites(self) -> tuple[int, ...] | None:
+        return self._peer_cipher_suites
+
+    def trigger_post_handshake(self) -> None:
+        if not self.done:
+            raise ValueError("handshake not complete")
+        self._set_state(ServerState.READ_POST_HANDSHAKE)
+
+    def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
+        if not self.done:
+            raise ValueError("KeyUpdate can only be sent after handshake done")
+
+        self._write_key_update(message_type)
+        self._set_state(ServerState.PROCESS_UPDATE_TRAFFIC)
+
+    def _do_start_accept(self) -> Status:
+        self._set_state(ServerState.READ_CLIENT_HELLO)
+        return Status.OK
+
+    def _do_read_client_hello(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        client_hello = message.parse_as(ClientHello)
+
+        # Server random
+        self._server_random = get_random_bytes(32)
+
+        # Update client random
+        self._client_random = client_hello.random
+
+        # Version
+        self._client_version = client_hello.version
+
+        if not TLSVersion.TLSv1 <= self._client_version <= TLSVersion.TLSv1_2:
+            raise AlertHandshakeFailure("Invalid version in ClientHello")
+
+        ext_map = client_hello.extension_map(ExtensionSource.CLIENT)
+
+        # Supported versions
+        supported_versions = range(
+            self._maximum_version, self._minimum_version - 1, -1
+        )
+        supported_version_ext = typing.cast(
+            SupportedVersionsClientExtension | None,
+            ext_map.get(ExtensionType.SUPPORTED_VERSIONS),
+        )
+        if supported_version_ext is not None:
+            if self._client_version != TLSVersion.TLSv1_2:
+                raise AlertIllegalParameter("Invalid version in ClientHello")
+            real_version = supported_version_ext.data
+        else:
+            real_version = [self._client_version]
+
+        version = negotiate(
+            supported_versions,
+            real_version,
+            AlertProtocolVersion("No supported version"),
+        )
+        self._version = version
+
+        if (
+            version < self._maximum_version
+            and CipherSuite.TLS_FALLBACK_SCSV in client_hello.cipher_suites
+        ):
+            raise AlertInappropriateFallback()
+
+        # Compression methods
+        if version >= TLSVersion.TLSv1_3:
+            if (
+                len(client_hello.compression_methods) != 1
+                and client_hello.compression_methods[0] != Compression.NULL
+            ):
+                raise AlertIllegalParameter("Invalid compression methods")
+
+        elif Compression.NULL not in client_hello.compression_methods:
+            raise AlertIllegalParameter("No supported compression method")
+
+        # Cipher suites
+        self._peer_cipher_suites = tuple(client_hello.cipher_suites)
+
+        # Signature algorithms
+        sigalgs_ext = typing.cast(
+            SignatureAlgorithmsExtension | None,
+            ext_map.get(ExtensionType.SIGNATURE_ALGORITHMS),
+        )
+        if sigalgs_ext is not None:
+            self._peer_signature_algorithms = tuple(sigalgs_ext.data)
+
+        # Supported groups
+        supported_groups_ext = typing.cast(
+            SupportedGroupsClientExtension | None,
+            ext_map.get(ExtensionType.SUPPORTED_GROUPS),
+        )
+        if supported_groups_ext is not None:
+            self._peer_supported_groups = tuple(supported_groups_ext.data)
+
+        # SNI
+        sni_ext = typing.cast(
+            SNIClientExtension | None, ext_map.get(ExtensionType.SERVER_NAME)
+        )
+        if sni_ext is not None:
+            self._hostname = sni_ext.hostname
+
+        if self.sni_callback is not None:
+            client_hello_info = ClientHelloInfo(
+                server_name=self._hostname,
+                cipher_suites=self._peer_cipher_suites,
+            )
+            handshake_context = HandshakeContext(
+                credential=self._credential,
+                verify_mode=self._verify_mode,
+            )
+            self.sni_callback(client_hello_info, handshake_context)
+
+            if handshake_context.alert_description is not None:
+                try:
+                    alert_description = AlertDescription(
+                        handshake_context.alert_description
+                    )
+                except ValueError:
+                    raise AlertInternalError()
+                raise Alert(alert_description)
+
+            # override current configuration
+            self._credential = handshake_context.credential
+            self._verify_mode = handshake_context.verify_mode
+
+        self._cipher_suite = self._negotiate_cipher_suite()
+        self._process_extensions(ext_map)
+
+        if version >= TLSVersion.TLSv1_3:
+            self._set_state(ServerState.SELECT_PARAMETERS_TLS13)
+        else:
+            self._set_state(ServerState.SELECT_PARAMETERS)
+        return Status.OK
+
+    def _do_select_parameters(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        assert self._cipher_suite is not None
+        client_hello = message.parse_as(ClientHello)
+        version = self.protocol_version()
+        cipher_suite = self._cipher_suite
+
+        if (
+            version == TLSVersion.TLSv1_2
+            and self._maximum_version >= TLSVersion.TLSv1_3
+        ):
+            self._server_random = (
+                self._server_random[:24] + TLS12_DOWNGRADE_SENTINEL
+            )
+        elif (
+            version <= TLSVersion.TLSv1_1
+            and self._maximum_version >= TLSVersion.TLSv1_2
+        ):
+            self._server_random = (
+                self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
+            )
+
+        if self._credential is not None:
+            x509_leaf = self._credential.x509_certificates[0]
+            try:
+                public_key = load_certificate_public_key(x509_leaf)
+            except ValueError as exc:
+                raise AlertInternalError(str(exc)) from exc
+
+            default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
+                version=version,
+                public_key=public_key,
+                public_key_oid=x509_leaf.public_key_algorithm_oid,
+                supported_sigalgs=self._signature_algorithms,
+            )
+
+            if (
+                version == TLSVersion.TLSv1_2
+                and self._peer_signature_algorithms is not None
+            ):
+                self._signature_algorithm = negotiate(
+                    supported_sigalgs,
+                    self._peer_signature_algorithms,
+                    AlertHandshakeFailure("No supported signature algorithm"),
+                )
+            else:
+                if default_sigalg is None:
+                    raise AlertHandshakeFailure("Unsupported certificate")
+                self._signature_algorithm = default_sigalg
+
+        elif cipher_suite.auth != Authentication.ANON:
+            raise AlertHandshakeFailure("credential not provided")
+
+        ticket_ext = client_hello.get_extension(SessionTicketExtension)
+
+        if ticket_ext is not None:
+            session = self._decrypt_session(ticket_ext.ticket)
+        else:
+            session = None
+
+        if session is not None:
+            if (
+                session.extended_master_secret
+                and not self._extended_master_secret
+            ):
+                raise AlertHandshakeFailure(
+                    "Resumed EMS session without EMS extenison"
+                )
+            elif (
+                self._extended_master_secret
+                and not session.extended_master_secret
+            ):
+                session = None
+
+        if session is not None:
+            assert session.secret
+            self._session_reused = True
+            self._ticket_expected = False
+            self._session_id = client_hello.session_id
+            self._derive_key(session.secret)
+        else:
+            self._session_reused = False
+            self._ticket_expected = (
+                ticket_ext is not None
+                and self._configuration.ticket_aead is not None
+            )
+            self._session_id = get_random_bytes(32)
+            session = self._get_new_session()
+            session.session_id = self._session_id
+            session.cipher_suite = cipher_suite
+            self._certificate_requested = (
+                self._configuration.verify_mode != VerifyMode.CERT_NONE
+                and cipher_suite.auth != Authentication.ANON
+            )
+
+        self._session = session
+
+        self.message_cb(Direction.READ, client_hello)
+        self._next_message()
+
+        self._set_state(ServerState.SEND_SERVER_HELLO)
+        return Status.OK
+
+    def _do_send_server_hello(self) -> Status:
+        assert self._cipher_suite is not None
+
+        extensions: list[Extension] = []
+
+        if self._secure_renegotiation:
+            extensions.append(RenegotiationInfoExtension(b""))
+
+        if self._extended_master_secret:
+            extensions.append(ExtendedMasterSecretExtension())
+
+        if self._encrypt_then_mac:
+            extensions.append(EncryptThenMacExtension())
+
+        if ExtensionType.EC_POINT_FORMATS in self._extensions_recv:
+            extensions.append(ECPointFormatsExtension(self._ec_point_formats))
+
+        if self._npn_expected:
+            assert self._npn_protocols is not None
+            extensions.append(NPNServerExtension(self._npn_protocols))
+
+        if self._ticket_expected:
+            extensions.append(SessionTicketExtension(b""))
+
+        if self._alpn_selected is not None:
+            assert not self._npn_expected
+            extensions.append(ALPNServerExtension(self._alpn_selected))
+
+        server_hello = ServerHello(
+            version=self.protocol_version(),
+            random=self._server_random,
+            session_id=self._session_id,
+            cipher_suite=self._cipher_suite.id,
+            compression_method=Compression.NULL,
+            extensions=self._serialize_extensions(extensions),
+        )
+
+        self.message_cb(Direction.WRITE, server_hello)
+        self._add_message(server_hello)
+
+        if self._session_reused:
+            self._set_state(ServerState.SEND_SESSION_TICKET)
+        else:
+            self._set_state(ServerState.SEND_SERVER_CERTIFICATE)
+        return Status.OK
+
+    def _do_send_server_certificate(self) -> Status:
+        assert self._cipher_suite is not None
+        if self._cipher_suite.auth == Authentication.ANON:
+            self._set_state(ServerState.SEND_SERVER_KEY_EXCHANGE)
+            return Status.OK
+
+        assert self._credential is not None
+        certificate = self._create_certificate(
+            self._credential.x509_certificates
+        )
+        self.message_cb(Direction.WRITE, certificate)
+        self._add_message(certificate)
+
+        self._set_state(ServerState.SEND_SERVER_KEY_EXCHANGE)
+        return Status.OK
+
+    def _do_send_server_key_exchange(self) -> Status:
+        assert self._cipher_suite is not None
+        cipher_suite = self._cipher_suite
+
+        if cipher_suite.kea == KeyExchange.RSA:
+            self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
+            return Status.OK
+
+        version = self.protocol_version()
+        writer = Writer()
+
+        if cipher_suite.kea == KeyExchange.ECDHE:
+            assert self._group_id is not None
+            self._key_exchange = ECDHKeyExchange(self._group_id)
+            key_share = self._key_exchange.generate_key_share()
+
+            writer.write_int(ECCurveType.NAMED_CURVE, 1)
+            writer.write_int(self._group_id, 2)
+            writer.write_prefixed_bytes(key_share, 1)
+
+        elif cipher_suite.kea == KeyExchange.DHE:
+            dh_params = self._configuration.dh_parameters
+            self._key_exchange = FFDHKeyExchange(parameters=dh_params)
+
+            writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.p), 2)
+            writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.g), 2)
+            writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.y), 2)
+
+        else:
+            raise AlertInternalError("Unsupported cipher suite selected")
+
+        if cipher_suite.auth != Authentication.ANON:
+            assert self._credential is not None
+            assert self._signature_algorithm is not None
+
+            private_key = self._credential.private_key
+            ske_data = writer.tobytes()
+            data = self._client_random + self._server_random + ske_data
+            signature = private_key.sign(data, self._signature_algorithm)
+
+            if version == TLSVersion.TLSv1_2:
+                writer.write_int(self._signature_algorithm, 2)
+            writer.write_prefixed_bytes(signature, 2)
+
+        ske = ServerKeyExchange(writer.tobytes())
+        self.message_cb(Direction.WRITE, ske)
+        self._add_message(ske)
+
+        self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
+        return Status.OK
+
+    def _do_send_server_hello_done(self) -> Status:
+        if self._certificate_requested:
+            cert_request: CertificateRequestTLS12 | CertificateRequest
+            cert_types: list[int] = []
+            cert_authorities: tuple[bytes, ...] = ()
+            supported_sigalgs = set(self._signature_algorithms)
+
+            if supported_sigalgs.intersection(RSA_SIGNATURE_ALGORITHMS):
+                cert_types.append(ClientCertificateType.RSA_SIGN)
+            if supported_sigalgs.intersection(DSA_SIGNATURE_ALGORITHMS):
+                cert_types.append(ClientCertificateType.DSS_SIGN)
+            if supported_sigalgs.intersection(
+                ECDSA_SIGNATURE_ALGORITHMS + EDDSA_SIGNATURE_ALGORITHMS
+            ):
+                cert_types.append(ClientCertificateType.ECDSA_SIGN)
+
+            if not cert_types:
+                raise AlertInternalError("No supported signature algorithms")
+
+            if self.protocol_version() == TLSVersion.TLSv1_2:
+                cert_request = CertificateRequestTLS12(
+                    certificate_types=cert_types,
+                    certificate_authorities=cert_authorities,
+                    signature_algorithms=self._signature_algorithms,
+                )
+            else:
+                cert_request = CertificateRequest(cert_types, cert_authorities)
+
+            self.message_cb(Direction.WRITE, cert_request)
+            self._add_message(cert_request)
+
+        server_hello_done = ServerHelloDone()
+        self.message_cb(Direction.WRITE, server_hello_done)
+        self._add_message(server_hello_done)
+
+        self._set_state(ServerState.READ_CLIENT_CERTIFICATE)
+        return Status.FLUSH_MESSAGE
+
+    def _do_read_client_certificate(self) -> Status:
+        if not self._certificate_requested:
+            self._set_state(ServerState.VERIFY_CLIENT_CERTIFICATE)
+            return Status.OK
+
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        assert self._session is not None
+        certificate = self._process_certificate(
+            message=message,
+            session=self._session,
+            allow_anon=(
+                self._configuration.verify_mode != VerifyMode.CERT_REQUIRED
+            ),
+        )
+        self.message_cb(Direction.READ, certificate)
+        self._next_message()
+
+        self._set_state(ServerState.VERIFY_CLIENT_CERTIFICATE)
+        return Status.OK
+
+    def _do_verify_client_certificate(self) -> Status:
+        assert self._session is not None
+        if self._session.x509_peer is not None:
+            self._verify_x509(self._session)
+
+        self._set_state(ServerState.READ_CLIENT_KEY_EXCHANGE)
+        return Status.OK
+
+    def _do_read_client_key_exchange(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        cke = message.parse_as(ClientKeyExchange)
+
+        assert self._cipher_suite is not None
+        assert self._session is not None
+        version = self.protocol_version()
+        cipher_suite = self._cipher_suite
+        parser = Parser(cke.data)
+
+        # Derive premaster secret
+        if cipher_suite.kea == KeyExchange.RSA:
+            assert cipher_suite.auth == Authentication.RSA
+            assert self._credential is not None
+
+            private_key = self._credential.private_key
+            if not isinstance(private_key, RSAPrivateKey):
+                raise AlertInternalError("Invalid key type")
+
+            enc_premaster_secret = parser.read_prefixed_bytes(2)
+            premaster_secret = private_key.decrypt(enc_premaster_secret)
+
+            if (
+                premaster_secret is None
+                or len(premaster_secret) != 48
+                or bytes_to_int(premaster_secret[0:2]) != version
+            ):
+                premaster_secret = get_random_bytes(48)
+
+        else:
+            assert self._key_exchange is not None
+
+            if cipher_suite.kea == KeyExchange.ECDHE:
+                peer_key = parser.read_prefixed_bytes(1)
+            elif cipher_suite.kea == KeyExchange.DHE:
+                peer_key = parser.read_prefixed_bytes(2)
+            else:
+                raise AlertInternalError("Unsupported cipher suite selected")
+
+            if not peer_key:
+                raise AlertDecodeError(
+                    "Empty key share in client key exchange"
+                )
+
+            premaster_secret = self._key_exchange.compute_shared_secret(
+                peer_key
+            )
+
+        if parser.remaining():
+            raise AlertDecodeError("Trailing data")
+
+        # Update hash since extended master secret required transcript
+        # until client key exchange
+        self.message_cb(Direction.READ, cke)
+        self._next_message()
+
+        if self._extended_master_secret:
+            label = b"extended master secret"
+            transcript = self._transcript
+        else:
+            label = b"master secret"
+            transcript = None
+
+        session = self._session
+        session.extended_master_secret = self._extended_master_secret
+        session.secret = self._derive_secret(
+            premaster_secret, label, transcript
+        )
+        self._derive_key(session.secret)
+
+        self._set_state(ServerState.READ_CLIENT_CERTIFICATE_VERIFY)
+        return Status.OK
+
+    def _do_read_client_certificate_verify(self) -> Status:
+        assert self._session is not None
+        if self._session.x509_peer is None:
+            self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
+            return Status.OK
+
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        cert_verify: CertificateVerifyTLS12 | CertificateVerify
+        if self.protocol_version() >= TLSVersion.TLSv1_2:
+            cert_verify = message.parse_as(CertificateVerifyTLS12)
+        else:
+            cert_verify = message.parse_as(CertificateVerify)
+
+        self._process_certificate_verify(
+            session=self._session,
+            cert_verify=cert_verify,
+            supported_sigalgs=self._signature_algorithms,
+        )
+
+        self.message_cb(Direction.READ, cert_verify)
+        self._next_message()
+
+        self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
+        return Status.OK
+
+    def _do_read_change_cipher_spec(self) -> Status:
+        self._set_state(ServerState.PROCESS_CHANGE_CIPHER_SPEC)
+        return Status.READ_CHANGE_CIPHER_SPEC
+
+    def _do_process_change_cipher_spec(self) -> Status:
+        self._setup_traffic(Direction.READ)
+        self._set_state(ServerState.READ_NEXT_PROTO)
+        return Status.OK
+
+    def _do_read_next_proto(self) -> Status:
+        if not self._npn_expected:
+            self._set_state(ServerState.READ_CLIENT_FINISHED)
+            return Status.OK
+
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        assert self._npn_protocols is not None
+
+        next_proto = message.parse_as(NextProtocol)
+        if next_proto.next_protocol not in self._npn_protocols:
+            raise AlertIllegalParameter("Unexpected next_proto selected")
+
+        self._npn_selected = next_proto.next_protocol
+
+        self.message_cb(Direction.READ, next_proto)
+        self._next_message()
+
+        self._set_state(ServerState.READ_CLIENT_FINISHED)
+        return Status.OK
+
+    def _do_read_client_finished(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        assert self._session is not None
+
+        finished = message.parse_as(Finished)
+        master_secret = self._session.secret
+        expected_verify_data = self._derive_finished_verify_data(
+            master_secret, b"client finished"
+        )
+        if not compare_digest(finished.verify_data, expected_verify_data):
+            raise AlertDecryptError("Incorect finished verify data")
+
+        self.message_cb(Direction.READ, finished)
+        self._next_message()
+
+        if self._session_reused:
+            self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
+        else:
+            self._set_state(ServerState.SEND_SESSION_TICKET)
+        return Status.OK
+
+    def _do_send_session_ticket(self) -> Status:
+        if self._ticket_expected:
+            assert self._session is not None
+            session = self._session
+            session.rebase_time()
+            ticket = self._encrypt_session(session)
+            if ticket:
+                ticket_lifetime = int(session.timeout.total_seconds())
+                new_session_ticket = NewSessionTicket(ticket_lifetime, ticket)
+                self.message_cb(Direction.WRITE, new_session_ticket)
+                self._add_message(new_session_ticket)
+
+        self._set_state(ServerState.SEND_CHANGE_CIPHER_SPEC)
+        return Status.PACK_FLIGHT
+
+    def _do_send_change_cipher_spec(self) -> Status:
+        self._set_state(ServerState.SEND_SERVER_FINISHED)
+        return Status.WRITE_CHANGE_CIPHER_SPEC
+
+    def _do_send_server_finished(self) -> Status:
+        self._setup_traffic(Direction.WRITE)
+
+        assert self._session is not None
+        master_secret = self._session.secret
+        verify_data = self._derive_finished_verify_data(
+            master_secret, b"server finished"
+        )
+        finished = Finished(verify_data)
+        self.message_cb(Direction.WRITE, finished)
+        self._add_message(finished)
+
+        if self._session_reused:
+            self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
+        else:
+            self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
+        return Status.FLUSH_MESSAGE
+
+    def _do_select_parameters_tls13(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        if self.has_unprocessed_data():
+            raise AlertUnexpectedMessage("Trailing handshake data")
+
+        client_hello = message.parse_as(ClientHello)
+
+        # Update session id
+        self._session_id = client_hello.session_id
+
+        assert self._cipher_suite is not None
+        cipher_suite = self._cipher_suite
+        session = None
+        key_schedule = None
+        psk_kex_mode = None
+
+        psk_ext = client_hello.get_extension(PSKClientExtension)
+        if psk_ext is not None:
+            psk_kex_modes_ext = client_hello.get_extension(
+                PSKKeyExchangeModesExtension
+            )
+            # RFC 8446, section 4.2.9
+            # servers MUST abort the handshake if the client send
+            # pre_shared_key without psk_key_exchange_modes.
+            if psk_kex_modes_ext is None:
+                raise AlertMissingExtension(
+                    "Missing pre shared key modes extension"
+                )
+
+            psk_kex_mode = negotiate(
+                self._psk_kex_modes, psk_kex_modes_ext.data
+            )
+            if psk_kex_mode is not None:
+                binders = psk_ext.binders
+                transcript = self._transcript.copy()
+                transcript.update_hash(
+                    self._get_client_hello_without_binders(message, psk_ext)
+                )
+
+                for index, psk_identity in enumerate(psk_ext.identities):
+                    identity = psk_identity.identity
+                    session = self._decrypt_session(identity)
+                    if session is None:
+                        continue
+
+                    key_schedule = KeySchedule(cipher_suite.prf_hash)
+                    key_schedule.extract(session.secret)
+                    binder_key = key_schedule.derive_secret(
+                        b"res binder", self._transcript
+                    )
+                    expected_binder = key_schedule.finished_verify_data(
+                        binder_key, transcript
+                    )
+                    if not compare_digest(binders[index], expected_binder):
+                        raise AlertDecryptError("binder verify failed")
+
+                    self._session_reused = True
+                    self._psk_index = index
+                    # Store in case of HRR
+                    self._pre_shared_key = (identity, binder_key)
+                    break
+
+        if self._session_reused:
+            assert session is not None
+            assert key_schedule is not None
+            new_session = session.copy()
+            new_session.renew_timeout()
+        else:
+            if self._credential is None:
+                raise AlertHandshakeFailure("credential not provided")
+
+            if self._peer_signature_algorithms is None:
+                raise AlertMissingExtension(
+                    "Missing signature algorithms extension"
+                )
+
+            x509_leaf = self._credential.x509_certificates[0]
+            try:
+                public_key = load_certificate_public_key(x509_leaf)
+            except ValueError as exc:
+                raise AlertInternalError(str(exc)) from exc
+
+            _, supported_sigalgs = self._sigalgs_for_pubkey(
+                version=self.protocol_version(),
+                public_key=public_key,
+                public_key_oid=x509_leaf.public_key_algorithm_oid,
+                supported_sigalgs=self._signature_algorithms,
+            )
+            self._signature_algorithm = negotiate(
+                supported_sigalgs,
+                self._peer_signature_algorithms,
+                AlertHandshakeFailure("No supported signature algorithm"),
+            )
+
+            new_session = self._get_new_session()
+            key_schedule = KeySchedule(cipher_suite.prf_hash)
+            key_schedule.extract(None)
+
+        hrr = False
+
+        if self._cookie is not None:
+            hrr = True
+
+        if (
+            not self._session_reused
+            or psk_kex_mode == PSKKeyExchangeMode.PSK_DHE_KE
+        ):
+            key_share_ext = client_hello.get_extension(KeyShareClientExtension)
+            if key_share_ext is None:
+                raise AlertMissingExtension("Missing key share extension")
+            if self._peer_supported_groups is None:
+                raise AlertMissingExtension(
+                    "Missing supported groups extension"
+                )
+
+            shared_key_shares = {
+                ks.group: ks.key_exchange for ks in key_share_ext.key_shares
+            }
+            if len(shared_key_shares) != len(key_share_ext.key_shares):
+                raise AlertIllegalParameter(
+                    "Duplicated group in key share extension"
+                )
+
+            for group in shared_key_shares:
+                if group not in self._peer_supported_groups:
+                    raise AlertIllegalParameter(
+                        "Invalid supported groups extension"
+                    )
+
+            # Check if prefered key share in client key share. If not,
+            # check if it is in client supported groups. If so, do a
+            # Hello Retry Request else select key share from ecc curves
+            # and dh groups
+            for key_share_group in self._supported_groups:
+                if key_share_group in shared_key_shares:
+                    self._group_id_tls13 = key_share_group
+                    self._peer_key = shared_key_shares[key_share_group]
+                    break
+                if key_share_group in self._peer_supported_groups:
+                    self._group_id_tls13 = key_share_group
+                    hrr = True
+                    break
+            else:
+                raise AlertHandshakeFailure("No supported key shares group")
+
+        new_session.cipher_suite = self._cipher_suite
+        new_session.early_alpn = self._alpn_selected
+
+        alps_ext = client_hello.get_extension(ALPSClientExtension)
+        if (
+            alps_ext is not None
+            and self._alpn_selected is not None
+            and self._alpn_selected in self._alps
+            and self._alpn_selected in alps_ext.protocols
+        ):
+            new_session.has_alps = True
+            new_session.local_alps = self._alps[self._alpn_selected]
+
+        self._session = new_session
+        self._key_schedule = key_schedule
+
+        # Early data key required update client hello hash
+        self.message_cb(Direction.READ, client_hello)
+        self._next_message()
+
+        if self._early_data_offered:
+            if psk_ext is None:
+                raise AlertIllegalParameter("Unexpected early data extension")
+
+            if self._session_reused:
+                assert session is not None
+                new_session.ticket_max_early_data = (
+                    session.ticket_max_early_data
+                )
+
+            if (
+                self._configuration.early_data
+                # RFC8446 Section 4.2.10
+                # early data MUST be the first PSK listed in the client's
+                # "pre_shared_key" extension
+                and self._psk_index == 0
+                and not hrr
+                and session is not None
+                and session.ticket_max_early_data > 0
+                and (self._alpn_selected == session.early_alpn)
+                and (
+                    session.has_alps == new_session.has_alps
+                    and session.local_alps == new_session.local_alps
+                )
+            ):
+                self._early_data_accepted = True
+
+                if new_session.has_alps:
+                    new_session.peer_alps = session.peer_alps
+
+                # Install the 0-RTT decryption key
+                self._derive_secret_tls13(
+                    direction=Direction.READ,
+                    epoch=Epoch.ZERO_RTT,
+                    label=b"c e traffic",
+                    transcript=self._transcript,
+                )
+
+            else:
+                self._early_data_accepted = False
+                self._skip_early_data = True
+
+        if hrr:
+            self._transcript.update_for_hello_retry_request(
+                cipher_suite.prf_hash
+            )
+            self._set_state(ServerState.SEND_HELLO_RETRY_REQUEST_TLS13)
+            return Status.OK
+
+        self._set_state(ServerState.SEND_SERVER_HELLO_TLS13)
+        return Status.OK
+
+    def _do_send_hello_retry_request_tls13(self) -> Status:
+        assert self._cipher_suite is not None
+        version = self.protocol_version()
+        cipher_suite = self._cipher_suite
+
+        extensions: list[Extension] = []
+
+        # Supported version extension
+        extensions.append(SupportedVersionServerExtension(version))
+
+        if self._cookie is not None:
+            extensions.append(CookieExtension(self._cookie))
+
+        # Selected key share group extension
+        if self._group_id_tls13 is not None:
+            extensions.append(KeyShareHRRExtension(self._group_id_tls13))
+
+        if not extensions:
+            # Currently still not support send cookie extension
+            raise AlertInternalError()
+
+        hrr = ServerHello(
+            version=TLSVersion.TLSv1_2,
+            random=TLS13_HRR_SENTINEL,
+            session_id=self._session_id,
+            cipher_suite=cipher_suite.id,
+            compression_method=Compression.NULL,
+            extensions=self._serialize_extensions(extensions),
+        )
+        self.message_cb(Direction.WRITE, hrr)
+        self._add_message(hrr)
+
+        self._hello_retry_request_used = True
+
+        self._set_state(ServerState.HRR_COMPAT_CSS_TLS13)
+        return Status.FLUSH_MESSAGE
+
+    def _do_hrr_compat_ccs_tls13(self) -> Status:
+        self._set_state(ServerState.READ_SECOND_CLIENT_HELLO_TLS13)
+        if self._configuration.middlebox_compat:
+            return Status.WRITE_CHANGE_CIPHER_SPEC
+        return Status.OK
+
+    def _do_read_second_client_hello_tls13(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        client_hello = message.parse_as(ClientHello)
+
+        if self.has_unprocessed_data():
+            raise AlertUnexpectedMessage("Trailing handshake data")
+
+        assert self._cipher_suite is not None
+        assert self._key_schedule is not None
+
+        supported_version_ext = client_hello.get_extension(
+            SupportedVersionsClientExtension
+        )
+        if (
+            client_hello.version != self._client_version
+            or supported_version_ext is None
+            or self.protocol_version() not in supported_version_ext.data
+        ):
+            raise AlertProtocolVersion()
+
+        if (
+            client_hello.random != self._client_random
+            or client_hello.session_id != self._session_id
+            or Compression.NULL not in client_hello.compression_methods
+            or self._cipher_suite not in client_hello.cipher_suites
+        ):
+            raise AlertIllegalParameter()
+
+        if self._group_id_tls13 is None and self._cookie is None:
+            raise AlertInternalError()
+
+        key_share_ext = client_hello.get_extension(KeyShareClientExtension)
+        if self._group_id_tls13 is not None:
+            selected_ks_group = self._group_id_tls13
+
+            if key_share_ext is None:
+                raise AlertMissingExtension("Missing key share extension")
+            if len(key_share_ext.key_shares) != 1:
+                raise AlertIllegalParameter()
+
+            key_share_entry = key_share_ext.key_shares[0]
+            if key_share_entry.group != selected_ks_group:
+                raise AlertIllegalParameter("Unexpected key share group")
+
+            self._peer_key = key_share_entry.key_exchange
+
+        cookie_ext = client_hello.get_extension(CookieExtension)
+        if self._cookie is not None:
+            if cookie_ext is None:
+                raise AlertMissingExtension("Missing cookie extension")
+            if cookie_ext.data != self._cookie:
+                raise AlertIllegalParameter("Malformed CookieExtension")
+        elif cookie_ext is not None:
+            raise AlertIllegalParameter("Unexpected cookie extension")
+
+        psk_ext = client_hello.get_extension(PSKClientExtension)
+        if self._psk_index is not None:
+            assert self._pre_shared_key is not None
+
+            if psk_ext is None:
+                raise AlertIllegalParameter("Inconsistent client hello")
+
+            binders = psk_ext.binders
+            transcript = self._transcript.copy()
+            transcript.update_hash(
+                self._get_client_hello_without_binders(message, psk_ext)
+            )
+
+            for i, psk_identity in enumerate(psk_ext.identities):
+                if psk_identity.identity != self._pre_shared_key[0]:
+                    continue
+
+                expected_binder = self._key_schedule.finished_verify_data(
+                    self._pre_shared_key[1], transcript
+                )
+                if not compare_digest(binders[i], expected_binder):
+                    raise AlertDecryptError("binder verify failed")
+
+                self._psk_index = i
+                break
+
+            else:
+                raise AlertDecryptError("Missing expected psk identity")
+
+        self._next_message()
+        self.message_cb(Direction.READ, client_hello)
+
+        self._set_state(ServerState.SEND_SERVER_HELLO_TLS13)
+        return Status.OK
+
+    def _do_send_server_hello_tls13(self) -> Status:
+        assert self._cipher_suite is not None
+        assert self._key_schedule is not None
+        assert self._session is not None
+        assert self._key_schedule.generation == 1
+
+        extensions: list[Extension] = []
+
+        # Server supported version extension
+        extensions.append(
+            SupportedVersionServerExtension(self.protocol_version())
+        )
+
+        if self._psk_index is not None:
+            extensions.append(PSKServerExtension(self._psk_index))
+
+        if self._group_id_tls13 is not None:
+            assert self._peer_key is not None
+
+            kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
+            ks_group = self._group_id_tls13
+            if ks_group in ECC_GROUPS:
+                kex = ECDHKeyExchange(ks_group)
+            elif ks_group in FFDHE_GROUPS:
+                kex = FFDHKeyExchange(ks_group)
+            elif ks_group in KEM_GROUPS:
+                kex = KEMKeyExchange(ks_group)
+            else:
+                raise AlertInternalError("Unsupported group selected")
+
+            key_share, shared_secret = kex.generate_and_compute(self._peer_key)
+            key_share_entry = KeyShareEntry(ks_group, key_share)
+            extensions.append(KeyShareServerExtension(key_share_entry))
+            self._key_schedule.extract(shared_secret)
+        else:
+            self._key_schedule.extract(None)
+
+        server_hello = ServerHello(
+            version=TLSVersion.TLSv1_2,
+            random=self._server_random,
+            session_id=self._session_id,
+            cipher_suite=self._cipher_suite.id,
+            compression_method=Compression.NULL,
+            extensions=self._serialize_extensions(extensions),
+        )
+        self.message_cb(Direction.WRITE, server_hello)
+        self._add_message(server_hello)
+
+        self._derive_secret_tls13(
+            direction=Direction.WRITE,
+            epoch=Epoch.HANDSHAKE,
+            label=b"s hs traffic",
+            transcript=self._transcript,
+        )
+        self._derive_secret_tls13(
+            direction=Direction.READ,
+            epoch=Epoch.HANDSHAKE,
+            label=b"c hs traffic",
+            transcript=self._transcript,
+        )
+
+        self._set_state(ServerState.SERVER_HELLO_COMPAT_CSS_TLS13)
+        return Status.PACK_FLIGHT
+
+    def _do_server_hello_compat_ccs_tls13(self) -> Status:
+        self._set_state(ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13)
+        if (
+            self._configuration.middlebox_compat
+            and not self._hello_retry_request_used
+        ):
+            return Status.WRITE_CHANGE_CIPHER_SPEC
+        return Status.OK
+
+    def _do_send_encrypted_extensions_tls13(self) -> Status:
+        assert self._key_schedule is not None
+        assert self._session is not None
+
+        self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
+
+        enc_extensions: list[Extension] = []
+
+        if self._early_data_accepted:
+            enc_extensions.append(EarlyDataServerExtension())
+
+        if self._alpn_selected is not None:
+            enc_extensions.append(ALPNServerExtension(self._alpn_selected))
+
+        if self._session.has_alps and not self._early_data_accepted:
+            enc_extensions.append(ALPSExtension(self._session.local_alps))
+
+        enc_ext = EncryptedExtensions(
+            self._serialize_extensions(enc_extensions)
+        )
+        self.message_cb(Direction.WRITE, enc_ext)
+        self._add_message(enc_ext)
+
+        if self._session_reused:
+            self._set_state(ServerState.SEND_SERVER_FINISHED_TLS13)
+            return Status.OK
+
+        if self._configuration.verify_mode != VerifyMode.CERT_NONE:
+            cert_extensions: list[Extension] = []
+
+            cert_extensions.append(
+                SignatureAlgorithmsExtension(self._signature_algorithms)
+            )
+
+            if self._certificate_compressions is not None:
+                cert_extensions.append(
+                    CompressedCertificateExtension(
+                        self._certificate_compressions
+                    )
+                )
+
+            cert_request = CertificateRequestTLS13(
+                context=b"",
+                extensions=self._serialize_extensions(cert_extensions),
+            )
+            self.message_cb(Direction.WRITE, cert_request)
+            self._add_message(cert_request)
+
+            self._certificate_requested = True
+
+        assert self._credential is not None
+        assert self._signature_algorithm is not None
+
+        certificate = self._create_certificate_tls13(
+            x509_certs=self._credential.x509_certificates,
+            compression=self._certificate_compression,
+        )
+        self.message_cb(Direction.WRITE, certificate)
+        self._add_message(certificate)
+
+        private_key = self._credential.private_key
+        data = self._key_schedule.certificate_verify_data(
+            TLS13_SERVER_CONTEXT_STRING, self._transcript
+        )
+        signature = private_key.sign(data, self._signature_algorithm)
+        cert_verify = CertificateVerifyTLS12(
+            signature, self._signature_algorithm
+        )
+        self.message_cb(Direction.WRITE, cert_verify)
+        self._add_message(cert_verify)
+
+        self._set_state(ServerState.SEND_SERVER_FINISHED_TLS13)
+        return Status.OK
+
+    def _do_send_server_finished_tls13(self) -> Status:
+        assert self._session is not None
+        assert self._key_schedule is not None
+        assert self._key_schedule.generation == 2
+
+        verify_data = self._key_schedule.finished_verify_data(
+            self._enc_secret[Epoch.HANDSHAKE], self._transcript
+        )
+        finished = Finished(verify_data)
+        self.message_cb(Direction.WRITE, finished)
+        self._add_message(finished)
+
+        self._key_schedule.extract(None)
+        self._derive_secret_tls13(
+            direction=Direction.WRITE,
+            epoch=Epoch.APPLICATION_DATA,
+            label=b"s ap traffic",
+            transcript=self._transcript,
+        )
+        self._derive_secret_tls13(
+            direction=Direction.READ,
+            epoch=Epoch.APPLICATION_DATA,
+            label=b"c ap traffic",
+            transcript=self._transcript,
+        )
+
+        self._set_state(ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13)
+        return Status.FLUSH_MESSAGE
+
+    def _do_read_second_client_flight_tls13(self) -> Status:
+        self._setup_traffic_tls13(Direction.WRITE, Epoch.APPLICATION_DATA)
+
+        if self._early_data_accepted:
+            self._setup_traffic_tls13(Direction.READ, Epoch.ZERO_RTT)
+            self._can_early_write = True
+            self._can_early_read = True
+            self._in_early_data = True
+
+            self._set_state(ServerState.PROCESS_END_OF_EARLY_DATA_TLS13)
+            return Status.READ_END_OF_EARLY_DATA
+
+        self._set_state(ServerState.PROCESS_END_OF_EARLY_DATA_TLS13)
+        return Status.OK
+
+    def _do_process_end_of_early_data_tls13(self) -> Status:
+        if self._early_data_accepted:
+            message = self._get_message()
+            if message is None:
+                return Status.READ_MESSAGE
+
+            end_of_early_data = message.parse_as(EndOfEarlyData)
+
+            if self.has_unprocessed_data():
+                raise AlertUnexpectedMessage("Trailing handshake data")
+
+            self._close_early_data()
+
+            self.message_cb(Direction.READ, end_of_early_data)
+            self._next_message()
+
+        self._setup_traffic_tls13(Direction.READ, Epoch.HANDSHAKE)
+
+        self._set_state(ServerState.READ_CLIENT_ENCRYPTED_EXTENSIONS_TLS13)
+        return Status.OK
+
+    def _do_read_client_encrypted_extensions_tls13(self) -> Status:
+        assert self._session is not None
+        if self._session.has_alps and not self._early_data_accepted:
+            message = self._get_message()
+            if message is None:
+                return Status.READ_MESSAGE
+
+            enc_ext = message.parse_as(EncryptedExtensions)
+            ext_map = enc_ext.extension_map(ExtensionSource.SERVER)
+            alps_ext = typing.cast(
+                ALPSExtension | None,
+                ext_map.pop(ExtensionType.APPLICATION_SETTINGS, None),
+            )
+            if alps_ext is None:
+                raise AlertMissingExtension("Missing ALPS extension")
+
+            self._session.peer_alps = alps_ext.settings
+
+            if ext_map:
+                raise AlertUnsupportedExtension("Unexpected extension")
+
+            self.message_cb(Direction.READ, enc_ext)
+            self._next_message()
+
+        self._set_state(ServerState.READ_CLIENT_CERTIFICATE_TLS13)
+        return Status.OK
+
+    def _do_read_client_certificate_tls13(self) -> Status:
+        if not self._certificate_requested:
+            self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
+            return Status.OK
+
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        assert self._session is not None
+        certificate = self._process_certificate_tls13(
+            message=message,
+            session=self._session,
+            supported_compressions=self._certificate_compressions,
+            allow_anon=(
+                self._configuration.verify_mode != VerifyMode.CERT_REQUIRED
+            ),
+        )
+        if (
+            self._session.x509_peer is not None
+            and self._configuration.verify_mode != VerifyMode.CERT_NONE
+        ):
+            self._verify_x509(self._session)
+
+        self.message_cb(Direction.READ, certificate)
+        self._next_message()
+
+        self._set_state(ServerState.READ_CLIENT_CERTIFICATE_VERIFY_TLS13)
+        return Status.OK
+
+    def _do_read_client_certificate_verify_tls13(self) -> Status:
+        assert self._session is not None
+        if self._session.x509_peer is None:
+            self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
+            return Status.OK
+
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        cert_verify = message.parse_as(CertificateVerifyTLS12)
+        self._process_certificate_verify(
+            session=self._session,
+            cert_verify=cert_verify,
+            supported_sigalgs=self._signature_algorithms,
+        )
+
+        self.message_cb(Direction.READ, cert_verify)
+        self._next_message()
+
+        self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
+        return Status.OK
+
+    def _do_read_client_finished_tls13(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            return Status.READ_MESSAGE
+
+        finished = message.parse_as(Finished)
+
+        if self.has_unprocessed_data():
+            raise AlertUnexpectedMessage("Trailing handshake data")
+
+        assert self._key_schedule is not None
+
+        verify_data = finished.verify_data
+        expected_verify_data = self._key_schedule.finished_verify_data(
+            self._dec_secret[Epoch.HANDSHAKE], self._transcript
+        )
+        if not compare_digest(verify_data, expected_verify_data):
+            raise AlertDecryptError("Server finished verify data mismatch")
+
+        self.message_cb(Direction.READ, finished)
+        self._next_message()
+
+        self._setup_traffic_tls13(Direction.READ, Epoch.APPLICATION_DATA)
+
+        self._set_state(ServerState.SEND_NEWSESSION_TICKET_TLS13)
+        return Status.OK
+
+    def _do_send_new_session_ticket_tls13(self) -> Status:
+        if self._configuration.ticket_aead is None:
+            self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
+            return Status.OK
+
+        assert self._key_schedule is not None
+        assert self._session is not None
+        assert self._key_schedule.generation == 3
+
+        # Resumption master secret
+        master_secret = self._key_schedule.derive_secret(
+            b"res master", self._transcript
+        )
+        session = self._session
+        session.rebase_time()
+
+        extensions: list[Extension] = []
+
+        if self._enable_early_data and self._ticket_max_early_data > 0:
+            extensions.append(EarlyDataExtension(self._ticket_max_early_data))
+            session.ticket_max_early_data = self._ticket_max_early_data
+
+        for i in range(2):
+            ticket_nonce = int_to_bytes(i, 1)
+
+            new_session = session.copy(include_noauth=True)
+            new_session.ticket = get_random_bytes(64)
+            new_session.ticket_age_add = bytes_to_int(get_random_bytes(4))
+            new_session.not_resumable = False
+            new_session.secret = self._key_schedule.resumption_secret(
+                master_secret, ticket_nonce
+            )
+
+            # Ticket
+            ticket = self._encrypt_session(new_session)
+            if ticket:
+                new_session_ticket = NewSessionTicketTLS13(
+                    ticket_lifetime=int(new_session.timeout.total_seconds()),
+                    ticket_age_add=new_session.ticket_age_add,
+                    ticket_nonce=ticket_nonce,
+                    ticket=ticket,
+                    extensions=self._serialize_extensions(extensions),
+                )
+                self.message_cb(Direction.WRITE, new_session_ticket)
+                self._add_message(new_session_ticket, update_hash=False)
+
+        self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
+        return Status.PACK_FLIGHT
+
+    def _do_finish_server_handshake(self) -> Status:
+        assert self._session is not None
+        if not self._session_reused:
+            self._session.not_resumable = False
+
+        self._session_establish = True
+
+        self._set_state(ServerState.DONE)
+        return Status.OK
+
+    def _do_read_post_handshake(self) -> Status:
+        message = self._get_message()
+        if message is None:
+            self._set_state(ServerState.DONE)
+            return Status.OK
+
+        if self.protocol_version() >= TLSVersion.TLSv1_3:
+            return self._post_handshake_tls13(message)
+        else:
+            return self._post_handshake(message)
+
+    def _do_process_update_traffic(self) -> Status:
+        self._set_state(ServerState.COMPLETE_UPDATE_TRAFFIC)
+        return Status.PACK_FLIGHT
+
+    def _do_complete_update_traffic(self) -> Status:
+        self._derive_upd_secret_tls13(Direction.WRITE)
+        self._set_state(ServerState.DONE)
+        return Status.OK
+
+    def _post_handshake(self, message: Handshake) -> Status:
+        raise AlertUnexpectedMessage()
+
+    def _post_handshake_tls13(self, message: Handshake) -> Status:
+        if message.handshake_type == HandshakeType.KEY_UPDATE:
+            key_update = message.parse_as(KeyUpdate)
+
+            if self.has_unprocessed_data():
+                raise AlertUnexpectedMessage("Trailing handshake data")
+
+            message_type = key_update.message_type
+            if message_type not in (
+                KeyUpdateMessageType.UPDATE_NOT_REQUESTED,
+                KeyUpdateMessageType.UPDATE_REQUESTED,
+            ):
+                raise AlertIllegalParameter("Unknown key update message type")
+
+            self.message_cb(Direction.READ, key_update)
+            self._next_message(update_hash=False)
+
+            self._derive_upd_secret_tls13(Direction.READ)
+
+            if message_type == KeyUpdateMessageType.UPDATE_REQUESTED:
+                self._write_key_update(
+                    KeyUpdateMessageType.UPDATE_NOT_REQUESTED
+                )
+
+                self._set_state(ServerState.COMPLETE_UPDATE_TRAFFIC)
+                return Status.PACK_FLIGHT
+
+            return Status.OK
+
+        raise AlertUnexpectedMessage()
+
+    def _get_client_hello_without_binders(
+        self,
+        message: Handshake,
+        psk_ext: PSKClientExtension,
+    ) -> bytes:
+        assert message.handshake_type == HandshakeType.CLIENT_HELLO
+        handshake_data = message.tobytes()
+        binders = psk_ext.binders
+        total_binders_length = sum(1 + len(binder) for binder in binders)
+        total_length = 2 + total_binders_length
+        return handshake_data[:-total_length]
+
+    def _negotiate_cipher_suite(self) -> CipherSuite:
+        assert self._peer_cipher_suites is not None
+        version = self.protocol_version()
+        supported_cipher_suites = self._cipher_suites
+        peer_cipher_suites = self._peer_cipher_suites
+        peer_supported_groups = self._peer_supported_groups
+
+        if self._credential is not None:
+            x509_leaf = self._credential.x509_certificates[0]
+            algorithm_oid = x509_leaf.public_key_algorithm_oid
+
+            if algorithm_oid in (
+                PublicKeyAlgorithmOID.RSASSA_PSS,
+                PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
+            ):
+                auth = Authentication.RSA
+
+            elif algorithm_oid == PublicKeyAlgorithmOID.DSA:
+                auth = Authentication.DSS
+
+            elif algorithm_oid == PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
+                auth = Authentication.ECDSA
+
+            elif version >= TLSVersion.TLSv1_2 and algorithm_oid in (
+                PublicKeyAlgorithmOID.ED25519,
+                PublicKeyAlgorithmOID.ED448,
+            ):
+                auth = Authentication.ECDSA
+
+            else:
+                raise AlertHandshakeFailure("Unsupported Certificate")
+
+        else:
+            auth = Authentication.ANON
+
+        kea = set((KeyExchange.RSA, KeyExchange.DHE))
+
+        group_id = negotiate(
+            (g for g in self._supported_groups if g in ECC_GROUPS),
+            peer_supported_groups,
+        )
+        if group_id is not None:
+            self._group_id = group_id
+            kea.add(KeyExchange.ECDHE)
+
+        for suite in supported_cipher_suites:
+            if not (suite.minimum_version <= version <= suite.maximum_version):
+                continue
+            if suite.id not in peer_cipher_suites:
+                continue
+            if version <= TLSVersion.TLSv1_2:
+                if suite.kea not in kea or suite.auth != auth:
+                    continue
+            return suite
+
+        raise AlertHandshakeFailure("No supported cipher suite")
+
+    def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
+        assert self._cipher_suite is not None
+        assert self._peer_cipher_suites is not None
+        version = self.protocol_version()
+        cipher_suite = self._cipher_suite
+
+        self._extensions_recv.update(ext_map)
+
+        # Renegotiation info extension
+        ri_ext = typing.cast(
+            RenegotiationInfoExtension | None,
+            ext_map.get(ExtensionType.RENEGOTIATION_INFO),
+        )
+        if ri_ext is not None:
+            if ri_ext.data:
+                raise AlertHandshakeFailure(
+                    "Invalid renegotiation info extension"
+                )
+            self._secure_renegotiation = True
+        elif (
+            CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV
+            in self._peer_cipher_suites
+        ):
+            self._secure_renegotiation = True
+
+        alpn_ext = typing.cast(
+            ALPNClientExtension | None, ext_map.get(ExtensionType.ALPN)
+        )
+        if self._alpn_protocols is not None and alpn_ext is not None:
+            self._alpn_selected = negotiate(
+                self._alpn_protocols,
+                alpn_ext.protocols,
+                AlertHandshakeFailure("No supported ALPN protocols"),
+            )
+
+        if version >= TLSVersion.TLSv1_3:
+            comp_cert_ext = typing.cast(
+                CompressedCertificateExtension | None,
+                ext_map.get(ExtensionType.COMPRESS_CERTIFICATE),
+            )
+            if (
+                self._certificate_compressions is not None
+                and comp_cert_ext is not None
+            ):
+                self._certificate_compression = negotiate(
+                    self._certificate_compressions, comp_cert_ext.data
+                )
+
+            pha_ext = typing.cast(
+                PostHandshakeAuthExtension | None,
+                ext_map.get(ExtensionType.POST_HANDSHAKE_AUTH),
+            )
+            if self._enable_pha and pha_ext is not None:
+                self._post_handshake_auth = True
+
+            early_data_ext = typing.cast(
+                EarlyDataExtension | None,
+                ext_map.get(ExtensionType.EARLY_DATA),
+            )
+            if early_data_ext is not None:
+                self._early_data_offered = True
+
+        else:
+            # Extended master secret extension
+            ems_ext = typing.cast(
+                ExtendedMasterSecretExtension | None,
+                ext_map.get(ExtensionType.EXTENDED_MAIN_SECRET),
+            )
+            if self._enable_ems is not None:
+                if ems_ext is not None:
+                    self._extended_master_secret = True
+
+            # Encrypt-then-mac extension
+            etm_ext = typing.cast(
+                EncryptThenMacExtension | None,
+                ext_map.get(ExtensionType.ENCRYPT_THEN_MAC),
+            )
+            is_block_cipher = cipher_suite.symmetric in (
+                Symmetric.AES_128_CBC,
+                Symmetric.AES_256_CBC,
+                Symmetric.TRIPLE_DES_EDE_CBC,
+            )
+            if self._enable_etm and is_block_cipher and etm_ext is not None:
+                self._encrypt_then_mac = True
+
+            # EC point formats extension
+            ecpfs_ext = typing.cast(
+                ECPointFormatsExtension | None,
+                ext_map.get(ExtensionType.EC_POINT_FORMATS),
+            )
+            if (
+                ecpfs_ext is not None
+                and ECPointFormat.UNCOMPRESSED not in ecpfs_ext.data
+            ):
+                raise AlertIllegalParameter(
+                    "Invalid EC point formats extension"
+                )
+
+            # NPN extension
+            npn_ext = typing.cast(
+                NPNClientExtension | None,
+                ext_map.get(ExtensionType.SUPPORTS_NPN),
+            )
+            if (
+                self._alpn_selected is None
+                and npn_ext is not None
+                and self._npn_protocols is not None
+            ):
+                self._npn_expected = True
+
+    def _decrypt_session(self, ticket: bytes) -> TLSSession | None:
+        ticket_aead = self._configuration.ticket_aead
+        if ticket_aead is None or not ticket:
+            return None
+
+        session = None
+        session_data = ticket_aead.open(ticket)
+
+        if session_data is not None:
+            session_data = bytes(session_data)
+            try:
+                session = TLSSession.from_bytes(session_data)
+            except Exception:
+                pass
+
+        if (
+            session is not None
+            and session.time_valid()
+            and session.is_server
+            and session.protocol_version() == self.protocol_version()
+            and session.cipher_suite == self._cipher_suite
+            and not session.not_resumable
+        ):
+            return session
+
+        return None
+
+    def _encrypt_session(self, session: TLSSession) -> bytes | None:
+        ticket_aead = self._configuration.ticket_aead
+        if ticket_aead is None:
+            return None
+
+        ticket = ticket_aead.seal(session.serialize())
+        if ticket is not None:
+            return bytes(ticket)
+        return None

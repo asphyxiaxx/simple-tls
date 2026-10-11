@@ -1,24 +1,29 @@
 import pytest
-from simple_tls.tls import (
-    DSA_SIGNATURE_ALGORITHMS,
-    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
-    SIGNATURE_ALGORITHMS,
-    Authentication,
-    KeyExchange,
+
+from simple_tls.tls.alerts import (
     AlertCertificateRequired,
     AlertDecryptError,
     AlertHandshakeFailure,
     AlertProtocolVersion,
+)
+from simple_tls.tls.configuration import TLSCredential
+from simple_tls.tls.constants import (
+    DSA_SIGNATURE_ALGORITHMS,
+    RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
+    SIGNATURE_ALGORITHMS,
+    Authentication,
     CipherSuite,
-    ClientState,
-    Epoch,
     KeyUpdateMessageType,
     NamedGroup,
-    ServerState,
     SignatureScheme,
-    TLSContext,
-    TLSVerifyMode,
     TLSVersion,
+)
+from simple_tls.tls.enums import (
+    ClientState,
+    Epoch,
+    ServerState,
+    Status,
+    VerifyMode,
 )
 
 from .utils import (
@@ -33,10 +38,92 @@ from .utils import (
     SERVER_ED25519_KEYFILE,
     SERVER_RSA_CERTFILE,
     SERVER_RSA_KEYFILE,
+    SessionHandler,
+    TicketAEAD,
     create_client,
     create_server,
-    run_handshake,
+    load_castore,
 )
+
+
+def run_handshake(client, server, stop_condition=None):
+    client_status = client.do_handshake()
+    server_status = server.do_handshake()
+
+    while not (client.done and server.done):
+        if stop_condition and stop_condition(client, server):
+            return
+
+        progress_made = False
+
+        #  Process client
+        if not client.done:
+            # If client wants to send data, grab it and feed it to the server
+            if client_status in (Status.PACK_FLIGHT, Status.FLUSH_MESSAGE):
+                flight = client.pending_flight()
+                if flight:
+                    server.feed_data(b"".join(flight))
+
+                client.clear_flight()
+                client_status = client.do_handshake()
+                progress_made = True
+
+            # If client is waiting to read, let it process its buffer
+            elif client_status in (
+                Status.READ_MESSAGE,
+                Status.READ_CHANGE_CIPHER_SPEC,
+                Status.READ_END_OF_EARLY_DATA,
+                Status.WRITE_CHANGE_CIPHER_SPEC,
+            ):
+                new_status = client.do_handshake()
+                # Check if it success read data
+                if new_status != client_status:
+                    client_status = new_status
+                    progress_made = True
+
+            elif client_status == Status.EARLY_RETURN:
+                client_status = Status.OK
+                progress_made = True
+
+        # Process Server
+        if not server.done:
+            # If server wants to send data, grab it and feed it to the client
+            if server_status in (Status.PACK_FLIGHT, Status.FLUSH_MESSAGE):
+                flight = server.pending_flight()
+                if flight:
+                    client.feed_data(b"".join(flight))
+
+                server.clear_flight()
+                server_status = server.do_handshake()
+                progress_made = True
+
+            # If server is waiting to read, let it process its buffer
+            elif server_status in (
+                Status.READ_MESSAGE,
+                Status.READ_CHANGE_CIPHER_SPEC,
+                Status.READ_END_OF_EARLY_DATA,
+                Status.WRITE_CHANGE_CIPHER_SPEC,
+            ):
+                new_status = server.do_handshake()
+                # Check if it success read data
+                if new_status != server_status:
+                    server_status = new_status
+                    progress_made = True
+
+            elif server_status == Status.EARLY_RETURN:
+                server_status = Status.OK
+                progress_made = True
+
+        # Prevent infinite loops
+        # If neither the client nor the server made any progress in this
+        # iteration, they are deadlocked (both waiting for data from each
+        # other, or crashed).
+        assert progress_made or (client.done and server.done)
+
+    assert client.done, "Client did not finish handshake"
+    assert server.done, "Server did not finish handshake"
+    assert client_status == Status.OK
+    assert server_status == Status.OK
 
 
 @pytest.mark.parametrize(
@@ -78,8 +165,6 @@ def test_handshake_with_rsa_pkcs1(version):
         maximum_version=version,
     )
     server = create_server(
-        certfile=SERVER_RSA_CERTFILE,
-        keyfile=SERVER_RSA_KEYFILE,
         minimum_version=version,
         maximum_version=version,
     )
@@ -88,7 +173,8 @@ def test_handshake_with_rsa_pkcs1(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher().auth == Authentication.RSA
+    assert client._cipher_suite is not None
+    assert client._cipher_suite.auth == Authentication.RSA
 
 
 @pytest.mark.parametrize(
@@ -100,32 +186,33 @@ def test_handshake_with_rsa_pkcs1(version):
     ),
 )
 def test_handshake_with_dsa(version):
+    cipher_suites = [
+        CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
+        CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
+    ]
+    signature_algorithms = []
+
     client = create_client(
         minimum_version=version,
         maximum_version=version,
-        cipher_suites=[
-            CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
-            CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
-        ],
-        signature_algorithms=[],
+        cipher_suites=cipher_suites,
+        signature_algorithms=signature_algorithms,
     )
     server = create_server(
         certfile=SERVER_DSA_CERTFILE,
         keyfile=SERVER_DSA_KEYFILE,
         minimum_version=version,
         maximum_version=version,
-        cipher_suites=[
-            CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
-            CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
-        ],
-        signature_algorithms=[],
+        cipher_suites=cipher_suites,
+        signature_algorithms=signature_algorithms,
     )
 
     run_handshake(client, server)
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher().auth == Authentication.DSS
+    assert client._cipher_suite is not None
+    assert client._cipher_suite.auth == Authentication.DSS
 
 
 @pytest.mark.parametrize(
@@ -137,34 +224,36 @@ def test_handshake_with_dsa(version):
     ),
 )
 def test_handshake_with_ec_secp256r1(version):
+    cipher_suites = [
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+    ]
+    supported_groups = [NamedGroup.SECP256R1]
+    signature_algorithms = []
+
     client = create_client(
         minimum_version=version,
         maximum_version=version,
-        cipher_suites=[
-            CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-            CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-        ],
-        supported_groups=[NamedGroup.SECP256R1],
-        signature_algorithms=[],
+        cipher_suites=cipher_suites,
+        supported_groups=supported_groups,
+        signature_algorithms=signature_algorithms,
     )
     server = create_server(
         certfile=SERVER_EC_SECP256R1_CERTFILE,
         keyfile=SERVER_EC_SECP256R1_KEYFILE,
         minimum_version=version,
         maximum_version=version,
-        cipher_suites=[
-            CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
-            CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-        ],
-        supported_groups=[NamedGroup.SECP256R1],
-        signature_algorithms=[],
+        cipher_suites=cipher_suites,
+        supported_groups=supported_groups,
+        signature_algorithms=signature_algorithms,
     )
 
     run_handshake(client, server)
 
     assert client.version == version
     assert server.version == version
-    assert client.cipher().auth == Authentication.ECDSA
+    assert client._cipher_suite is not None
+    assert client._cipher_suite.auth == Authentication.ECDSA
 
 
 @pytest.mark.parametrize(
@@ -185,10 +274,7 @@ def test_handshake_with_alpn(version):
     server = create_server(
         minimum_version=version,
         maximum_version=version,
-        alpn_protocols=[
-            b"http/1.1",
-            b"h2",
-        ],
+        alpn_protocols=[b"http/1.1", b"h2"],
     )
 
     run_handshake(client, server)
@@ -216,11 +302,7 @@ def test_handshake_with_npn(version):
     server = create_server(
         minimum_version=version,
         maximum_version=version,
-        npn_protocols=[
-            b"sentinel",
-            b"http/1.1",
-            b"h2",
-        ],
+        npn_protocols=[b"http/1.1", b"h2"],
     )
 
     run_handshake(client, server)
@@ -240,23 +322,20 @@ def test_handshake_with_npn(version):
     ),
 )
 def test_handshake_with_session_ticket(subtests, version):
-    client_tickets = []
-
-    def session_ticket_handler(session):
-        client_tickets.append(session)
+    session_handler = SessionHandler()
+    ticket_aead = TicketAEAD()
 
     # First handshake
     client = create_client(
         minimum_version=version,
         maximum_version=version,
     )
+    client.new_session_cb = session_handler
     server = create_server(
         minimum_version=version,
         maximum_version=version,
+        ticket_aead=ticket_aead,
     )
-
-    server_context = server.context
-    client.session_ticket_handler = session_ticket_handler
 
     run_handshake(client, server)
 
@@ -264,86 +343,23 @@ def test_handshake_with_session_ticket(subtests, version):
     assert server.version == version
     assert not client.session_reused
     assert not server.session_reused
-    assert len(client_tickets) == 1
+    assert len(session_handler) == 1
 
-    session_ticket = client_tickets[0]
-    assert not session_ticket.not_resumable
-    assert session_ticket.secret is not None
-
-    with subtests.test(msg="session_resumption"):
-        client = create_client(
-            minimum_version=version,
-            maximum_version=version,
-        )
-        server = create_server(
-            context=server_context,
-            minimum_version=version,
-            maximum_version=version,
-        )
-
-        client._session = session_ticket
-
-        run_handshake(client, server)
-
-        assert client.version == version
-        assert server.version == version
-
-        assert client.session_reused
-        assert server.session_reused
-
-
-@pytest.mark.parametrize(
-    "version",
-    (
-        TLSVersion.TLSv1_2,
-        TLSVersion.TLSv1_1,
-        TLSVersion.TLSv1,
-    ),
-)
-def test_handshake_with_session_id(subtests, version):
-    client_tickets = []
-
-    def session_ticket_handler(session):
-        client_tickets.append(session)
-
-    # First handshake
-    client = create_client(
-        minimum_version=version,
-        maximum_version=version,
-    )
-    server = create_server(
-        minimum_version=version,
-        maximum_version=version,
-    )
-
-    server_context = server.context
-    server_context.session_keys = None
-    client.session_ticket_handler = session_ticket_handler
-
-    run_handshake(client, server)
-
-    assert client.version == version
-    assert server.version == version
-    assert not client.session_reused
-    assert not server.session_reused
-    assert len(client_tickets) == 1
-
-    session_ticket = client_tickets[0]
-    assert not session_ticket.not_resumable
-    assert session_ticket.session_id is not None
+    session = session_handler.pop()
+    assert not session.not_resumable
+    assert session.secret is not None
 
     with subtests.test(msg="session_resumption"):
         client = create_client(
             minimum_version=version,
             maximum_version=version,
+            session=session,
         )
         server = create_server(
-            context=server_context,
             minimum_version=version,
             maximum_version=version,
+            ticket_aead=ticket_aead,
         )
-
-        client._session = session_ticket
 
         run_handshake(client, server)
 
@@ -371,7 +387,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         server = create_server(
             minimum_version=version,
             maximum_version=version,
-            verify_mode=TLSVerifyMode.CERT_OPTIONAL,
+            verify_mode=VerifyMode.CERT_OPTIONAL,
         )
 
         run_handshake(client, server)
@@ -379,11 +395,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         assert client.version == version
         assert server.version == version
         assert client._peer_cert_request is not None
-        assert server.established_session is not None
-        assert (
-            server.established_session.x509_peer is None
-            and server.established_session.x509_chain is None
-        )
+        assert len(server.get_unverified_chain()) == 0
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
         client = create_client(
@@ -393,7 +405,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         server = create_server(
             minimum_version=version,
             maximum_version=version,
-            verify_mode=TLSVerifyMode.CERT_REQUIRED,
+            verify_mode=VerifyMode.CERT_REQUIRED,
         )
 
         with pytest.raises(AlertCertificateRequired):
@@ -411,6 +423,8 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
         signature_algorithms=[signature_algorithm],
     )
     server = create_server(
+        certfile=SERVER_RSA_CERTFILE,
+        keyfile=SERVER_RSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
         signature_algorithms=SIGNATURE_ALGORITHMS,
@@ -420,11 +434,7 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert client.established_session is not None
-    assert (
-        client.established_session.peer_signature_algorithm
-        == signature_algorithm
-    )
+    assert server._signature_algorithm == signature_algorithm
 
 
 def test_tls13_handshake_with_ec_secp256r1():
@@ -447,24 +457,14 @@ def test_tls13_handshake_with_ec_secp256r1():
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert client.established_session is not None
-    assert (
-        client.established_session.peer_signature_algorithm
-        == signature_algorithm
-    )
 
 
 def test_tls13_handshake_hello_retry_request(subtests):
-    def handshake(groups):
+    def handshake(client_supported_groups):
         client = create_client(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
-            key_share_groups=groups,
-            supported_groups=[
-                NamedGroup.X25519,
-                NamedGroup.SECP256R1,
-                NamedGroup.SECP384R1,
-            ],
+            supported_groups=client_supported_groups,
         )
         server = create_server(
             certfile=SERVER_EC_SECP256R1_CERTFILE,
@@ -484,39 +484,33 @@ def test_tls13_handshake_hello_retry_request(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._hello_retry_request_used
-        assert client.established_session is not None
-        assert client.established_session.group_id == NamedGroup.X25519
-        assert server.established_session is not None
-        assert server.established_session.group_id == NamedGroup.X25519
-
-    with subtests.test(msg="Empty client key_share_groups"):
-        handshake([])
-
-    with subtests.test(msg="Server unsupported key_share_groups"):
-        handshake([NamedGroup.SECP256R1])
+        assert server._group_id_tls13 == NamedGroup.X25519
 
     with subtests.test(msg="Server priortize key_share_groups"):
-        handshake([NamedGroup.SECP384R1])
+        handshake(
+            [
+                NamedGroup.SECP256R1,
+                NamedGroup.SECP384R1,
+                NamedGroup.X25519,
+            ]
+        )
 
 
 def test_tls13_handshake_with_psk(subtests):
-    client_tickets = []
-
-    def session_ticket_handler(session):
-        client_tickets.append(session)
+    session_handler = SessionHandler()
+    ticket_aead = TicketAEAD()
 
     # First handshake
     client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
     )
+    client.new_session_cb = session_handler
     server = create_server(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        ticket_aead=ticket_aead,
     )
-
-    server_context = server.context
-    client.session_ticket_handler = session_ticket_handler
 
     run_handshake(client, server)
     client.trigger_post_handshake()
@@ -526,20 +520,23 @@ def test_tls13_handshake_with_psk(subtests):
     assert server.version == TLSVersion.TLSv1_3
     assert not client.session_reused
     assert not server.session_reused
-    assert len(client_tickets) == 2
+    assert len(session_handler) == 2
 
     with subtests.test(msg="session_resumption"):
+        session = session_handler.pop()
+        assert not session.not_resumable
+        assert session.secret is not None
+
         client = create_client(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
+            session=session,
         )
         server = create_server(
-            context=server_context,
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
+            ticket_aead=ticket_aead,
         )
-
-        client._session = client_tickets[0]
 
         run_handshake(client, server)
 
@@ -550,22 +547,23 @@ def test_tls13_handshake_with_psk(subtests):
         assert server.session_reused
 
     with subtests.test(msg="bad_binder"):
-        client = create_client(
-            minimum_version=TLSVersion.TLSv1_3,
-            maximum_version=TLSVersion.TLSv1_3,
-        )
-        server = create_server(
-            context=server_context,
-            minimum_version=TLSVersion.TLSv1_3,
-            maximum_version=TLSVersion.TLSv1_3,
-        )
-
-        session = client_tickets.pop()
-        assert session.secret
+        session = session_handler.pop()
+        assert not session.not_resumable
+        assert session.secret is not None
 
         # tamper resumption secret
         session.secret = session.secret[:-4] + bytes(4)
-        client._session = session
+
+        client = create_client(
+            minimum_version=TLSVersion.TLSv1_3,
+            maximum_version=TLSVersion.TLSv1_3,
+            session=session,
+        )
+        server = create_server(
+            minimum_version=TLSVersion.TLSv1_3,
+            maximum_version=TLSVersion.TLSv1_3,
+            ticket_aead=ticket_aead,
+        )
 
         server_fail_hello(client, server)
 
@@ -582,7 +580,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         server = create_server(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
-            verify_mode=TLSVerifyMode.CERT_OPTIONAL,
+            verify_mode=VerifyMode.CERT_OPTIONAL,
         )
 
         run_handshake(client, server)
@@ -590,11 +588,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._peer_cert_request is not None
-        assert server.established_session is not None
-        assert (
-            server.established_session.x509_peer is None
-            and server.established_session.x509_chain is None
-        )
+        assert len(server.get_unverified_chain()) == 0
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
         client = create_client(
@@ -604,7 +598,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         server = create_server(
             minimum_version=TLSVersion.TLSv1_3,
             maximum_version=TLSVersion.TLSv1_3,
-            verify_mode=TLSVerifyMode.CERT_REQUIRED,
+            verify_mode=VerifyMode.CERT_REQUIRED,
         )
 
         with pytest.raises(AlertCertificateRequired):
@@ -613,31 +607,22 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
 
 @pytest.mark.skip()
 def test_tls13_handshake_with_certificate_request_with_certificate():
-    client_ctx = TLSContext()
-    client_ctx.load_cert_chain(
-        certfile=SERVER_RSA_CERTFILE,
-        keyfile=SERVER_RSA_KEYFILE,
-    )
-    client_ctx.load_verify_locations(cafile=SERVER_CAFILE)
     client = create_client(
-        context=client_ctx,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
+        credential=TLSCredential.from_certfile(
+            certfile=SERVER_RSA_CERTFILE,
+            keyfile=SERVER_RSA_KEYFILE,
+        ),
     )
 
-    server_ctx = TLSContext()
-    server_ctx.load_cert_chain(
-        certfile=SERVER_RSA_CERTFILE,
-        keyfile=SERVER_RSA_KEYFILE,
-    )
-    server_ctx.load_verify_locations(cafile=SERVER_CAFILE)
     server = create_server(
-        context=server_ctx,
         certfile=SERVER_RSA_CERTFILE,
         keyfile=SERVER_RSA_KEYFILE,
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        verify_mode=TLSVerifyMode.CERT_REQUIRED,
+        verify_mode=VerifyMode.CERT_REQUIRED,
+        castore=load_castore(SERVER_CAFILE),
     )
 
     run_handshake(client, server)
@@ -807,13 +792,13 @@ def test_tls13_server_send_key_update(subtests):
 
 def server_fail_hello(client, server):
     def stop_after_client_send_hello(c, s):
-        return c.hs_state == ClientState.ENTER_EARLY_DATA
+        return c.state == ClientState.ENTER_EARLY_DATA
 
     run_handshake(client, server, stop_after_client_send_hello)
-    assert server.hs_state == ServerState.READ_CLIENT_HELLO
+    assert server.state == ServerState.READ_CLIENT_HELLO
 
     flight = client.pending_flight()
-    server.add_hs_data(flight)
+    server.feed_data(b"".join(flight))
 
 
 def test_server_unsupported_version():
@@ -850,15 +835,12 @@ def test_server_unsupported_alpn(version):
     server = create_server(
         minimum_version=version,
         maximum_version=version,
-        alpn_protocols=[
-            b"http/1.1",
-            b"h3",
-        ],
+        alpn_protocols=[b"http/1.1", b"h3"],
     )
 
     server_fail_hello(client, server)
 
-    with pytest.raises(AlertHandshakeFailure, match=".*?ALPN.*"):
+    with pytest.raises(AlertHandshakeFailure, match=r".*?ALPN.*"):
         server.do_handshake()
 
 
@@ -879,11 +861,7 @@ def test_server_unsupported_npn(version):
     server = create_server(
         minimum_version=version,
         maximum_version=version,
-        npn_protocols=[
-            b"sentinel",
-            b"http/1.1",
-            b"h3",
-        ],
+        npn_protocols=[b"sentinel", b"http/1.1", b"h3"],
     )
 
     run_handshake(client, server)
@@ -916,7 +894,6 @@ def test_tls13_server_unsuported_group():
     client = create_client(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
-        key_share_groups=[NamedGroup.X25519],
         supported_groups=[NamedGroup.X25519],
     )
     server = create_server(
@@ -933,11 +910,11 @@ def test_tls13_server_unsuported_group():
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm not in RSA_PSS_RSAE_SIGNATURE_ALGORITHMS
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_rsa_pkcs1(
     signature_algorithm,
@@ -963,11 +940,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_rsa_pkcs1(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm not in DSA_SIGNATURE_ALGORITHMS
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_dsa(
     signature_algorithm,
@@ -993,11 +970,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_dsa(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm != SignatureScheme.ECDSA_SECP256R1_SHA256
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_ec_secp256r1(
     signature_algorithm,
@@ -1023,11 +1000,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_ec_secp256r1(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm != SignatureScheme.ED25519
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_ed25519(
     signature_algorithm,
@@ -1053,11 +1030,11 @@ def test_tls13_server_unsupported_signature_algorithm_with_ed25519(
 
 @pytest.mark.parametrize(
     "signature_algorithm",
-    (
+    [
         signature_algorithm
         for signature_algorithm in SIGNATURE_ALGORITHMS
         if signature_algorithm != SignatureScheme.ED448
-    ),
+    ],
 )
 def test_tls13_server_unsupported_signature_algorithm_with_ed448(
     signature_algorithm,

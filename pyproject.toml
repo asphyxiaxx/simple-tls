@@ -50,6 +50,11 @@ dependencies = [
 "Homepage" = "https://github.com/asphyxiaxx/simple-tls"
 "Bug Tracker" = "https://github.com/asphyxiaxx/simple-tls/issues"
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
 [tool.setuptools]
 license-files = ["LICENSE", "vendor/mlkem_native/LICENSE.txt"]
 
@@ -68,8 +73,8 @@ warn_return_any = false
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
-module = "simple_tls.tls._cipher"
-disable_error_code = ["arg-type"]
+module = "tests.*"
+ignore_errors = true
 
 [tool.ruff]
 line-length = 79
