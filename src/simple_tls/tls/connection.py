@@ -769,6 +769,7 @@ class TLSConnection:
         if (
             content_type != ContentType.HANDSHAKE
             and self._handshake.has_unprocessed_data()
+            and self._has_final_version()
             and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
         ):
             self._send_alert(
