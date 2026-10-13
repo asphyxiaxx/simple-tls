@@ -203,13 +203,12 @@ class TLSHandshakeClient(TLSHandshake):
 
         self.new_session_cb: NewSessionHandler | None = None
 
-        ## Initialization
+        # Initialization
         super().__init__(configuration)
 
         self._offered_session = configuration.session
         self._hostname = server_hostname
 
-        ## Configurations
         # Compression methods
         self._compresion_methods: tuple[int, ...] = (Compression.NULL,)
 
@@ -305,7 +304,48 @@ class TLSHandshakeClient(TLSHandshake):
                 if protocol in self._alpn_protocols:
                     self._alps[protocol] = settings
 
-        ## Dispatch function
+        # Temporary State
+        self._state = ClientState.START_CONNECT
+        self._extension_order: list[int] | None = None
+        self._extensions_sent: set[int] = set()
+        self._session_ticket: bytes | None = None
+        self._selected_ech_config: ECHConfigContent | None = None
+        self._ech_client_outer: ECHClientExtension | None = None
+        self._ticket_expected: bool = False
+
+        self._pre_shared_keys: list[
+            tuple[KeySchedule, PSKIdentity, bytes]
+        ] = []
+        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
+        self._key_exchanges: dict[
+            int, ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
+        ] = {}
+
+        greases = list(GREASES)
+        random.shuffle(greases)
+        self._greases: tuple[int, ...] = tuple(greases)
+
+        # Inner client hello variable, will replace actual when ech accepted
+        self._inner_transcript: Transcript | None = None
+        self._inner_client_random: bytes | None = None
+        self._inner_extensions_sent: set[int] | None = None
+
+        # Peer item
+        self._peer_cookie: bytes | None = None
+        self._peer_key: bytes | None = None
+        self._peer_cert_request: (
+            CertificateRequest
+            | CertificateRequestTLS12
+            | CertificateRequestTLS13
+            | None
+        ) = None
+        self._peer_ech_retry_configs: list[ECHConfig] | None = None
+        self._peer_quic_transport_parameters: bytes | None = None
+
+        # Negotiated variable
+        self._signature_algorithm: int | None = None
+        """signature algorithm to be used with signing"""
+
         # ruff: disable[E501]
         self._handle_dispatch = {
             ClientState.START_CONNECT: self._do_start_connect,
@@ -349,47 +389,6 @@ class TLSHandshakeClient(TLSHandshake):
             ClientState.COMPLETE_UPDATE_TRAFFIC: self._do_complete_update_traffic,
         }
         # ruff: enable[E501]
-
-        ## Temporary State
-        self._state = ClientState.START_CONNECT
-        self._extension_order: list[int] | None = None
-        self._extensions_sent: set[int] = set()
-        self._session_ticket: bytes | None = None
-        self._selected_ech_config: ECHConfigContent | None = None
-        self._ech_client_outer: ECHClientExtension | None = None
-        self._ticket_expected: bool = False
-
-        self._pre_shared_keys: list[
-            tuple[KeySchedule, PSKIdentity, bytes]
-        ] = []
-        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
-        self._key_exchanges: dict[
-            int, ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
-        ] = {}
-
-        greases = list(GREASES)
-        random.shuffle(greases)
-        self._greases: tuple[int, ...] = tuple(greases)
-
-        # Inner client hello variable, will replace actual when ech accepted
-        self._inner_transcript: Transcript | None = None
-        self._inner_client_random: bytes | None = None
-        self._inner_extensions_sent: set[int] | None = None
-
-        # Peer item
-        self._peer_cookie: bytes | None = None
-        self._peer_key: bytes | None = None
-        self._peer_cert_request: (
-            CertificateRequest
-            | CertificateRequestTLS12
-            | CertificateRequestTLS13
-            | None
-        ) = None
-        self._peer_ech_retry_configs: list[ECHConfig] | None = None
-
-        ## Negotiated variable
-        self._signature_algorithm: int | None = None
-        """signature algorithm to be used with signing"""
 
     @property
     def done(self) -> bool:

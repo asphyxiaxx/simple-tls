@@ -166,56 +166,9 @@ class TLSHandshakeServer(TLSHandshake):
     def __init__(self, configuration: TLSConfiguration) -> None:
         self.sni_callback: SNICallback | None = None
 
-        ## Initialization
+        # Initialization
         super().__init__(configuration)
 
-        ## Dispatch function
-        # ruff: disable[E501]
-        self._handle_dispatch = {
-            ServerState.START_ACCEPT: self._do_start_accept,
-            ServerState.READ_CLIENT_HELLO: self._do_read_client_hello,
-            ServerState.SELECT_PARAMETERS: self._do_select_parameters,
-            ServerState.SEND_SERVER_HELLO: self._do_send_server_hello,
-            ServerState.SEND_SERVER_CERTIFICATE: self._do_send_server_certificate,
-            ServerState.SEND_SERVER_KEY_EXCHANGE: self._do_send_server_key_exchange,
-            ServerState.SEND_SERVER_HELLO_DONE: self._do_send_server_hello_done,
-            ServerState.READ_CLIENT_CERTIFICATE: self._do_read_client_certificate,
-            ServerState.VERIFY_CLIENT_CERTIFICATE: self._do_verify_client_certificate,
-            ServerState.READ_CLIENT_KEY_EXCHANGE: self._do_read_client_key_exchange,
-            ServerState.READ_CLIENT_CERTIFICATE_VERIFY: self._do_read_client_certificate_verify,
-            ServerState.READ_CHANGE_CIPHER_SPEC: self._do_read_change_cipher_spec,
-            ServerState.PROCESS_CHANGE_CIPHER_SPEC: self._do_process_change_cipher_spec,
-            ServerState.READ_NEXT_PROTO: self._do_read_next_proto,
-            ServerState.READ_CLIENT_FINISHED: self._do_read_client_finished,
-            ServerState.SEND_SESSION_TICKET: self._do_send_session_ticket,
-            ServerState.SEND_CHANGE_CIPHER_SPEC: self._do_send_change_cipher_spec,
-            ServerState.SEND_SERVER_FINISHED: self._do_send_server_finished,
-            # TLSv1.3
-            ServerState.SELECT_PARAMETERS_TLS13: self._do_select_parameters_tls13,
-            ServerState.SEND_HELLO_RETRY_REQUEST_TLS13: self._do_send_hello_retry_request_tls13,
-            ServerState.HRR_COMPAT_CSS_TLS13: self._do_hrr_compat_ccs_tls13,
-            ServerState.READ_SECOND_CLIENT_HELLO_TLS13: self._do_read_second_client_hello_tls13,
-            ServerState.SEND_SERVER_HELLO_TLS13: self._do_send_server_hello_tls13,
-            ServerState.SERVER_HELLO_COMPAT_CSS_TLS13: self._do_server_hello_compat_ccs_tls13,
-            ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13: self._do_send_encrypted_extensions_tls13,
-            ServerState.SEND_SERVER_FINISHED_TLS13: self._do_send_server_finished_tls13,
-            ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13: self._do_read_second_client_flight_tls13,
-            ServerState.PROCESS_END_OF_EARLY_DATA_TLS13: self._do_process_end_of_early_data_tls13,
-            ServerState.READ_CLIENT_ENCRYPTED_EXTENSIONS_TLS13: self._do_read_client_encrypted_extensions_tls13,
-            ServerState.READ_CLIENT_CERTIFICATE_TLS13: self._do_read_client_certificate_tls13,
-            ServerState.READ_CLIENT_CERTIFICATE_VERIFY_TLS13: self._do_read_client_certificate_verify_tls13,
-            ServerState.READ_CLIENT_FINISHED_TLS13: self._do_read_client_finished_tls13,
-            ServerState.SEND_NEWSESSION_TICKET_TLS13: self._do_send_new_session_ticket_tls13,
-            # Finish handshake
-            ServerState.FINISHED_SERVER_HANDSHAKE: self._do_finish_server_handshake,
-            # Post handshake
-            ServerState.READ_POST_HANDSHAKE: self._do_read_post_handshake,
-            ServerState.PROCESS_UPDATE_TRAFFIC: self._do_process_update_traffic,
-            ServerState.COMPLETE_UPDATE_TRAFFIC: self._do_complete_update_traffic,
-        }
-        # ruff: enable[E501]
-
-        ## Configurations
         # Cipher Suites
         self._cipher_suites: tuple[CipherSuite, ...] = tuple(
             configuration.cipher_suites
@@ -285,7 +238,7 @@ class TLSHandshakeServer(TLSHandshake):
         # Cookie for HRR
         self._cookie: bytes | None = None
 
-        ## Temporary State
+        # Temporary State
         self._state = ServerState.START_ACCEPT
         self._extensions_recv: set[int] = set()
         self._npn_expected: bool = False
@@ -314,6 +267,51 @@ class TLSHandshakeServer(TLSHandshake):
         """True when PHA negotiated"""
         self._certificate_compression: int | None = None
         """Certificate compression algorithm negotiated"""
+
+        # ruff: disable[E501]
+        self._handle_dispatch = {
+            ServerState.START_ACCEPT: self._do_start_accept,
+            ServerState.READ_CLIENT_HELLO: self._do_read_client_hello,
+            ServerState.SELECT_PARAMETERS: self._do_select_parameters,
+            ServerState.SEND_SERVER_HELLO: self._do_send_server_hello,
+            ServerState.SEND_SERVER_CERTIFICATE: self._do_send_server_certificate,
+            ServerState.SEND_SERVER_KEY_EXCHANGE: self._do_send_server_key_exchange,
+            ServerState.SEND_SERVER_HELLO_DONE: self._do_send_server_hello_done,
+            ServerState.READ_CLIENT_CERTIFICATE: self._do_read_client_certificate,
+            ServerState.VERIFY_CLIENT_CERTIFICATE: self._do_verify_client_certificate,
+            ServerState.READ_CLIENT_KEY_EXCHANGE: self._do_read_client_key_exchange,
+            ServerState.READ_CLIENT_CERTIFICATE_VERIFY: self._do_read_client_certificate_verify,
+            ServerState.READ_CHANGE_CIPHER_SPEC: self._do_read_change_cipher_spec,
+            ServerState.PROCESS_CHANGE_CIPHER_SPEC: self._do_process_change_cipher_spec,
+            ServerState.READ_NEXT_PROTO: self._do_read_next_proto,
+            ServerState.READ_CLIENT_FINISHED: self._do_read_client_finished,
+            ServerState.SEND_SESSION_TICKET: self._do_send_session_ticket,
+            ServerState.SEND_CHANGE_CIPHER_SPEC: self._do_send_change_cipher_spec,
+            ServerState.SEND_SERVER_FINISHED: self._do_send_server_finished,
+            # TLSv1.3
+            ServerState.SELECT_PARAMETERS_TLS13: self._do_select_parameters_tls13,
+            ServerState.SEND_HELLO_RETRY_REQUEST_TLS13: self._do_send_hello_retry_request_tls13,
+            ServerState.HRR_COMPAT_CSS_TLS13: self._do_hrr_compat_ccs_tls13,
+            ServerState.READ_SECOND_CLIENT_HELLO_TLS13: self._do_read_second_client_hello_tls13,
+            ServerState.SEND_SERVER_HELLO_TLS13: self._do_send_server_hello_tls13,
+            ServerState.SERVER_HELLO_COMPAT_CSS_TLS13: self._do_server_hello_compat_ccs_tls13,
+            ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13: self._do_send_encrypted_extensions_tls13,
+            ServerState.SEND_SERVER_FINISHED_TLS13: self._do_send_server_finished_tls13,
+            ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13: self._do_read_second_client_flight_tls13,
+            ServerState.PROCESS_END_OF_EARLY_DATA_TLS13: self._do_process_end_of_early_data_tls13,
+            ServerState.READ_CLIENT_ENCRYPTED_EXTENSIONS_TLS13: self._do_read_client_encrypted_extensions_tls13,
+            ServerState.READ_CLIENT_CERTIFICATE_TLS13: self._do_read_client_certificate_tls13,
+            ServerState.READ_CLIENT_CERTIFICATE_VERIFY_TLS13: self._do_read_client_certificate_verify_tls13,
+            ServerState.READ_CLIENT_FINISHED_TLS13: self._do_read_client_finished_tls13,
+            ServerState.SEND_NEWSESSION_TICKET_TLS13: self._do_send_new_session_ticket_tls13,
+            # Finish handshake
+            ServerState.FINISHED_SERVER_HANDSHAKE: self._do_finish_server_handshake,
+            # Post handshake
+            ServerState.READ_POST_HANDSHAKE: self._do_read_post_handshake,
+            ServerState.PROCESS_UPDATE_TRAFFIC: self._do_process_update_traffic,
+            ServerState.COMPLETE_UPDATE_TRAFFIC: self._do_complete_update_traffic,
+        }
+        # ruff: enable[E501]
 
     @property
     def done(self) -> bool:

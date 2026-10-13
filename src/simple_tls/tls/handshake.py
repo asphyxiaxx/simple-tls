@@ -167,10 +167,10 @@ class TLSHandshake:
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
 
-        ## Dispatch function
+        # Dispatch function
         self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
 
-        ## Configurations
+        # Configurations
         self._configuration: TLSConfiguration = configuration
         self._protocol: Protocol = configuration.protocol
         self._credential: TLSCredential | None = configuration.credential
@@ -182,7 +182,7 @@ class TLSHandshake:
             self._protocol, configuration.maximum_version
         )
 
-        ## Temporary State
+        # Temporary State
         self._state: int = 0
         self._hostname: bytes | None = None
         self._version: int = UNSPECIFIED
