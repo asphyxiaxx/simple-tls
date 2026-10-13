@@ -55,7 +55,10 @@ from .cipher import get_key_iv_lens
 from .configuration import TLSConfiguration, TLSCredential
 from .constants import (
     DSA_SIGNATURE_ALGORITHMS,
+    ECC_GROUPS,
     ECDSA_SIGNATURE_ALGORITHMS,
+    FFDHE_GROUPS,
+    KEM_GROUPS,
     RSA_PKCS1_SIGNATURE_ALGORITHMS,
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
@@ -86,6 +89,13 @@ from .key import (
     InvalidSignature,
     RSAPublicKey,
     load_certificate_public_key,
+)
+from .keyexchange import (
+    BaseKeyExchange,
+    ECDHKeyExchange,
+    FFDHKeyExchange,
+    KEMKeyExchange,
+    get_dh_parameters,
 )
 from .messages import (
     Certificate,
@@ -662,6 +672,15 @@ class TLSHandshake:
             not_resumable=True,
         )
         return session
+
+    def _get_key_exchange(self, group: int) -> BaseKeyExchange | None:
+        if group in ECC_GROUPS:
+            return ECDHKeyExchange(group)
+        if group in FFDHE_GROUPS:
+            return FFDHKeyExchange(get_dh_parameters(group))
+        if group in KEM_GROUPS:
+            return KEMKeyExchange(group)
+        return None
 
     @staticmethod
     def _serialize_extensions(

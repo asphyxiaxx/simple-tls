@@ -11,6 +11,7 @@ from simple_tls.tls.configuration import TLSConfiguration, TLSCredential
 from simple_tls.tls.enums import Protocol, VerifyMode
 from simple_tls.tls.handshake_client import TLSHandshakeClient
 from simple_tls.tls.handshake_server import TLSHandshakeServer
+from simple_tls.tls.keyexchange import load_pem_parameters
 
 
 def format_path(*paths: str):
@@ -100,6 +101,8 @@ def wycheproof_tests(*paths: str, subdir: str = "testvectors_v1"):
     return decorator
 
 
+SERVER_DH_PARAMETERS_FILE = format_path("certs", "dhparams.pem")
+
 SERVER_CAFILE = format_path("certs", "root_ca.crt")
 SERVER_RSA_CERTFILE = format_path("certs", "server_rsa_chain.crt")
 SERVER_RSA_KEYFILE = format_path("certs", "server_rsa.key")
@@ -154,12 +157,20 @@ def load_castore(cafile):
 def create_server(
     certfile=SERVER_RSA_CERTFILE,
     keyfile=SERVER_RSA_KEYFILE,
+    dh_params_file=None,
     **kwargs,
 ):
+    if dh_params_file:
+        with open(dh_params_file, "rb") as fp:
+            dh_parameters = load_pem_parameters(fp.read())
+    else:
+        dh_parameters = None
+
     credential = TLSCredential.from_certfile(certfile, keyfile)
     config = TLSConfiguration(
         is_server=True,
         protocol=Protocol.TLS,
+        dh_parameters=dh_parameters,
         credential=credential,
         **kwargs,
     )

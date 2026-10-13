@@ -53,8 +53,6 @@ from .constants import (
     ECC_GROUPS,
     ECDSA_SIGNATURE_ALGORITHMS,
     EDDSA_SIGNATURE_ALGORITHMS,
-    FFDHE_GROUPS,
-    KEM_GROUPS,
     RSA_SIGNATURE_ALGORITHMS,
     SIGNATURE_ALGORITHMS,
     SUPPORTED_GROUPS,
@@ -112,7 +110,12 @@ from .extensions import (
 )
 from .handshake import Handshake, TLSHandshake
 from .key import RSAPrivateKey, load_certificate_public_key
-from .keyexchange import ECDHKeyExchange, FFDHKeyExchange, KEMKeyExchange
+from .keyexchange import (
+    BaseKeyExchange,
+    DHParameters,
+    ECDHKeyExchange,
+    FFDHKeyExchange,
+)
 from .messages import (
     CertificateRequest,
     CertificateRequestTLS12,
@@ -238,15 +241,17 @@ class TLSHandshakeServer(TLSHandshake):
         # Cookie for HRR
         self._cookie: bytes | None = None
 
+        # DH parameters
+        self._dh_parameters: DHParameters | None = configuration.dh_parameters
+
         # Temporary State
         self._state = ServerState.START_ACCEPT
         self._extensions_recv: set[int] = set()
         self._npn_expected: bool = False
         self._ticket_expected: bool = False
         self._certificate_requested: bool = False
-
         self._pre_shared_key: tuple[bytes, bytes] | None = None
-        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
+        self._key_exchange: BaseKeyExchange | None = None
 
         # Peer item
         self._peer_cipher_suites: tuple[int, ...] | None = None
@@ -645,8 +650,8 @@ class TLSHandshakeServer(TLSHandshake):
             writer.write_prefixed_bytes(key_share, 1)
 
         elif cipher_suite.kea == KeyExchange.DHE:
-            dh_params = self._configuration.dh_parameters
-            self._key_exchange = FFDHKeyExchange(parameters=dh_params)
+            assert self._dh_parameters is not None
+            self._key_exchange = FFDHKeyExchange(self._dh_parameters)
 
             writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.p), 2)
             writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.g), 2)
@@ -768,7 +773,6 @@ class TLSHandshakeServer(TLSHandshake):
 
             enc_premaster_secret = parser.read_prefixed_bytes(2)
             premaster_secret = private_key.decrypt(enc_premaster_secret)
-
             if (
                 premaster_secret is None
                 or len(premaster_secret) != 48
@@ -786,14 +790,12 @@ class TLSHandshakeServer(TLSHandshake):
             else:
                 raise AlertInternalError("Unsupported cipher suite selected")
 
-            if not peer_key:
-                raise AlertDecodeError(
-                    "Empty key share in client key exchange"
+            try:
+                premaster_secret = self._key_exchange.compute_shared_secret(
+                    peer_key
                 )
-
-            premaster_secret = self._key_exchange.compute_shared_secret(
-                peer_key
-            )
+            except ValueError as exc:
+                raise AlertIllegalParameter("Invalid key share") from exc
 
         if parser.remaining():
             raise AlertDecodeError("Trailing data")
@@ -1316,19 +1318,18 @@ class TLSHandshakeServer(TLSHandshake):
         if self._group_id_tls13 is not None:
             assert self._peer_key is not None
 
-            kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
-            ks_group = self._group_id_tls13
-            if ks_group in ECC_GROUPS:
-                kex = ECDHKeyExchange(ks_group)
-            elif ks_group in FFDHE_GROUPS:
-                kex = FFDHKeyExchange(ks_group)
-            elif ks_group in KEM_GROUPS:
-                kex = KEMKeyExchange(ks_group)
-            else:
-                raise AlertInternalError("Unsupported group selected")
+            group_id = self._group_id_tls13
+            kex = self._get_key_exchange(group_id)
+            assert kex is not None
 
-            key_share, shared_secret = kex.generate_and_compute(self._peer_key)
-            key_share_entry = KeyShareEntry(ks_group, key_share)
+            try:
+                key_share, shared_secret = kex.generate_and_compute(
+                    self._peer_key
+                )
+            except ValueError as exc:
+                raise AlertIllegalParameter("Invalid key share") from exc
+
+            key_share_entry = KeyShareEntry(group_id, key_share)
             extensions.append(KeyShareServerExtension(key_share_entry))
             self._key_schedule.extract(shared_secret)
         else:
@@ -1748,6 +1749,8 @@ class TLSHandshakeServer(TLSHandshake):
         peer_cipher_suites = self._peer_cipher_suites
         peer_supported_groups = self._peer_supported_groups
 
+        kea = set()
+
         if self._credential is not None:
             x509_leaf = self._credential.x509_certificates[0]
             algorithm_oid = x509_leaf.public_key_algorithm_oid
@@ -1757,27 +1760,31 @@ class TLSHandshakeServer(TLSHandshake):
                 PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
             ):
                 auth = Authentication.RSA
-
             elif algorithm_oid == PublicKeyAlgorithmOID.DSA:
                 auth = Authentication.DSS
-
             elif algorithm_oid == PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
                 auth = Authentication.ECDSA
-
             elif version >= TLSVersion.TLSv1_2 and algorithm_oid in (
                 PublicKeyAlgorithmOID.ED25519,
                 PublicKeyAlgorithmOID.ED448,
             ):
                 auth = Authentication.ECDSA
-
             else:
                 raise AlertHandshakeFailure("Unsupported Certificate")
-
         else:
             auth = Authentication.ANON
 
-        kea = set((KeyExchange.RSA, KeyExchange.DHE))
+        # Default to RSA key exchange if the server has a certificate
+        # configured
+        if self._credential is not None:
+            kea.add(KeyExchange.RSA)
 
+        # Allow DHE key exchange if the server has DH parameters configured
+        if self._dh_parameters is not None:
+            kea.add(KeyExchange.DHE)
+
+        # Allow ECDHE key exchange if the server has supported groups
+        # configured
         group_id = negotiate(
             (g for g in self._supported_groups if g in ECC_GROUPS),
             peer_supported_groups,

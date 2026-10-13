@@ -32,7 +32,6 @@ from simple_tls.crypto.utils import (
     int_to_bytes,
 )
 
-from .alerts import AlertDecodeError, AlertIllegalParameter, AlertInternalError
 from .constants import ECC_GROUPS, NamedGroup
 
 
@@ -387,20 +386,17 @@ class DHParameters:
         return self._parameter_numbers.g
 
 
+def get_dh_parameters(group: int) -> DHParameters:
+    try:
+        dh_group = _RFC7919_FFDHE_GROUPS[group]
+    except KeyError:
+        raise ValueError(f"Unsupported dh group '{group}'")
+
+    return DHParameters(p=dh_group.p, g=dh_group.g, q=dh_group.q)
+
+
 class FFDHKeyExchange(BaseKeyExchange):
-    def __init__(
-        self,
-        group: int = NamedGroup.FFDHE2048,
-        parameters: DHParameters | None = None,
-    ) -> None:
-        if parameters is None:
-            try:
-                dh_group = _RFC7919_FFDHE_GROUPS[group]
-            except KeyError:
-                raise AlertInternalError(f"Unsupport dh group '{group}")
-
-            parameters = DHParameters(p=dh_group.p, g=dh_group.g, q=dh_group.q)
-
+    def __init__(self, parameters: DHParameters) -> None:
         self._parameters = parameters
         self._private_key = parameters.generate_private_key()
         self._public_key = self._private_key.public_key()
@@ -424,14 +420,10 @@ class FFDHKeyExchange(BaseKeyExchange):
 
     def compute_shared_secret(self, peer_public: bytes) -> bytes:
         y = bytes_to_int(peer_public, "big")
-
         parameter_numbers = self._parameters.parameter_numbers
         peer_public_numbers = dh.DHPublicNumbers(y, parameter_numbers)
         peer_public_key = peer_public_numbers.public_key()
-        try:
-            return self._private_key.exchange(peer_public_key)
-        except ValueError as exc:
-            raise AlertIllegalParameter(str(exc)) from None
+        return self._private_key.exchange(peer_public_key)
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
         key_share = self.generate_key_share()
@@ -464,7 +456,7 @@ _NAMEDGROUP_TO_CURVE: dict[int, ec.EllipticCurve] = {
 class ECDHKeyExchange(BaseKeyExchange):
     def __init__(self, group: int) -> None:
         if group not in ECC_GROUPS:
-            raise AlertInternalError(f"Invalid group for EC curve '{group}'")
+            raise ValueError(f"Unsupported group for EC curve '{group}'")
 
         private_key: (
             x25519.X25519PrivateKey
@@ -476,13 +468,7 @@ class ECDHKeyExchange(BaseKeyExchange):
         elif group == NamedGroup.X448:
             private_key = x448.X448PrivateKey.generate()
         else:
-            try:
-                ec_curve = _NAMEDGROUP_TO_CURVE[group]
-            except KeyError:
-                raise AlertInternalError(
-                    f"Unsupported curve '{group}'"
-                ) from None
-
+            ec_curve = _NAMEDGROUP_TO_CURVE[group]
             private_key = ec.generate_private_key(ec_curve)
 
         self._private_key = private_key
@@ -493,37 +479,22 @@ class ECDHKeyExchange(BaseKeyExchange):
             return self._public_key.public_bytes(
                 Encoding.X962, PublicFormat.UncompressedPoint
             )
-        else:
-            return self._public_key.public_bytes(
-                Encoding.Raw, PublicFormat.Raw
-            )
+        return self._public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
 
     def compute_shared_secret(self, peer_public: bytes) -> bytes:
-        try:
-            if isinstance(self._private_key, ec.EllipticCurvePrivateKey):
-                algorithm = ec.ECDH()
-                pk_ec = ec.EllipticCurvePublicKey.from_encoded_point(
-                    self._private_key.curve, peer_public
-                )
-                return self._private_key.exchange(algorithm, pk_ec)
-
-            elif isinstance(self._private_key, x25519.X25519PrivateKey):
-                pk_x25519 = x25519.X25519PublicKey.from_public_bytes(
-                    peer_public
-                )
-                return self._private_key.exchange(pk_x25519)
-
-            elif isinstance(self._private_key, x448.X448PrivateKey):
-                pk_x448 = x448.X448PublicKey.from_public_bytes(peer_public)
-                return self._private_key.exchange(pk_x448)
-
-            else:
-                raise AlertInternalError(
-                    "Unsupported private key type for key exchange."
-                )
-
-        except ValueError as exc:
-            raise AlertDecodeError(str(exc)) from None
+        if isinstance(self._private_key, ec.EllipticCurvePrivateKey):
+            algorithm = ec.ECDH()
+            pk_ec = ec.EllipticCurvePublicKey.from_encoded_point(
+                self._private_key.curve, peer_public
+            )
+            return self._private_key.exchange(algorithm, pk_ec)
+        if isinstance(self._private_key, x25519.X25519PrivateKey):
+            pk_x25519 = x25519.X25519PublicKey.from_public_bytes(peer_public)
+            return self._private_key.exchange(pk_x25519)
+        if isinstance(self._private_key, x448.X448PrivateKey):
+            pk_x448 = x448.X448PublicKey.from_public_bytes(peer_public)
+            return self._private_key.exchange(pk_x448)
+        raise ValueError("Unsupported private key type for key exchange.")
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
         key_share = self.generate_key_share()
@@ -565,7 +536,7 @@ class KEMKeyExchange(BaseKeyExchange):
             curve = NamedGroup.SECP384R1
             level = 1024
         else:
-            raise AlertInternalError(f"Unsupported KEM group '{group}'")
+            raise ValueError(f"Unsupported KEM group '{group}'")
 
         self._group = group
         self._ec_kex = ECDHKeyExchange(curve)
@@ -589,10 +560,7 @@ class KEMKeyExchange(BaseKeyExchange):
         peer_pqc_ct, peer_ec_pk = self._split_pk(peer_public, exp_pqc_ct_len)
 
         ec_ss = self._ec_kex.compute_shared_secret(peer_ec_pk)
-        try:
-            pqc_ss = mlkem.decaps(self._level, peer_pqc_ct, self._private_key)
-        except ValueError as exc:
-            raise AlertDecodeError(str(exc)) from None
+        pqc_ss = mlkem.decaps(self._level, peer_pqc_ct, self._private_key)
 
         if self._group == NamedGroup.X25519MLKEM768:
             shared_secret = pqc_ss + ec_ss
@@ -605,13 +573,9 @@ class KEMKeyExchange(BaseKeyExchange):
         exp_pqc_pk_len = _PQC_KEY_LEN[self._group]
         peer_pqc_pk, peer_ec_pk = self._split_pk(peer_public, exp_pqc_pk_len)
 
-        ec_pk, ec_ss = self._ec_kex.generate_and_compute(peer_ec_pk)
-
         seed = get_random_bytes(32)
-        try:
-            pqc_ct, pqc_ss = mlkem.encaps(self._level, peer_pqc_pk, seed)
-        except ValueError as exc:
-            raise AlertIllegalParameter(str(exc)) from None
+        ec_pk, ec_ss = self._ec_kex.generate_and_compute(peer_ec_pk)
+        pqc_ct, pqc_ss = mlkem.encaps(self._level, peer_pqc_pk, seed)
 
         if self._group == NamedGroup.X25519MLKEM768:
             key_share = pqc_ct + ec_pk
@@ -626,7 +590,7 @@ class KEMKeyExchange(BaseKeyExchange):
         ec_key_len = _EC_KEY_LEN[self._group]
 
         if len(pk) != ec_key_len + pqc_data_len:
-            raise AlertIllegalParameter(
+            raise ValueError(
                 f"Invalid key size '{len(pk)}' for the selected group. "
                 f"Expected '{ec_key_len + pqc_data_len}'."
             )

@@ -28,6 +28,7 @@ from simple_tls.tls.enums import (
 
 from .utils import (
     SERVER_CAFILE,
+    SERVER_DH_PARAMETERS_FILE,
     SERVER_DSA_CERTFILE,
     SERVER_DSA_KEYFILE,
     SERVER_EC_SECP256R1_CERTFILE,
@@ -201,6 +202,7 @@ def test_handshake_with_dsa(version):
     server = create_server(
         certfile=SERVER_DSA_CERTFILE,
         keyfile=SERVER_DSA_KEYFILE,
+        dh_params_file=SERVER_DH_PARAMETERS_FILE,
         minimum_version=version,
         maximum_version=version,
         cipher_suites=cipher_suites,

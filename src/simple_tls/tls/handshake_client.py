@@ -41,7 +41,6 @@ from .alerts import (
     AlertDecodeError,
     AlertDecryptError,
     AlertECHRequired,
-    AlertException,
     AlertHandshakeFailure,
     AlertIllegalParameter,
     AlertInsufficientSecurity,
@@ -55,9 +54,7 @@ from .configuration import TLSConfiguration
 from .constants import (
     CERTIFICATE_COMPRESSIONS,
     ECC_GROUPS,
-    FFDHE_GROUPS,
     GREASES,
-    KEM_GROUPS,
     SIGNATURE_ALGORITHMS,
     SUPPORTED_GROUPS,
     TLS11_DOWNGRADE_SENTINEL,
@@ -140,10 +137,10 @@ from .key import (
     load_certificate_public_key,
 )
 from .keyexchange import (
+    BaseKeyExchange,
     DHParameters,
     ECDHKeyExchange,
     FFDHKeyExchange,
-    KEMKeyExchange,
 )
 from .messages import (
     CertificateRequest,
@@ -312,14 +309,11 @@ class TLSHandshakeClient(TLSHandshake):
         self._selected_ech_config: ECHConfigContent | None = None
         self._ech_client_outer: ECHClientExtension | None = None
         self._ticket_expected: bool = False
-
         self._pre_shared_keys: list[
             tuple[KeySchedule, PSKIdentity, bytes]
         ] = []
-        self._key_exchange: ECDHKeyExchange | FFDHKeyExchange | None = None
-        self._key_exchanges: dict[
-            int, ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
-        ] = {}
+        self._key_exchange: BaseKeyExchange | None = None
+        self._key_exchanges: dict[int, BaseKeyExchange] = {}
 
         greases = list(GREASES)
         random.shuffle(greases)
@@ -431,20 +425,9 @@ class TLSHandshakeClient(TLSHandshake):
 
             # Key Shares
             for group in self._supported_groups[:2]:
-                kex: ECDHKeyExchange | FFDHKeyExchange | KEMKeyExchange
-                try:
-                    if group in ECC_GROUPS:
-                        kex = ECDHKeyExchange(group)
-                    elif group in KEM_GROUPS:
-                        kex = KEMKeyExchange(group)
-                    elif group in FFDHE_GROUPS:
-                        kex = FFDHKeyExchange(group)
-                    else:
-                        continue
-                except AlertException as exc:
-                    raise ValueError(str(exc)) from None
-
-                self._key_exchanges[group] = kex
+                kex = self._get_key_exchange(group)
+                if kex is not None:
+                    self._key_exchanges[group] = kex
 
             if configuration.ech_configs is not None:
                 try:
@@ -783,6 +766,7 @@ class TLSHandshakeClient(TLSHandshake):
         session = self._session
 
         ske = message.parse_as(ServerKeyExchange)
+
         parser = Parser(ske.data)
         parser.set_bookmark()
 
@@ -825,7 +809,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             try:
                 parameters = DHParameters(p=dh_p, g=dh_g)
-                self._key_exchange = FFDHKeyExchange(parameters=parameters)
+                self._key_exchange = FFDHKeyExchange(parameters)
             except ValueError as exc:
                 raise AlertIllegalParameter(str(exc)) from exc
 
@@ -1000,8 +984,8 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertHandshakeFailure(str(exc)) from exc
 
             self._check_pubkey(version, peer_public_key, cipher_suite)
+            assert isinstance(peer_public_key, RSAPublicKey)
 
-            peer_public_key = typing.cast(RSAPublicKey, peer_public_key)
             premaster_secret = int_to_bytes(version, 2) + get_random_bytes(46)
             enc_premaster_secret = peer_public_key.encrypt(premaster_secret)
             writer.write_prefixed_bytes(enc_premaster_secret, 2)
@@ -1009,9 +993,13 @@ class TLSHandshakeClient(TLSHandshake):
             assert self._key_exchange is not None
             assert self._peer_key is not None
 
-            key_share, premaster_secret = (
-                self._key_exchange.generate_and_compute(self._peer_key)
-            )
+            try:
+                key_share, premaster_secret = (
+                    self._key_exchange.generate_and_compute(self._peer_key)
+                )
+            except ValueError as exc:
+                raise AlertIllegalParameter("Invalid key share") from exc
+
             if cipher_suite.kea == KeyExchange.ECDHE:
                 writer.write_prefixed_bytes(key_share, 1)
             elif cipher_suite.kea == KeyExchange.DHE:
@@ -1260,14 +1248,8 @@ class TLSHandshakeClient(TLSHandshake):
                     "Unexpected group in key share extension"
                 )
 
-            kex: KEMKeyExchange | FFDHKeyExchange | ECDHKeyExchange
-            if selected_group in KEM_GROUPS:
-                kex = KEMKeyExchange(selected_group)
-            elif selected_group in FFDHE_GROUPS:
-                kex = FFDHKeyExchange(selected_group)
-            elif selected_group in ECC_GROUPS:
-                kex = ECDHKeyExchange(selected_group)
-            else:
+            kex = self._get_key_exchange(selected_group)
+            if kex is None:
                 raise AlertIllegalParameter()
 
             self._key_exchanges.clear()
@@ -1425,13 +1407,13 @@ class TLSHandshakeClient(TLSHandshake):
                     key_share.key_exchange
                 )
             except ValueError as exc:
-                raise AlertIllegalParameter(str(exc)) from None
+                raise AlertIllegalParameter("Invalid key share") from exc
 
         elif (
             self._psk_kex_modes is not None
             and PSKKeyExchangeMode.PSK_KE not in self._psk_kex_modes
         ):
-            raise AlertIllegalParameter()
+            raise AlertIllegalParameter("Invalid PSK key exchange mode")
 
         else:
             shared_secret = None
