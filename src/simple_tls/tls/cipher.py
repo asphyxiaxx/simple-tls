@@ -465,7 +465,10 @@ class TLSCipher:
         if self._aad_is_header:
             aad = header
         else:
-            plaintext_len = len(ciphertext) - self.max_overhead()
+            if len(ciphertext) < self._max_overhead:
+                raise InvalidTag("Truncated tag")
+
+            plaintext_len = len(ciphertext) - self._max_overhead
             aad = struct.pack(
                 "!QBHH", seq_num, content_type, record_version, plaintext_len
             )
