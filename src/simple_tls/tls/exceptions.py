@@ -22,42 +22,7 @@ from __future__ import annotations
 
 import typing
 
-_ALERT_MAP = {
-    0: "close_notify",
-    10: "unexpected_message",
-    20: "bad_record_mac",
-    21: "decryption_failed",
-    22: "record_overflow",
-    30: "decompression_failure",
-    40: "handshake_failure",
-    41: "no_certificate",
-    42: "bad_certificate",
-    43: "unsupported_certificate",
-    44: "certificate_revoked",
-    45: "certificate_expired",
-    46: "certificate_unknown",
-    47: "illegal_parameter",
-    48: "unknown_ca",
-    49: "access_denied",
-    50: "decode_error",
-    51: "decrypt_error",
-    70: "protocol_version",
-    71: "insufficient_security",
-    80: "internal_error",
-    86: "inappropriate_fallback",
-    90: "user_cancelled",
-    100: "no_renegotiation",
-    109: "missing_extension",
-    110: "unsupported_extension",
-    111: "certificate_unobtainable",
-    112: "unrecognized_name",
-    113: "bad_certificate_status_response",
-    114: "bad_certificate_hash_value",
-    115: "unknown_psk_identity",
-    116: "certificate_required",
-    120: "no_application_protocol",
-    121: "ech_required",
-}
+from .constants import AlertDescription
 
 
 class TLSError(Exception):
@@ -82,9 +47,13 @@ class TLSAlert(TLSError):
     def __init__(self, description: int, reason: typing.Any = None) -> None:
         self.description = description
         self.reason = reason
-        message = _ALERT_MAP.get(description, "")
+        try:
+            alert_name = AlertDescription(description).name.lower()
+            message = f"[{alert_name}]"
+        except ValueError:
+            message = f"[unknown alert type: {description}]"
         if reason:
-            message += f": {reason}"
+            message += f" {reason}"
         TLSError.__init__(self, message)
 
 
