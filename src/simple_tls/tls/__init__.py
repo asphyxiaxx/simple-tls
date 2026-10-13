@@ -44,16 +44,18 @@ from .exceptions import (
     TLSWantReadError,
 )
 from .handshake_server import ClientHelloInfo, HandshakeContext
-from .key import load_pem_private_key
-from .keyexchange import load_pem_parameters
+from .key import BasePrivateKey, load_pem_private_key
+from .keyexchange import DHParameters, load_pem_parameters
 from .session import TicketAEAD, TLSSession
 
 __all__ = [
     "AlertDescription",
     "Authentication",
+    "BasePrivateKey",
     "CertificateCompressionAlgorithm",
     "CipherSuite",
     "ClientHelloInfo",
+    "DHParameters",
     "Direction",
     "HandshakeContext",
     "HashAlgorithm",
