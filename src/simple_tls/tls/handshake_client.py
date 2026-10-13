@@ -1018,6 +1018,11 @@ class TLSHandshakeClient(TLSHandshake):
             label = b"master secret"
             transcript = None
 
+        # RFC 5246 section 8.1.2
+        # Remove leading zeroes from premaster secret for DHE key exchange
+        if cipher_suite.kea == KeyExchange.DHE:
+            premaster_secret = premaster_secret.lstrip(b"\x00")
+
         session.extended_master_secret = self._extended_master_secret
         session.secret = self._derive_secret(
             premaster_secret, label, transcript
