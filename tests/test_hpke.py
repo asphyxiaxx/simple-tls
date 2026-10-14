@@ -22,7 +22,7 @@ def test_vectors():
 @pytest.mark.parametrize("kem", KEMS)
 def test_kem_encap(test_vectors, kem):
     for vector in test_vectors:
-        if vector["kem_id"] != kem.id:
+        if vector["kem_id"] != kem.ID:
             continue
 
         mode = vector["mode"]
@@ -55,7 +55,7 @@ def test_kem_encap(test_vectors, kem):
 @pytest.mark.parametrize("kem", KEMS)
 def test_kem_decap(test_vectors, kem):
     for vector in test_vectors:
-        if vector["kem_id"] != kem.id:
+        if vector["kem_id"] != kem.ID:
             continue
 
         mode = vector["mode"]

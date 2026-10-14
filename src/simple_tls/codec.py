@@ -20,18 +20,19 @@
 
 from __future__ import annotations
 
-import typing
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from typing import Generic, TypeVar, Union, cast
 
 from simple_tls.crypto.utils import bytes_to_int, int_to_bytes
 
-_B = typing.TypeVar("_B", bound=typing.Union[bytes, bytearray, memoryview])
+_B = TypeVar("_B", bound=Union[bytes, bytearray, memoryview])
 
 
 class ParseError(Exception): ...
 
 
-class Parser(typing.Generic[_B]):
+class Parser(Generic[_B]):
     def __init__(self, data: _B) -> None:
         self._data = data
         self._index = 0
@@ -41,7 +42,7 @@ class Parser(typing.Generic[_B]):
         self._bookmark = self._index
 
     def data_since_bookmark(self) -> _B:
-        return typing.cast(_B, self._data[self._bookmark : self._index])
+        return cast(_B, self._data[self._bookmark : self._index])
 
     def read_bytes(self, size: int) -> _B:
         if size < 0:
@@ -49,14 +50,14 @@ class Parser(typing.Generic[_B]):
 
         end = self._index + size
         if end > len(self._data):
+            remaining = len(self._data) - self._index
             raise ParseError(
-                f"Error while parsing buffer: expected '{size}' bytes, but "
-                f"only '{len(self._data) - self._index}' bytes remaining"
+                f"expected '{size}' bytes, only '{remaining}' remaining"
             )
 
-        data = typing.cast(_B, self._data[self._index : end])
+        data = self._data[self._index : end]
         self._index += size
-        return data
+        return cast(_B, data)
 
     def read_int(self, size: int) -> int:
         return bytes_to_int(self.read_bytes(size), "big")
@@ -70,31 +71,28 @@ class Parser(typing.Generic[_B]):
     ) -> list[int]:
         length = self.read_int(prefix_size)
         if length % item_size != 0:
-            raise ParseError(
-                "Error while parsing buffer: length of int list is not a "
-                "multiple of item size"
-            )
+            raise ParseError("list length is not a multiple of item size")
 
         size = length // item_size
         return [self.read_int(item_size) for _ in range(size)]
 
     @contextmanager
-    def assert_length(self, prefix_size: int) -> typing.Generator[int]:
+    def assert_length(self, prefix_size: int) -> Generator[int]:
         length = self.read_int(prefix_size)
         start = self._index
         end = start + length
         yield end
         if self._index != end:
+            consumed = self._index - start
             raise ParseError(
-                f"Error while parsing buffer: expected '{end}' bytes, but "
-                f"consumed '{self._index - start}' bytes"
+                f"expected '{length}' bytes, consumed '{consumed}' bytes"
             )
 
     def skip(self, size: int) -> None:
         if self._index + size > len(self._data):
+            remaining = len(self._data) - self._index
             raise ParseError(
-                f"Error while parsing buffer: expected '{size}' bytes, but "
-                f"only '{len(self._data) - self._index}' bytes remaining"
+                f"expected '{size}' bytes, only '{remaining}' remaining"
             )
 
         self._index += size
@@ -138,10 +136,7 @@ class Writer:
         self.write_bytes(data)
 
     def write_prefixed_int_list(
-        self,
-        seq: typing.Sequence[int],
-        item_size: int,
-        prefix_size: int,
+        self, seq: Sequence[int], item_size: int, prefix_size: int
     ) -> None:
         self.write_int(len(seq) * item_size, prefix_size)
         for i in seq:

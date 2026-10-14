@@ -20,20 +20,21 @@
 
 from __future__ import annotations
 
-import typing
 from collections import deque
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import datetime, timedelta, timezone
+from typing import TypeVar, Union, overload
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.x509.oid import ExtensionOID
 
-_T = typing.TypeVar("_T", contravariant=True, bound="x509.ExtensionType")
+_T = TypeVar("_T", contravariant=True, bound="x509.ExtensionType")
 
-_MaybeExtensionCallback = typing.Callable[
+_MaybeExtensionCallback = Callable[
     ["Verifier", x509.Certificate, x509.Extension | None], None
 ]
-_PresentExtensionCallback = typing.Callable[
+_PresentExtensionCallback = Callable[
     ["Verifier", x509.Certificate, x509.Extension], None
 ]
 
@@ -57,7 +58,7 @@ class UntrustedRoot(VerificationError): ...
 
 
 class Store:
-    def __init__(self, certs: list[x509.Certificate] | None = None):
+    def __init__(self, certs: list[x509.Certificate] | None = None) -> None:
         if certs is None:
             certs = []
 
@@ -68,18 +69,18 @@ class Store:
         for c in self._certs:
             self._trust_map.setdefault(c.subject, []).append(c)
 
-    def __iter__(self) -> typing.Iterator[x509.Certificate]:
+    def __iter__(self) -> Iterator[x509.Certificate]:
         return iter(self._certs)
 
     def __len__(self) -> int:
         return len(self._certs)
 
-    @typing.overload
+    @overload
     def get(
         self, key: x509.Name, default: _T = ...
     ) -> list[x509.Certificate] | _T: ...
 
-    @typing.overload
+    @overload
     def get(
         self, key: x509.Name, default: None = ...
     ) -> list[x509.Certificate] | None: ...
@@ -93,7 +94,7 @@ class Store:
         self._certs.append(certificate)
         self._trust_map.setdefault(certificate.subject, []).append(certificate)
 
-    def extend(self, certificates: typing.Iterable[x509.Certificate]) -> None:
+    def extend(self, certificates: Iterable[x509.Certificate]) -> None:
         self._certs.extend(certificates)
         for c in certificates:
             self._trust_map.setdefault(c.subject, []).append(c)
@@ -106,10 +107,10 @@ class ExtensionPolicy:
     def __init__(
         self,
         *,
-        _may_be_present: typing.Union[
+        _may_be_present: Union[
             dict[x509.ObjectIdentifier, _MaybeExtensionCallback | None], None
         ] = None,
-        _require_present: typing.Union[
+        _require_present: Union[
             dict[x509.ObjectIdentifier, _PresentExtensionCallback | None], None
         ] = None,
     ) -> None:
@@ -237,13 +238,11 @@ class Verifier:
         return self._allow_partial_chain
 
     def verify(
-        self,
-        leaf: x509.Certificate,
-        intermediates: typing.Sequence[x509.Certificate],
+        self, leaf: x509.Certificate, intermediates: Sequence[x509.Certificate]
     ) -> tuple[x509.Certificate, ...]:
         chains = self._build_candidate_chains(leaf, intermediates)
         if not chains:
-            raise UntrustedRoot("No trusted root found")
+            raise UntrustedRoot("no trusted root found")
 
         chain = chains[0]
         self._verify_chain(chain)
@@ -252,9 +251,7 @@ class Verifier:
     # Internal
 
     def _build_candidate_chains(
-        self,
-        leaf: x509.Certificate,
-        intermediates: typing.Sequence[x509.Certificate],
+        self, leaf: x509.Certificate, intermediates: Sequence[x509.Certificate]
     ) -> list[list[x509.Certificate]]:
         """
         Build possible chains starting at leaf. Each chain is
@@ -321,7 +318,7 @@ class Verifier:
         # (if store contains that intermediate by subject)
         return chains
 
-    def _verify_chain(self, chain: typing.Sequence[x509.Certificate]) -> None:
+    def _verify_chain(self, chain: Sequence[x509.Certificate]) -> None:
         """
         Verify chain top-down: for i in range(len(chain)-1):
             verify chain[i] signed by chain[i+1] (parent)
@@ -332,17 +329,15 @@ class Verifier:
         """
         if not chain:
             raise ValueError("chain cannot be empty")
-
-        # check length
         if len(chain) > self.max_chain_depth:
             raise PolicyViolationError("chain length exceeds max depth")
+
+        now = utcnow()
+        skew = 300
 
         # ca_count_below: number of CA certs below current issuer per RFC
         # pathLen semantics
         ca_count_below = 0
-
-        now = utcnow()
-        skew = 300
 
         # iterate from leaf up to (parent = next)
         child_bc = None
@@ -404,14 +399,10 @@ class Verifier:
     ) -> None:
         try:
             child.verify_directly_issued_by(issuer)
-        except (TypeError, ValueError, InvalidSignature) as exc:
-            err_str = (
-                f"{child} at index '{index}' signature verification failed"
-            )
-            exc_str = str(exc)
-            if exc_str:
-                err_str += f" [{exc_str}]"
-            raise SignatureVerificationError(err_str) from exc
+        except InvalidSignature:
+            raise SignatureVerificationError(
+                f"signature verification failed for {child} at index {index}"
+            ) from None
 
     @staticmethod
     def _verify_validity_now(
@@ -426,13 +417,13 @@ class Verifier:
 
         if now + delta < not_before:
             raise CertificateNotYetValid(
-                f"{child} at index '{index}' not valid until "
-                f"{not_before.isoformat()}"
+                f"certificate not yet valid for {child} at index {index}: "
+                f"valid from {not_before.isoformat()}"
             )
         if now - delta > not_after:
             raise CertificateExpired(
-                f"{child} at index '{index}' expired at "
-                f"{not_after.isoformat()}"
+                f"certificate expired for {child} at index {index}: "
+                f"expired at {not_after.isoformat()}"
             )
 
     @staticmethod
@@ -482,6 +473,6 @@ def verify_ca_key_usage(
     key_usage = extension.value
     if not key_usage.key_cert_sign:
         raise PolicyViolationError(
-            f"issuer {ca} not allowed to sign certificates "
-            f"[key usage has no key cert sign set]"
+            f"issuer {ca} not allowed to sign certificates: "
+            f"key usage extension missing key_cert_sign"
         )

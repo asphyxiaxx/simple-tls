@@ -21,12 +21,11 @@
 from __future__ import annotations
 
 import secrets
-import typing
+from typing import Literal, TypeAlias, Union, overload
 
 from simple_tls._crypto import utils  # type: ignore
 
-_SupportBytes = typing.Union[bytes, bytearray, memoryview]
-_StrOrBytes = typing.Union[_SupportBytes, str]
+Buffer: TypeAlias = Union[bytes, bytearray, memoryview]
 
 
 def byte_length(value: int) -> int:
@@ -34,8 +33,8 @@ def byte_length(value: int) -> int:
 
 
 def bytes_to_int(
-    data: _SupportBytes,
-    byteorder: typing.Literal["little", "big"] = "big",
+    data: Buffer,
+    byteorder: Literal["little", "big"] = "big",
     *,
     signed: bool = False,
 ) -> int:
@@ -45,7 +44,7 @@ def bytes_to_int(
 def int_to_bytes(
     value: int,
     length: int | None = None,
-    byteorder: typing.Literal["little", "big"] = "big",
+    byteorder: Literal["little", "big"] = "big",
 ) -> bytes:
     if length is None:
         if value:
@@ -55,16 +54,16 @@ def int_to_bytes(
     return value.to_bytes(length, byteorder)
 
 
-@typing.overload
-def str_to_bytes(value: _StrOrBytes, encoding: str = ...) -> bytes: ...
+@overload
+def str_to_bytes(value: str | Buffer, encoding: str = ...) -> bytes: ...
 
 
-@typing.overload
+@overload
 def str_to_bytes(value: None, encoding: str = ...) -> None: ...
 
 
 def str_to_bytes(
-    value: _StrOrBytes | None, encoding: str = "latin-1"
+    value: str | Buffer | None, encoding: str = "latin-1"
 ) -> bytes | None:
     if value is not None:
         if isinstance(value, str):
@@ -75,16 +74,16 @@ def str_to_bytes(
     return None
 
 
-@typing.overload
-def bytes_to_str(value: _StrOrBytes, encoding: str = ...) -> str: ...
+@overload
+def bytes_to_str(value: str | Buffer, encoding: str = ...) -> str: ...
 
 
-@typing.overload
+@overload
 def bytes_to_str(value: None, encoding: str = ...) -> None: ...
 
 
 def bytes_to_str(
-    value: _StrOrBytes | None, encoding: str = "latin-1"
+    value: str | Buffer | None, encoding: str = "latin-1"
 ) -> str | None:
     if value is not None:
         if isinstance(value, str):

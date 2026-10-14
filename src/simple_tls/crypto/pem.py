@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
 
-from .utils import get_random_bytes
+from simple_tls.crypto.utils import get_random_bytes
 
 __all__ = ["EncryptionAlgorithm", "decode", "encode"]
 
@@ -67,7 +67,7 @@ def encode(
 
     if password is not None:
         if not password:
-            raise ValueError("Empty password")
+            raise ValueError("password is empty")
 
         salt = get_random_bytes(8)
         cipher_alg = _PEM_CIPHERS[algorithm].get_algorithm(password, salt)
@@ -113,37 +113,33 @@ def decode(
 ) -> Result:
     m = _PEM_RC.search(pem_data, pos=pos)
     if m is None:
-        raise ValueError("Not a valid PEM boundary")
+        raise ValueError("PEM boundary not found")
 
     marker = m["label"]
     contents = m["content"].split(b"\n")
     if not contents:
-        raise ValueError("Empty content")
+        raise ValueError("PEM content is empty")
 
     if contents[0].startswith(_PROC_TYPE_4_ENCRYPTED):
         if not password:
             raise ValueError("PEM is encrypted but password is not provided")
         if not len(contents) > 2:
-            raise ValueError("Malformed PEM structure")
+            raise ValueError("PEM structure is malformed")
 
         label, sep, info = contents[1].partition(b": ")
         if not sep or not label == _DEK_INFO:
-            raise ValueError("PEM decryption format not supported.")
+            raise ValueError("PEM decryption format not supported")
 
         enc_algo, sep, hex_salt = info.partition(b",")
         if not sep:
-            raise ValueError("Invalid DEK-Info")
+            raise ValueError("PEM DEK-Info is invalid")
+        if enc_algo not in _PEM_CIPHERS:
+            raise ValueError(
+                f"PEM decryption algorithm '{enc_algo!s}' is not supported"
+            )
 
         salt = binascii.unhexlify(hex_salt)
-        try:
-            cipher_alg = _PEM_CIPHERS[enc_algo].get_algorithm(
-                password, salt[:8]
-            )
-        except KeyError:
-            raise ValueError(
-                f"Unsupported PEM decryption algorithm '{enc_algo!s}'"
-            ) from None
-
+        cipher_alg = _PEM_CIPHERS[enc_algo].get_algorithm(password, salt[:8])
         mode = _PEM_CIPHERS[enc_algo].get_mode(salt)
         contents = contents[2:]
     else:

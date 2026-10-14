@@ -20,14 +20,14 @@
 
 from __future__ import annotations
 
-import typing
+from typing import ClassVar, cast
 
 
 class UnsupportedCompression(Exception): ...
 
 
 class Compression:
-    SUPPORTED: typing.ClassVar[bool] = False
+    SUPPORTED: ClassVar[bool] = False
 
     @classmethod
     def compress(cls, data: bytes) -> bytes:
@@ -41,56 +41,56 @@ class Compression:
 class Brotli(Compression):
     try:
         import brotli as _brotli  # type: ignore
-
     except ImportError:
         pass
-
     else:
         SUPPORTED = True
 
         @classmethod
         def compress(cls, data: bytes) -> bytes:
             try:
-                return typing.cast(bytes, cls._brotli.compress(data))
+                return cast(bytes, cls._brotli.compress(data))
             except cls._brotli.error as exc:
-                raise ValueError(f"Error compressing: {exc}") from None
+                raise ValueError(f"brotli compression failed: {exc}") from None
 
         @classmethod
         def decompress(cls, data: bytes, length: int = 0) -> bytes:
             try:
-                return typing.cast(bytes, cls._brotli.decompress(data))
+                return cast(bytes, cls._brotli.decompress(data))
             except cls._brotli.error as exc:
-                raise ValueError(f"Error decompressing: {exc}") from None
+                raise ValueError(
+                    f"brotli decompression failed: {exc}"
+                ) from None
 
 
 class ZSTD(Compression):
     try:
         import zstandard as _zstandard  # type: ignore
-
     except ImportError:
         try:
             import zstd as _zstd  # type: ignore
-
         except ImportError:
             pass
-
         else:
             SUPPORTED = True
 
             @classmethod
             def compress(cls, data: bytes) -> bytes:
                 try:
-                    return typing.cast(bytes, cls._zstd.compress(data))
+                    return cast(bytes, cls._zstd.compress(data))
                 except Exception as exc:
-                    raise ValueError(f"Error compressing: {exc}") from None
+                    raise ValueError(
+                        f"zstd compression failed: {exc}"
+                    ) from None
 
             @classmethod
             def decompress(cls, data: bytes, length: int = 0) -> bytes:
                 try:
-                    return typing.cast(bytes, cls._zstd.decompress(data))
+                    return cast(bytes, cls._zstd.decompress(data))
                 except Exception as exc:
-                    raise ValueError(f"Error decompressing: {exc}") from None
-
+                    raise ValueError(
+                        f"zstd decompression failed: {exc}"
+                    ) from None
     else:
         SUPPORTED = True
 
@@ -102,14 +102,14 @@ class ZSTD(Compression):
             try:
                 return cls._compressor.compress(data)
             except Exception as exc:
-                raise ValueError(f"Error compressing: {exc}") from None
+                raise ValueError(f"zstd compression failed: {exc}") from None
 
         @classmethod
         def decompress(cls, data: bytes, length: int = 0) -> bytes:
             try:
                 return cls._decompressor.decompress(data, length)
             except Exception as exc:
-                raise ValueError(f"Error decompressing: {exc}") from None
+                raise ValueError(f"zstd decompression failed: {exc}") from None
 
 
 class ZLIB(Compression):
@@ -122,7 +122,7 @@ class ZLIB(Compression):
         try:
             return cls._zlib.compress(data)
         except Exception as exc:
-            raise ValueError(f"Error compressing: {exc}") from None
+            raise ValueError(f"zlib compression failed: {exc}") from None
 
     @classmethod
     def decompress(cls, data: bytes, length: int = 0) -> bytes:
@@ -131,4 +131,4 @@ class ZLIB(Compression):
                 return cls._zlib.decompress(data)
             return cls._zlib.decompress(data, bufsize=length)
         except Exception as exc:
-            raise ValueError(f"Error decompressing: {exc}") from None
+            raise ValueError(f"zlib decompression failed: {exc}") from None

@@ -21,9 +21,9 @@
 from __future__ import annotations
 
 import struct
-import typing
 from dataclasses import dataclass
 from hashlib import pbkdf2_hmac, scrypt
+from typing import ClassVar, cast
 
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf import hkdf
@@ -143,7 +143,7 @@ _BCRYPT_CONSTANT = b"OxychromaticBlowfishSwatDynamite"
 
 @dataclass(frozen=True)
 class Bcrypt:
-    SUPPORTED: typing.ClassVar[bool] = False
+    SUPPORTED: ClassVar[bool] = False
 
     salt: bytes
     length: int
@@ -241,7 +241,7 @@ class Bcrypt:
                 rounds=self.iterations,
                 ignore_few_rounds=True,
             )
-            return typing.cast(bytes, key)
+            return cast(bytes, key)
 
 
 def hkdf_expand(

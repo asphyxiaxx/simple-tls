@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import enum
 import struct
-import typing
 from dataclasses import dataclass
+from typing import ClassVar, TypeVar, Union
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, x448, x25519
@@ -33,24 +33,28 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .kdf import hkdf_expand, hkdf_extract
 from .utils import bytes_to_int, int_to_bytes, strxor
 
-HPKEPrivateKeyType = typing.Union[
+HPKEPrivateKeyType = Union[
     ec.EllipticCurvePrivateKey,
     x25519.X25519PrivateKey,
     x448.X448PrivateKey,
 ]
-HPKEPublicKeyType = typing.Union[
+HPKEPublicKeyType = Union[
     ec.EllipticCurvePublicKey,
     x25519.X25519PublicKey,
     x448.X448PublicKey,
 ]
-AEADContext = typing.Union[aead.AESGCM, aead.ChaCha20Poly1305]
+AEADContext = Union[
+    aead.AESGCM,
+    aead.ChaCha20Poly1305,
+]
 
-_C = typing.TypeVar("_C", bound="Context")
-
-_HPKE_VERSION_V1 = b"HPKE-v1"
+_C = TypeVar("_C", bound="Context")
 
 
 # Constant
+_HPKE_VERSION_V1 = b"HPKE-v1"
+
+
 class Mode(int, enum.Enum):
     BASE = 0x00
     PSK = 0x01
@@ -60,15 +64,15 @@ class Mode(int, enum.Enum):
 
 # KDF
 class HKDF:
-    id: int
-    algorithm: hashes.HashAlgorithm
+    ID: ClassVar[int]
+    ALGORITHM: ClassVar[hashes.HashAlgorithm]
 
     @classmethod
     def labeled_extract(
         cls, salt: bytes, label: bytes, ikm: bytes, suite_id: bytes
     ) -> bytes:
         ikm = _HPKE_VERSION_V1 + suite_id + label + ikm
-        return hkdf_extract(salt, ikm, cls.algorithm)
+        return hkdf_extract(salt, ikm, cls.ALGORITHM)
 
     @classmethod
     def labeled_expand(
@@ -86,35 +90,35 @@ class HKDF:
             + label
             + labeled_info
         )
-        return hkdf_expand(prk, labeled_info, length, cls.algorithm)
+        return hkdf_expand(prk, labeled_info, length, cls.ALGORITHM)
 
 
 class HKDF_SHA256(HKDF):
-    id = 0x0001
-    algorithm = hashes.SHA256()
+    ID = 0x0001
+    ALGORITHM = hashes.SHA256()
 
 
 class HKDF_SHA384(HKDF):
-    id = 0x0002
-    algorithm = hashes.SHA384()
+    ID = 0x0002
+    ALGORITHM = hashes.SHA384()
 
 
 class HKDF_SHA512(HKDF):
-    id = 0x0003
-    algorithm = hashes.SHA512()
+    ID = 0x0003
+    ALGORITHM = hashes.SHA512()
 
 
 # KEM
 class DHKEM:
-    id: typing.ClassVar[int]
-    kdf: typing.ClassVar[type[HKDF]]
+    ID: ClassVar[int]
+    KDF: ClassVar[type[HKDF]]
 
     @classmethod
     def extract_and_expand(cls, dh: bytes, kem_context: bytes) -> bytes:
-        suite_id = b"KEM" + struct.pack(">H", cls.id)
-        n_secret = cls.kdf.algorithm.digest_size
-        eae_prk = cls.kdf.labeled_extract(b"", b"eae_prk", dh, suite_id)
-        shared_secret = cls.kdf.labeled_expand(
+        suite_id = b"KEM" + struct.pack(">H", cls.ID)
+        n_secret = cls.KDF.ALGORITHM.digest_size
+        eae_prk = cls.KDF.labeled_extract(b"", b"eae_prk", dh, suite_id)
+        shared_secret = cls.KDF.labeled_expand(
             eae_prk, b"shared_secret", kem_context, n_secret, suite_id
         )
         return shared_secret
@@ -207,7 +211,7 @@ class DHKEM:
 
 
 class DHKEM_Weierstrass(DHKEM):
-    curve: typing.ClassVar[ec.EllipticCurve]
+    CURVE: ClassVar[ec.EllipticCurve]
 
     @classmethod
     def dh(cls, sk_x: HPKEPrivateKeyType, pk_y: HPKEPublicKeyType) -> bytes:
@@ -225,7 +229,7 @@ class DHKEM_Weierstrass(DHKEM):
 
     @classmethod
     def deserialize_public_key(cls, pk_xm: bytes) -> ec.EllipticCurvePublicKey:
-        return ec.EllipticCurvePublicKey.from_encoded_point(cls.curve, pk_xm)
+        return ec.EllipticCurvePublicKey.from_encoded_point(cls.CURVE, pk_xm)
 
     @classmethod
     def serialize_private_key(cls, sk_x: HPKEPrivateKeyType) -> bytes:
@@ -239,34 +243,34 @@ class DHKEM_Weierstrass(DHKEM):
         cls, sk_xm: bytes
     ) -> ec.EllipticCurvePrivateKey:
         scalar = bytes_to_int(sk_xm)
-        return ec.derive_private_key(scalar, cls.curve)
+        return ec.derive_private_key(scalar, cls.CURVE)
 
     @classmethod
     def generate(cls) -> ec.EllipticCurvePrivateKey:
-        return ec.generate_private_key(cls.curve)
+        return ec.generate_private_key(cls.CURVE)
 
 
 class DHKEM_P256_HKDF_SHA256(DHKEM_Weierstrass):
-    id = 0x0010
-    kdf = HKDF_SHA256
-    curve = ec.SECP256R1()
+    ID = 0x0010
+    KDF = HKDF_SHA256
+    CURVE = ec.SECP256R1()
 
 
 class DHKEM_P384_HKDF_SHA384(DHKEM_Weierstrass):
-    id = 0x0011
-    kdf = HKDF_SHA384
-    curve = ec.SECP384R1()
+    ID = 0x0011
+    KDF = HKDF_SHA384
+    CURVE = ec.SECP384R1()
 
 
 class DHKEM_P521_HKDF_SHA512(DHKEM_Weierstrass):
-    id = 0x0012
-    kdf = HKDF_SHA512
-    curve = ec.SECP521R1()
+    ID = 0x0012
+    KDF = HKDF_SHA512
+    CURVE = ec.SECP521R1()
 
 
 class DHKEM_X25519_HKDF_SHA256(DHKEM):
-    id = 0x0020
-    kdf = HKDF_SHA256
+    ID = 0x0020
+    KDF = HKDF_SHA256
 
     @classmethod
     def dh(cls, sk_x: HPKEPrivateKeyType, pk_y: HPKEPublicKeyType) -> bytes:
@@ -303,10 +307,10 @@ class DHKEM_X25519_HKDF_SHA256(DHKEM):
 
 # AEAD
 class AEAD:
-    id: typing.ClassVar[int]
-    key_size: typing.ClassVar[int]
-    nonce_size: typing.ClassVar[int]
-    tag_length: typing.ClassVar[int] = 16
+    ID: ClassVar[int]
+    KEY_SIZE: ClassVar[int]
+    NONCE_SIZE: ClassVar[int]
+    TAG_LENGTH: ClassVar[int] = 16
 
     @classmethod
     def get_cipher(cls, key: bytes) -> AEADContext:
@@ -320,21 +324,21 @@ class AEAD_AES_GCM(AEAD):
 
 
 class AEAD_AES_128_GCM(AEAD_AES_GCM):
-    id = 0x0001
-    key_size = 16
-    nonce_size = 12
+    ID = 0x0001
+    KEY_SIZE = 16
+    NONCE_SIZE = 12
 
 
 class AEAD_AES_256_GCM(AEAD_AES_GCM):
-    id = 0x0002
-    key_size = 32
-    nonce_size = 12
+    ID = 0x0002
+    KEY_SIZE = 32
+    NONCE_SIZE = 12
 
 
 class AEAD_ChaCha20Poly1305(AEAD):
-    id = 0x0003
-    key_size = 32
-    nonce_size = 12
+    ID = 0x0003
+    KEY_SIZE = 32
+    NONCE_SIZE = 12
 
     @classmethod
     def get_cipher(cls, key: bytes) -> aead.ChaCha20Poly1305:
@@ -342,9 +346,9 @@ class AEAD_ChaCha20Poly1305(AEAD):
 
 
 class AEAD_ExportOnly(AEAD):
-    id = 0xFFFF
-    key_size = 0
-    nonce_size = 0
+    ID = 0xFFFF
+    KEY_SIZE = 0
+    NONCE_SIZE = 0
 
 
 class Context:
@@ -370,7 +374,7 @@ class Context:
 
     @property
     def aead_overhead(self) -> int:
-        return self._aead.tag_length
+        return self._aead.TAG_LENGTH
 
     def export(self, exporter_context: bytes, length: int) -> bytes:
         """
@@ -391,7 +395,7 @@ class Context:
         if self._seq_num >= (1 << 64):
             raise OverflowError("HPKE sequence number overflow")
 
-        result = int_to_bytes(self._seq_num, self._aead.nonce_size)
+        result = int_to_bytes(self._seq_num, self._aead.NONCE_SIZE)
         self._seq_num += 1
         return result
 
@@ -437,7 +441,7 @@ class CipherSuite:
         got_psk = psk != default_psk
         got_psk_id = psk_id != default_psk_id
         if got_psk != got_psk_id:
-            raise ValueError("Inconsistent PSK inputs")
+            raise ValueError("inconsistent PSK inputs")
 
         if got_psk:
             assert mode in (Mode.PSK, Mode.AUTH_PSK)
@@ -462,7 +466,7 @@ class CipherSuite:
         kem = self.kem
         kdf = self.kdf
         aead = self.aead
-        suite_id = b"HPKE" + struct.pack(">HHH", kem.id, kdf.id, aead.id)
+        suite_id = b"HPKE" + struct.pack(">HHH", kem.ID, kdf.ID, aead.ID)
 
         psk_id_hash = kdf.labeled_extract(
             b"", b"psk_id_hash", psk_id, suite_id
@@ -472,15 +476,15 @@ class CipherSuite:
 
         secret = kdf.labeled_extract(shared_secret, b"secret", psk, suite_id)
 
-        nk = aead.key_size
-        nn = aead.nonce_size
+        nk = aead.KEY_SIZE
+        nn = aead.NONCE_SIZE
         key = kdf.labeled_expand(
             secret, b"key", key_schedule_context, nk, suite_id
         )
         base_nonce = kdf.labeled_expand(
             secret, b"base_nonce", key_schedule_context, nn, suite_id
         )
-        nh = kdf.algorithm.digest_size
+        nh = kdf.ALGORITHM.digest_size
         exporter_secret = kdf.labeled_expand(
             secret, b"exp", key_schedule_context, nh, suite_id
         )
@@ -583,7 +587,7 @@ class CipherSuite:
 
 
 _KEMS: dict[int, type[DHKEM]] = {
-    kem.id: kem
+    kem.ID: kem
     for kem in (
         DHKEM_P256_HKDF_SHA256,
         DHKEM_P384_HKDF_SHA384,
@@ -592,7 +596,7 @@ _KEMS: dict[int, type[DHKEM]] = {
     )
 }
 _KDFS: dict[int, type[HKDF]] = {
-    kdf.id: kdf
+    kdf.ID: kdf
     for kdf in (
         HKDF_SHA256,
         HKDF_SHA384,
@@ -600,7 +604,7 @@ _KDFS: dict[int, type[HKDF]] = {
     )
 }
 _AEADS: dict[int, type[AEAD]] = {
-    aead.id: aead
+    aead.ID: aead
     for aead in (
         AEAD_AES_128_GCM,
         AEAD_AES_256_GCM,
@@ -625,7 +629,7 @@ def create_suite(kem_id: int, kdf_id: int, aead_id: int) -> CipherSuite:
         try:
             args.append(map[id])  # type: ignore
         except KeyError:
-            raise ValueError(f"Unsupported {name} id: {id}") from None
+            raise ValueError(f"'{id} is unsupported for {name}") from None
 
     _CACHE[id_pairs] = cipher_suite = CipherSuite(*args)
     return cipher_suite
