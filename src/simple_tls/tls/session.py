@@ -128,7 +128,9 @@ class TLSSession:
         return self.version
 
     def copy(
-        self, include_noauth: bool = False, include_ticket: bool = False
+        self,
+        include_noauth: bool = False,
+        include_ticket: bool = False,
     ) -> TLSSession:
         new = TLSSession(
             protocol=self.protocol,

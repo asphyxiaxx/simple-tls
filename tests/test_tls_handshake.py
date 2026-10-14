@@ -4,6 +4,7 @@ from simple_tls.tls.alerts import (
     AlertCertificateRequired,
     AlertDecryptError,
     AlertHandshakeFailure,
+    AlertNoApplicationProtocol,
     AlertProtocolVersion,
 )
 from simple_tls.tls.configuration import TLSCredential
@@ -842,7 +843,7 @@ def test_server_unsupported_alpn(version):
 
     server_fail_hello(client, server)
 
-    with pytest.raises(AlertHandshakeFailure, match=r".*?ALPN.*"):
+    with pytest.raises(AlertNoApplicationProtocol, match=r".*?ALPN.*"):
         server.do_handshake()
 
 

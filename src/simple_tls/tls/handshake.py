@@ -20,8 +20,9 @@
 
 from __future__ import annotations
 
-import typing
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from typing import Any, ClassVar, Optional, TypeVar, cast
 
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
@@ -119,11 +120,11 @@ from .utils import (
     version_from_wire,
 )
 
-_M = typing.TypeVar("_M", bound="HandshakeMessage")
+_M = TypeVar("_M", bound="HandshakeMessage")
 
-MessageCallback = typing.Callable[[Direction, HandshakeMessage], None]
-SetupTrafficCallback = typing.Callable[
-    [Direction, Epoch, typing.Optional["TrafficContext"]], None
+MessageCallback = Callable[[Direction, HandshakeMessage], None]
+SetupTrafficCallback = Callable[
+    [Direction, Epoch, Optional["TrafficContext"]], None
 ]
 
 
@@ -147,7 +148,7 @@ class Handshake:
     handshake_type: int
     data: bytes
 
-    _cache: typing.Any = field(default=None, init=False)
+    _cache: Any = field(default=None, init=False)
 
     def tobytes(self) -> bytes:
         return (
@@ -159,18 +160,18 @@ class Handshake:
     def parse_as(self, message_cls: type[_M]) -> _M:
         if message_cls.handshake_type != self.handshake_type:
             raise AlertUnexpectedMessage(
-                f"Unexpected message '{self.handshake_type}' "
-                f"(expected {message_cls.handshake_type})"
+                f"received unexpected message '{hex(self.handshake_type)}', "
+                f"expected '{hex(message_cls.handshake_type)}'"
             )
 
         if self._cache is None or type(self._cache) is not message_cls:
             self._cache = message_cls.from_bytes(self.data)
 
-        return typing.cast(_M, self._cache)
+        return cast(_M, self._cache)
 
 
 class TLSHandshake:
-    is_server: typing.ClassVar[bool]
+    is_server: ClassVar[bool]
 
     def __init__(self, configuration: TLSConfiguration) -> None:
         # Callbacks
@@ -178,7 +179,7 @@ class TLSHandshake:
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
 
         # Dispatch function
-        self._handle_dispatch: dict[int, typing.Callable[[], Status]] = {}
+        self._handle_dispatch: dict[int, Callable[[], Status]] = {}
 
         # Configurations
         self._configuration: TLSConfiguration = configuration
@@ -239,7 +240,7 @@ class TLSHandshake:
 
     @property
     def done(self) -> bool:
-        raise NotImplementedError()
+        raise NotImplementedError
 
     @property
     def state(self) -> int:
@@ -389,15 +390,15 @@ class TLSHandshake:
         return ret
 
     def trigger_post_handshake(self) -> None:
-        raise NotImplementedError("abstract class")
+        raise NotImplementedError
+
+    def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
+        raise NotImplementedError
 
     def close_early_data(self) -> None:
         self._skip_early_data = False
         self._can_early_read = False
         self._can_early_write = False
-
-    def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
-        raise NotImplementedError("abstract class")
 
     def protocol_version(self) -> int:
         assert self._version != UNSPECIFIED
@@ -445,7 +446,9 @@ class TLSHandshake:
         return self._cache
 
     def _add_message(
-        self, message: HandshakeMessage, update_hash: bool = True
+        self,
+        message: HandshakeMessage,
+        update_hash: bool = True,
     ) -> None:
         handshake_data = self._pack_handshake(message)
         self._outgoing_messages.append(handshake_data)
@@ -502,7 +505,7 @@ class TLSHandshake:
         assert self._cipher_suite is not None
 
         if self.version == TLSVersion.TLSv1_2:
-            hash_algorithm = typing.cast(int, self._cipher_suite.prf_hash)
+            hash_algorithm = cast(int, self._cipher_suite.prf_hash)
             algorithm = get_algorithm(hash_algorithm)
         else:
             hash_algorithm = UNSPECIFIED
@@ -523,11 +526,13 @@ class TLSHandshake:
         )
 
     def _derive_finished_verify_data(
-        self, secret: bytes, label: bytes
+        self,
+        secret: bytes,
+        label: bytes,
     ) -> bytes:
         if self.version == TLSVersion.TLSv1_2:
             assert self._cipher_suite is not None
-            hash_algorithm = typing.cast(int, self._cipher_suite.prf_hash)
+            hash_algorithm = cast(int, self._cipher_suite.prf_hash)
             algorithm = get_algorithm(hash_algorithm)
         else:
             hash_algorithm = UNSPECIFIED
@@ -560,7 +565,7 @@ class TLSHandshake:
             mac_len = 0
         else:
             if cipher_suite.digest is None:
-                raise AlertInternalError("Unexpected cipher_suite provided")
+                raise AlertInternalError("unsupported cipher suite selected")
             digest_algorithm = get_algorithm(cipher_suite.digest)
             mac_len = digest_algorithm.digest_size
 
@@ -650,9 +655,9 @@ class TLSHandshake:
             KeyUpdateMessageType.UPDATE_NOT_REQUESTED,
             KeyUpdateMessageType.UPDATE_REQUESTED,
         ):
-            raise ValueError(f"Invalid message_type '{message_type}'")
+            raise ValueError(f"unsupported message_type '{message_type}'")
         if self.protocol_version() < TLSVersion.TLSv1_3:
-            raise ValueError("KeyUpdate is only support for TLSv1.3")
+            raise ValueError("key update is only support for TLSv1.3")
 
         key_update = KeyUpdate(message_type)
         self.message_cb(Direction.WRITE, key_update)
@@ -684,19 +689,22 @@ class TLSHandshake:
 
     @staticmethod
     def _serialize_extensions(
-        extensions: typing.Iterable[Extension],
+        extensions: Iterable[Extension],
     ) -> list[tuple[int, bytes]]:
         return [(e.extension_type, e.serialize()) for e in extensions]
 
     @staticmethod
     def _process_certificate(
-        message: Handshake, session: TLSSession, allow_anon: bool = False
+        message: Handshake,
+        session: TLSSession,
+        allow_anon: bool = False,
     ) -> Certificate:
         certificate = message.parse_as(Certificate)
+
         cert_chain = certificate.certificates
         if not cert_chain:
             if not allow_anon:
-                raise AlertCertificateRequired()
+                raise AlertCertificateRequired("certificate is not received")
             return certificate
 
         try:
@@ -716,7 +724,7 @@ class TLSHandshake:
     def _process_certificate_tls13(
         message: Handshake,
         session: TLSSession,
-        supported_compressions: typing.Iterable[int] | None = None,
+        supported_compressions: Iterable[int] | None = None,
         allow_anon: bool = False,
     ) -> CompressedCertificate | CertificateTLS13:
         c_certificate: CompressedCertificate | None = None
@@ -726,9 +734,12 @@ class TLSHandshake:
             and supported_compressions is not None
         ):
             c_certificate = message.parse_as(CompressedCertificate)
+
             compression = c_certificate.compression
             if compression not in supported_compressions:
-                raise AlertIllegalParameter("Invalid compression algorithm")
+                raise AlertIllegalParameter(
+                    "received invalid compression algorithm"
+                )
 
             try:
                 certificate = c_certificate.to_certificate()
@@ -736,7 +747,7 @@ class TLSHandshake:
                 raise AlertBadCertificate(str(exc)) from exc
             except UnsupportedCompression:
                 raise AlertInternalError(
-                    f"Certificate compression '{compression}' is unsupported"
+                    "unsupported compression algorithm is selected"
                 ) from None
         else:
             certificate = message.parse_as(CertificateTLS13)
@@ -744,7 +755,7 @@ class TLSHandshake:
         cert_entries = certificate.certificate_entries
         if not cert_entries:
             if not allow_anon:
-                raise AlertCertificateRequired()
+                raise AlertCertificateRequired("certificate is not received")
             return certificate
 
         cert_entry = cert_entries[0]
@@ -773,14 +784,14 @@ class TLSHandshake:
 
     @staticmethod
     def _create_certificate(
-        x509_certs: typing.Iterable[x509.Certificate],
+        x509_certs: Iterable[x509.Certificate],
     ) -> Certificate:
         certificates = [c.public_bytes(Encoding.DER) for c in x509_certs]
         return Certificate(certificates=certificates)
 
     @staticmethod
     def _create_certificate_tls13(
-        x509_certs: typing.Iterable[x509.Certificate],
+        x509_certs: Iterable[x509.Certificate],
         context: bytes = b"",
         compression: int | None = None,
     ) -> CompressedCertificate | CertificateTLS13:
@@ -797,7 +808,7 @@ class TLSHandshake:
                 )
             except UnsupportedCompression:
                 raise AlertInternalError(
-                    f"Certificate compression '{compression}' is unsupported"
+                    "unsupported compression algorithm is selected"
                 ) from None
 
         return certificate
@@ -808,22 +819,19 @@ class TLSHandshake:
             PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
             PublicKeyAlgorithmOID.RSASSA_PSS,
         ):
-            cert_type = ClientCertificateType.RSA_SIGN
+            return ClientCertificateType.RSA_SIGN
 
-        elif public_key_oid == PublicKeyAlgorithmOID.DSA:
-            cert_type = ClientCertificateType.DSS_SIGN
-
-        elif public_key_oid in (
+        if public_key_oid in (
             PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
             PublicKeyAlgorithmOID.ED25519,
             PublicKeyAlgorithmOID.ED25519,
         ):
-            cert_type = ClientCertificateType.ECDSA_SIGN
+            return ClientCertificateType.ECDSA_SIGN
 
-        else:
-            raise AlertInternalError("Unsupported certificate public key")
+        if public_key_oid == PublicKeyAlgorithmOID.DSA:
+            return ClientCertificateType.DSS_SIGN
 
-        return cert_type
+        raise AlertInternalError("given certificate public key is unsupported")
 
     @staticmethod
     def _check_pubkey(
@@ -839,11 +847,11 @@ class TLSHandshake:
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.RSA
             ):
-                raise AlertIllegalParameter("Invalid key type")
+                raise AlertIllegalParameter("received invalid public key type")
 
             if public_key.key_size < 1024:
                 raise AlertHandshakeFailure(
-                    f"Peer public key too small '{public_key.key_size}'"
+                    f"peer public key too small '{public_key.key_size}'"
                 )
 
         elif isinstance(public_key, DSAPublicKey):
@@ -851,11 +859,11 @@ class TLSHandshake:
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.DSS
             ):
-                raise AlertIllegalParameter("Invalid key type")
+                raise AlertIllegalParameter("received invalid public key type")
 
             if public_key.key_size < 1024:
                 raise AlertHandshakeFailure(
-                    f"Peer public key too small '{public_key.key_size}'"
+                    f"peer public key too small '{public_key.key_size}'"
                 )
 
         elif isinstance(public_key, ECPublicKey):
@@ -863,41 +871,35 @@ class TLSHandshake:
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.ECDSA
             ):
-                raise AlertIllegalParameter("Invalid key type")
+                raise AlertIllegalParameter("received invalid public key type")
 
         elif isinstance(public_key, (Ed25519PublicKey, Ed448PublicKey)):
             if version <= TLSVersion.TLSv1_1:
-                raise AlertIllegalParameter(
-                    "Unexpected EdDSA Key for older TLS version"
-                )
+                raise AlertIllegalParameter("received unexpected EdDSA key")
 
             if (
                 cipher_suite is not None
                 and cipher_suite.auth != Authentication.ECDSA
             ):
-                raise AlertIllegalParameter("Invalid key type")
+                raise AlertIllegalParameter("received invalid public key type")
 
         else:
-            raise AlertHandshakeFailure("Unsupported public key type")
+            raise AlertHandshakeFailure("recevied unsupported public key type")
 
     @staticmethod
     def _sigalgs_for_pubkey(
         version: int,
         public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
-        supported_sigalgs: typing.Sequence[int] | None = None,
+        supported_sigalgs: Sequence[int] | None = None,
     ) -> tuple[int | None, list[int]]:
-        """
-        Return supported signature algorithms based on public_key_oid
-
-        **Notes**: Public key type should were check earlier
-        """
+        """Return supported signature algorithms based on public_key_oid"""
         sigalgs: set[int] = set()
         default_sigalg: int | None = None
 
         if public_key_oid == PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5:
             if not isinstance(public_key, RSAPublicKey):
-                raise AlertInternalError("Not a RSA public key")
+                raise AlertInternalError("not a RSA public key")
 
             # RFC 8446
             # RSA signatures MUST use an RSASSA-PSS algorithm, regardless
@@ -915,20 +917,23 @@ class TLSHandshake:
 
         elif public_key_oid == PublicKeyAlgorithmOID.RSASSA_PSS:
             if not isinstance(public_key, RSAPublicKey):
-                raise AlertInternalError("Not a RSA public key")
+                raise AlertInternalError("not a RSA public key")
+
             if version >= TLSVersion.TLSv1_2:
                 sigalgs.update(RSA_PSS_PSS_SIGNATURE_ALGORITHMS)
 
         elif public_key_oid == PublicKeyAlgorithmOID.DSA:
             if not isinstance(public_key, DSAPublicKey):
-                raise AlertInternalError("Not a DSA public key")
+                raise AlertInternalError("not a DSA public key")
+
             if version <= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.DSA_SHA1
                 sigalgs.update(DSA_SIGNATURE_ALGORITHMS)
 
         elif public_key_oid == PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
             if not isinstance(public_key, ECPublicKey):
-                raise AlertInternalError("Not a EC public key")
+                raise AlertInternalError("not a EC public key")
+
             if version >= TLSVersion.TLSv1_3:
                 group_id = public_key.group_id
                 if group_id == NamedGroup.SECP256R1:
@@ -943,14 +948,16 @@ class TLSHandshake:
 
         elif public_key_oid == PublicKeyAlgorithmOID.ED25519:
             if not isinstance(public_key, Ed25519PublicKey):
-                raise AlertInternalError("Not a Ed25519 public key")
+                raise AlertInternalError("not a Ed25519 public key")
+
             if version >= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.ED25519
                 sigalgs.add(SignatureScheme.ED25519)
 
         elif public_key_oid == PublicKeyAlgorithmOID.ED448:
             if not isinstance(public_key, Ed448PublicKey):
-                raise AlertInternalError("Not a Ed448 public key")
+                raise AlertInternalError("not a Ed448 public key")
+
             if version >= TLSVersion.TLSv1_2:
                 default_sigalg = SignatureScheme.ED448
                 sigalgs.add(SignatureScheme.ED448)
@@ -969,18 +976,16 @@ class TLSHandshake:
         public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
     ) -> int:
-        if version > TLSVersion.TLSv1_1:
-            raise AlertInternalError("Unexpected call on higer version")
+        assert version <= TLSVersion.TLSv1_1
 
         default_verify_alg, _ = cls._sigalgs_for_pubkey(
             version=version,
             public_key=public_key,
             public_key_oid=public_key_oid,
         )
-        if default_verify_alg is None:
-            raise AlertIllegalParameter("Unsupported certificate")
-
-        return default_verify_alg
+        if default_verify_alg is not None:
+            return default_verify_alg
+        raise AlertIllegalParameter("received unsupported certificate")
 
     @classmethod
     def _verify_sigalg_tls12(
@@ -989,10 +994,9 @@ class TLSHandshake:
         public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
         signature_algorihtm: int,
-        supported_sigalgs: typing.Sequence[int] | None,
+        supported_sigalgs: Sequence[int] | None,
     ) -> None:
-        if version < TLSVersion.TLSv1_2:
-            raise AlertInternalError("Unexpected call on lower version")
+        assert version >= TLSVersion.TLSv1_2
 
         default_verify_alg, valid_sigalgs = cls._sigalgs_for_pubkey(
             version=version,
@@ -1000,14 +1004,21 @@ class TLSHandshake:
             public_key_oid=public_key_oid,
             supported_sigalgs=supported_sigalgs,
         )
+        signature_algorithm_ok = True
         if supported_sigalgs is not None:
             if signature_algorihtm not in valid_sigalgs:
-                raise AlertIllegalParameter("Wrong signature algorithm")
-        elif signature_algorihtm != default_verify_alg:
-            raise AlertIllegalParameter("Wrong signature algorithm")
+                signature_algorithm_ok = False
+        else:
+            if signature_algorihtm != default_verify_alg:
+                signature_algorithm_ok = False
+
+        if not signature_algorithm_ok:
+            raise AlertIllegalParameter("received wrong signature algorithm")
 
     def _verify_x509(
-        self, session: TLSSession, hostname: bytes | None = None
+        self,
+        session: TLSSession,
+        hostname: bytes | None = None,
     ) -> None:
         assert session.x509_peer is not None
         assert session.x509_chain is not None
@@ -1015,7 +1026,7 @@ class TLSHandshake:
         configuration = self.configuration
 
         if configuration.castore is None:
-            raise AlertUnknownCA("No CA Found")
+            raise AlertUnknownCA("castore is not provided")
 
         if configuration.ee_policy is not None:
             ee_policy = configuration.ee_policy
@@ -1065,12 +1076,15 @@ class TLSHandshake:
         self,
         session: TLSSession,
         cert_verify: CertificateVerify | CertificateVerifyTLS12,
-        supported_sigalgs: typing.Sequence[int] | None,
+        supported_sigalgs: Sequence[int] | None,
     ) -> None:
         if not cert_verify.signature:
-            raise AlertIllegalParameter("Empty signature")
+            raise AlertIllegalParameter(
+                "received certificate verify message with empty signature"
+            )
 
         assert session.x509_peer is not None
+
         version = self.protocol_version()
         x509_peer = session.x509_peer
         try:
@@ -1081,7 +1095,7 @@ class TLSHandshake:
         peer_public_key_oid = x509_peer.public_key_algorithm_oid
 
         if version >= TLSVersion.TLSv1_2:
-            cert_verify = typing.cast(CertificateVerifyTLS12, cert_verify)
+            cert_verify = cast(CertificateVerifyTLS12, cert_verify)
             verify_alg = cert_verify.signature_algorithm
             self._verify_sigalg_tls12(
                 version=version,
@@ -1115,6 +1129,4 @@ class TLSHandshake:
         try:
             peer_public_key.verify(cert_verify.signature, data, verify_alg)
         except InvalidSignature:
-            raise AlertDecryptError(
-                "Invalid signature in certificate verify"
-            ) from None
+            raise AlertDecryptError("failed to verify signature") from None

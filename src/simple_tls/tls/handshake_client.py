@@ -21,8 +21,9 @@
 from __future__ import annotations
 
 import random
-import typing
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import cast
 
 from cryptography import x509
 
@@ -124,6 +125,7 @@ from .extensions import (
     SessionTicketExtension,
     SignatureAlgorithmsExtension,
     SNIClientExtension,
+    SNIServerExtension,
     StatusRequestClientExtension,
     SupportedGroupsClientExtension,
     SupportedVersionsClientExtension,
@@ -172,7 +174,7 @@ from .utils import (
     negotiate,
 )
 
-NewSessionHandler = typing.Callable[[TLSSession], None]
+NewSessionHandler = Callable[[TLSSession], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,8 +401,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
         if not self.done:
-            raise ValueError("KeyUpdate can only be sent after handshake done")
-
+            raise ValueError("handshake not complete")
         self._write_key_update(message_type)
         self._set_state(ClientState.PROCESS_UPDATE_TRAFFIC)
 
@@ -417,7 +418,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         if self._maximum_version >= TLSVersion.TLSv1_3:
             if not self._supported_groups:
-                raise ValueError("No supported groups")
+                raise ValueError("no supported groups provided for TLS 1.3")
 
             # Fake session id
             if configuration.middlebox_compat:
@@ -557,7 +558,7 @@ class TLSHandshakeClient(TLSHandshake):
         # Update version
         server_version = server_hello.version
         if not TLSVersion.TLSv1 <= server_version <= TLSVersion.TLSv1_2:
-            raise AlertProtocolVersion("Unknown protocol version")
+            raise AlertProtocolVersion("received invalid protocol version")
 
         supported_versions_ext = server_hello.get_extension(
             SupportedVersionServerExtension
@@ -565,42 +566,44 @@ class TLSHandshakeClient(TLSHandshake):
         if supported_versions_ext is not None:
             if not self._maximum_version > TLSVersion.TLSv1_2:
                 raise AlertIllegalParameter(
-                    "Unexpected supported version extension"
+                    "received unexpected supported version extension"
                 )
             if not server_version == TLSVersion.TLSv1_2:
-                raise AlertIllegalParameter("Invalid server version")
+                raise AlertIllegalParameter(
+                    "received invalid protocol version"
+                )
             if not supported_versions_ext.data > TLSVersion.TLSv1_2:
-                raise AlertIllegalParameter("Unknown protocol version")
+                raise AlertIllegalParameter(
+                    "received unknown protocol version"
+                )
             server_version = supported_versions_ext.data
 
         if server_version < self._minimum_version:
-            raise AlertProtocolVersion("Version older than specified")
+            raise AlertProtocolVersion(
+                "received protocol version older than specified"
+            )
         if server_version > self._maximum_version:
-            raise AlertProtocolVersion("Version newer than specified")
+            raise AlertProtocolVersion(
+                "received protocol version newer than specified"
+            )
 
         self._version = server_version
         self._is_early_version = False
 
         # Compression method
         if server_hello.compression_method not in self._compresion_methods:
-            raise AlertIllegalParameter("Invalid compression method")
+            raise AlertIllegalParameter("received invalid compression method")
 
         if self._early_data_offered:
             assert self._offered_session is not None
             offered_session = self._offered_session
 
-            if self._version != self._offered_session.version:
-                self._can_early_write = False
+            if self._version != offered_session.version:
+                assert self.protocol_version() <= TLSVersion.TLSv1_2
+                assert offered_session.protocol_version() >= TLSVersion.TLSv1_3
 
-                if (
-                    self.protocol_version() >= TLSVersion.TLSv1_3
-                    or offered_session.protocol_version() < TLSVersion.TLSv1_3
-                ):
-                    raise AlertInternalError("Version mistmatch")
-
-                # Termintate early since TLSv1.2 cannot handle early data
                 raise AlertProtocolVersion(
-                    "Unable to negotiate TLSv1.2 or below since early data "
+                    "cannot negotiate TLSv1.2 or below since early data "
                     "has been sent"
                 )
 
@@ -608,28 +611,23 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.COMPAT_CSS_TLS13)
             return Status.OK
 
-        # RFC8446 section 4.1.3
+        sentinel = server_hello.random[-8:]
+
+        # RFC 8446 Section 4.1.3 (TLS 1.3 downgrade protection)
         if (
-            (
-                server_hello.random[-8:] == TLS12_DOWNGRADE_SENTINEL
-                or server_hello.random[-8:] == TLS11_DOWNGRADE_SENTINEL
-            )
+            sentinel in (TLS12_DOWNGRADE_SENTINEL, TLS11_DOWNGRADE_SENTINEL)
             and self._maximum_version >= TLSVersion.TLSv1_3
             and self.protocol_version() < TLSVersion.TLSv1_3
         ):
-            raise AlertIllegalParameter(
-                "Connection terminated due to downgrade protection."
-            )
+            raise AlertIllegalParameter("protocol downgrade detected")
 
-        # RFC8446 section 4.1.3
+        # RFC 8446 Section 4.1.3 (TLS 1.2 downgrade protection)
         if (
-            server_hello.random[-8:] == TLS11_DOWNGRADE_SENTINEL
+            sentinel == TLS11_DOWNGRADE_SENTINEL
             and self._maximum_version == TLSVersion.TLSv1_2
             and self.protocol_version() < TLSVersion.TLSv1_2
         ):
-            raise AlertIllegalParameter(
-                "Connection terminated due to downgrade protection."
-            )
+            raise AlertIllegalParameter("protocol downgrade detected")
 
         if self._selected_ech_config is not None:
             self._ech_status = ECHStatus.REJECTED
@@ -640,16 +638,20 @@ class TLSHandshakeClient(TLSHandshake):
         # Cipher Suites
         try:
             cipher_suite = CipherSuite(server_hello.cipher_suite)
-        except ValueError as exc:
-            raise AlertIllegalParameter("Invalid cipher suite") from exc
+        except ValueError:
+            raise AlertIllegalParameter(
+                "received invalid cipher suite"
+            ) from None
+
         if cipher_suite not in self._cipher_suites:
-            raise AlertIllegalParameter("Cipher suite mismatch")
+            raise AlertIllegalParameter("received unexpected cipher suite")
+
         if not (
             cipher_suite.minimum_version
             <= self.protocol_version()
             <= cipher_suite.maximum_version
         ):
-            raise AlertIllegalParameter("Invalid cipher suite")
+            raise AlertIllegalParameter("received invalid cipher suite")
 
         self._cipher_suite = cipher_suite
 
@@ -659,11 +661,15 @@ class TLSHandshakeClient(TLSHandshake):
                 self._offered_session is None
                 or self._ech_status == ECHStatus.REJECTED
             ):
-                raise AlertIllegalParameter("Echoed invalid session id")
+                raise AlertIllegalParameter(
+                    "received echoed invalid session id"
+                )
             if self._offered_session.version != self._version:
-                raise AlertIllegalParameter("Invalid version")
+                raise AlertIllegalParameter(
+                    "received invalid protocol version"
+                )
             if self._offered_session.cipher_suite != self._cipher_suite:
-                raise AlertIllegalParameter("Invalid cipher suite")
+                raise AlertIllegalParameter("received invalid cipher suite")
 
             self._session_reused = True
             session = self._offered_session.copy(include_noauth=True)
@@ -682,11 +688,11 @@ class TLSHandshakeClient(TLSHandshake):
             if session.extended_master_secret != self._extended_master_secret:
                 if session.extended_master_secret:
                     raise AlertHandshakeFailure(
-                        "EMS Session resumed without EMS extension"
+                        "EMS session resumed without EMS extension"
                     )
                 else:
                     raise AlertHandshakeFailure(
-                        "Non EMS Session resumed with EMS extension"
+                        "non EMS Session resumed with EMS extension"
                     )
 
             self._derive_key(session.secret)
@@ -776,20 +782,14 @@ class TLSHandshakeClient(TLSHandshake):
             point = parser.read_prefixed_bytes(1)
 
             if curve_type != ECCurveType.NAMED_CURVE:
-                raise AlertIllegalParameter(
-                    "Unexpected curve_type in server key exchange"
-                )
+                raise AlertIllegalParameter("received invalid curve type")
             if (
                 self._supported_groups is not None
                 and group_id not in self._supported_groups
             ):
-                raise AlertIllegalParameter(
-                    "Unexpected curve in server key exchange"
-                )
+                raise AlertIllegalParameter("received invalid curve group")
             if not point:
-                raise AlertDecodeError(
-                    "Empty key share in server key exchange"
-                )
+                raise AlertDecodeError("received empty key share")
 
             self._key_exchange = ECDHKeyExchange(group_id)
             self._peer_key = point
@@ -801,10 +801,10 @@ class TLSHandshakeClient(TLSHandshake):
             dh_g = parser.read_int(dh_g_length)
             dh_ys_bytes = parser.read_prefixed_bytes(2)
 
-            # Enforce minimum prime size to prevent Logjam attacks!
+            # enforce minimum prime size to prevent Logjam attacks
             if dh_p.bit_length() < 2048:
                 raise AlertInsufficientSecurity(
-                    f"DHE prime too small: {dh_p.bit_length()} bits."
+                    "received DH prime size is too small"
                 )
 
             try:
@@ -816,7 +816,7 @@ class TLSHandshakeClient(TLSHandshake):
             self._peer_key = dh_ys_bytes
 
         else:
-            raise AlertInternalError("Unsupported cipher suite selected")
+            raise AlertInternalError("unsupported cipher suite selected")
 
         if cipher_suite.auth != Authentication.ANON:
             assert session.x509_peer is not None
@@ -849,7 +849,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             signature = parser.read_prefixed_bytes(2)
             if not signature:
-                raise AlertIllegalParameter("Empty signature")
+                raise AlertIllegalParameter("received empty signature")
 
             data = self._client_random + self._server_random + ske_data
 
@@ -858,12 +858,10 @@ class TLSHandshakeClient(TLSHandshake):
             except ValueError as exc:
                 raise AlertIllegalParameter(str(exc)) from exc
             except InvalidSignature:
-                raise AlertDecryptError(
-                    "Server key exchange signature verify failed"
-                ) from None
+                raise AlertDecryptError("failed to verify signature") from None
 
         if parser.remaining():
-            raise AlertDecodeError("Trailing data")
+            raise AlertDecodeError("trailing data in server key exchange")
 
         self.message_cb(Direction.READ, ske)
         self._next_message()
@@ -932,7 +930,8 @@ class TLSHandshakeClient(TLSHandshake):
                 public_key_oid=public_key_oid,
                 supported_sigalgs=self._signature_algorithms,
             )
-            cert_request = typing.cast(
+
+            cert_request = cast(
                 CertificateRequest | CertificateRequestTLS12,
                 self._peer_cert_request,
             )
@@ -940,9 +939,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             if cert_type in cert_request.certificate_types:
                 if version == TLSVersion.TLSv1_2:
-                    cert_request = typing.cast(
-                        CertificateRequestTLS12, self._peer_cert_request
-                    )
+                    cert_request = cast(CertificateRequestTLS12, cert_request)
                     self._signature_algorithm = negotiate(
                         supported_sigalgs,
                         cert_request.signature_algorithms,
@@ -998,14 +995,16 @@ class TLSHandshakeClient(TLSHandshake):
                     self._key_exchange.generate_and_compute(self._peer_key)
                 )
             except ValueError as exc:
-                raise AlertIllegalParameter("Invalid key share") from exc
+                raise AlertIllegalParameter(
+                    "failed to generate secret and compute key share"
+                ) from exc
 
             if cipher_suite.kea == KeyExchange.ECDHE:
                 writer.write_prefixed_bytes(key_share, 1)
             elif cipher_suite.kea == KeyExchange.DHE:
                 writer.write_prefixed_bytes(key_share, 2)
             else:
-                raise AlertInternalError("Unsupported cipher suite selected")
+                raise AlertInternalError("unsupported cipher suite selected")
 
         cke = ClientKeyExchange(writer.tobytes())
         self.message_cb(Direction.WRITE, cke)
@@ -1129,18 +1128,18 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        server_finished = message.parse_as(Finished)
+        finished = message.parse_as(Finished)
 
         assert self._session is not None
-        verify_data = server_finished.verify_data
+
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"server finished"
         )
-        if not compare_digest(verify_data, expected_verify_data):
-            raise AlertDecryptError("Server finished verify_data mismatch")
+        if not compare_digest(finished.verify_data, expected_verify_data):
+            raise AlertDecryptError("finished verify data mismatch")
 
-        self.message_cb(Direction.READ, server_finished)
+        self.message_cb(Direction.READ, finished)
         self._next_message()
 
         if self._session_reused:
@@ -1167,21 +1166,25 @@ class TLSHandshakeClient(TLSHandshake):
         server_hello = message.parse_as(ServerHello)
 
         if self.has_unprocessed_data():
-            raise AlertUnexpectedMessage("Trailing handshake data")
+            raise AlertUnexpectedMessage("trailing handshake data")
 
         # Cipher Suites
         try:
             cipher_suite = CipherSuite(server_hello.cipher_suite)
         except ValueError as exc:
-            raise AlertIllegalParameter("Invalid cipher suite") from exc
+            raise AlertIllegalParameter(
+                "received invalid cipher suite"
+            ) from exc
+
         if cipher_suite not in self._cipher_suites:
-            raise AlertIllegalParameter("Cipher suite mismatch")
+            raise AlertIllegalParameter("received invalid cipher suite")
+
         if not (
             cipher_suite.minimum_version
             <= self.protocol_version()
             <= cipher_suite.maximum_version
         ):
-            raise AlertIllegalParameter("Invalid cipher suite")
+            raise AlertIllegalParameter("received invalid cipher suite")
 
         self._cipher_suite = cipher_suite
         self._key_schedule = KeySchedule(cipher_suite.prf_hash)
@@ -1193,7 +1196,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._hello_retry_request_used = True
 
         if server_hello.session_id != self._session_id:
-            raise AlertIllegalParameter("Session ID mismatch")
+            raise AlertIllegalParameter("received session ID mismatch")
 
         self._transcript.update_for_hello_retry_request(cipher_suite.prf_hash)
 
@@ -1217,10 +1220,11 @@ class TLSHandshakeClient(TLSHandshake):
             else:
                 self._ech_status = ECHStatus.REJECTED
 
-        cookie_ext = typing.cast(
-            CookieExtension | None, ext_map.pop(ExtensionType.COOKIE, None)
+        cookie_ext = cast(
+            CookieExtension | None,
+            ext_map.pop(ExtensionType.COOKIE, None),
         )
-        key_share_ext = typing.cast(
+        key_share_ext = cast(
             KeyShareHRRExtension | None,
             ext_map.pop(ExtensionType.KEY_SHARE, None),
         )
@@ -1290,18 +1294,17 @@ class TLSHandshakeClient(TLSHandshake):
         server_hello = message.parse_as(ServerHello)
 
         if self.has_unprocessed_data():
-            raise AlertUnexpectedMessage("Trailing handshake data")
+            raise AlertUnexpectedMessage("trailing handshake data")
 
         assert self._cipher_suite is not None
         cipher_suite = self._cipher_suite
 
         if server_hello.random == TLS13_HRR_SENTINEL:
-            raise AlertUnexpectedMessage("Second hello retry request")
+            raise AlertUnexpectedMessage("received second hello retry request")
         if server_hello.session_id != self._session_id:
-            raise AlertIllegalParameter("session_id mismatch")
-        # Sanity check if hello retry request used
+            raise AlertIllegalParameter("received session ID mismatch")
         if server_hello.cipher_suite != cipher_suite:
-            raise AlertIllegalParameter("cipher_suite mismatch")
+            raise AlertIllegalParameter("received cipher suite mismatch")
 
         # Update server random
         self._server_random = server_hello.random
@@ -1338,18 +1341,22 @@ class TLSHandshakeClient(TLSHandshake):
 
         ext_map = server_hello.extension_map(ExtensionSource.SERVER)
         ext_map.pop(ExtensionType.SUPPORTED_VERSIONS, None)
-        kex_ext = typing.cast(
+
+        kex_ext = cast(
             KeyShareServerExtension | None,
             ext_map.pop(ExtensionType.KEY_SHARE, None),
         )
-        psk_ext = typing.cast(
+        psk_ext = cast(
             PSKServerExtension | None,
             ext_map.pop(ExtensionType.PRE_SHARED_KEY, None),
         )
         if kex_ext is None and psk_ext is None:
-            raise AlertMissingExtension("Missing extension")
+            raise AlertMissingExtension(
+                "missing key share or pre shared key extension"
+            )
+
         if ext_map:
-            raise AlertUnsupportedExtension("Unsupported extension")
+            raise AlertUnsupportedExtension("received unsupported extension")
 
         if psk_ext is not None:
             assert self._offered_session is not None
@@ -1360,21 +1367,26 @@ class TLSHandshakeClient(TLSHandshake):
                 not self._pre_shared_keys
                 or self._ech_status == ECHStatus.REJECTED
             ):
-                raise AlertUnsupportedExtension("Unexpected PSK extension")
+                raise AlertUnsupportedExtension(
+                    "received unexpected PSK extension"
+                )
+
             if offered_session.version != self._version:
-                raise AlertIllegalParameter("version mismatch")
+                raise AlertIllegalParameter(
+                    "received protocol version mismatch"
+                )
+
             if offered_session.cipher_suite.prf_hash != cipher_suite.prf_hash:
-                raise AlertIllegalParameter("prf hash mismatch")
+                raise AlertIllegalParameter("received invalid cipher suite")
 
             # Selected index
-            sel_idx = psk_ext.data
-            try:
-                key_schedule, _, _ = self._pre_shared_keys[sel_idx]
-            except IndexError:
+            selected_index = psk_ext.data
+            if selected_index >= len(self._pre_shared_keys):
                 raise AlertIllegalParameter(
-                    f"Unexpected index '{sel_idx}' in pre shared key extension"
-                ) from None
+                    "received invalid PSK selected index"
+                )
 
+            key_schedule, _, _ = self._pre_shared_keys[selected_index]
             self._key_schedule = key_schedule
             self._pre_shared_keys.clear()
 
@@ -1396,31 +1408,32 @@ class TLSHandshakeClient(TLSHandshake):
                 and PSKKeyExchangeMode.PSK_DHE_KE not in self._psk_kex_modes
             ):
                 raise AlertIllegalParameter(
-                    "Unexpected PSK key exchange modes extension"
+                    "received unexpected PSK key exchange modes extension"
                 )
 
             key_share = kex_ext.key_share
-            try:
-                kex = self._key_exchanges[key_share.group]
-            except KeyError:
+            if key_share.group not in self._key_exchanges:
                 raise AlertIllegalParameter(
-                    f"Unexpected group '{key_share.group}' in key share "
-                    f"extension"
-                ) from None
+                    "received unexpected key share group"
+                )
+
+            kex = self._key_exchanges[key_share.group]
             try:
                 shared_secret = kex.compute_shared_secret(
                     key_share.key_exchange
                 )
             except ValueError as exc:
-                raise AlertIllegalParameter("Invalid key share") from exc
-
-        elif (
-            self._psk_kex_modes is not None
-            and PSKKeyExchangeMode.PSK_KE not in self._psk_kex_modes
-        ):
-            raise AlertIllegalParameter("Invalid PSK key exchange mode")
-
+                raise AlertIllegalParameter(
+                    "failed to compute shared secret"
+                ) from exc
         else:
+            if (
+                self._psk_kex_modes is not None
+                and PSKKeyExchangeMode.PSK_KE not in self._psk_kex_modes
+            ):
+                raise AlertIllegalParameter(
+                    "received invalid PSK key exchange mode"
+                )
             shared_secret = None
 
         key_schedule.extract(shared_secret)
@@ -1468,16 +1481,17 @@ class TLSHandshakeClient(TLSHandshake):
             assert self._offered_session is not None
             assert self._session_reused
 
-            offered_session = self._offered_session
-
             if self._ech_status == ECHStatus.REJECTED:
                 raise AlertIllegalParameter(
-                    "Early data accepted on rejected ECH"
+                    "early data accepted on rejected ECH"
                 )
+
+            offered_session = self._offered_session
+
             if offered_session.cipher_suite != session.cipher_suite:
-                raise AlertIllegalParameter("Cipher suite mismatch")
+                raise AlertIllegalParameter("received cipher suite mismatch")
             if offered_session.early_alpn != self._alpn_selected:
-                raise AlertIllegalParameter("ALPN mismatch")
+                raise AlertIllegalParameter("received ALPN mismatch")
 
             session.has_alps = offered_session.has_alps
             session.local_alps = offered_session.local_alps
@@ -1486,24 +1500,22 @@ class TLSHandshakeClient(TLSHandshake):
         elif self._early_data_offered:
             self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
-        alps_ext = typing.cast(
+        alps_ext = cast(
             ALPSExtension | None,
             ext_map.get(ExtensionType.APPLICATION_SETTINGS),
         )
         if alps_ext is not None:
             if self._alpn_selected is None:
-                raise AlertIllegalParameter("Unexected ALPS extension")
-
-            try:
-                settings = self._alps[self._alpn_selected]
-            except KeyError:
                 raise AlertIllegalParameter(
-                    f"Invalid ALPS extension with ALPN "
-                    f"'{self._alpn_selected!r}'"
-                ) from None
+                    "received unexpected ALPS extension"
+                )
+            if self._alpn_selected not in self._alps:
+                raise AlertIllegalParameter(
+                    "received ALPS extension for unsupported ALPN"
+                )
 
             session.has_alps = True
-            session.local_alps = settings
+            session.local_alps = self._alps[self._alpn_selected]
             session.peer_alps = alps_ext.settings
 
         session.early_alpn = self._alpn_selected
@@ -1531,7 +1543,9 @@ class TLSHandshakeClient(TLSHandshake):
         # for the post-handshake authentication exchanges described in Section
         # 4.6.2
         if cert_request.context:
-            raise AlertIllegalParameter("Invalid certificate request context")
+            raise AlertIllegalParameter(
+                "received unexpected certificate request context"
+            )
 
         self._peer_cert_request = cert_request
 
@@ -1599,17 +1613,16 @@ class TLSHandshakeClient(TLSHandshake):
         finished = message.parse_as(Finished)
 
         if self.has_unprocessed_data():
-            raise AlertUnexpectedMessage("Trailing handshake data")
+            raise AlertUnexpectedMessage("trailing handshake data")
 
         assert self._key_schedule is not None
         assert self._session is not None
 
-        verify_data = finished.verify_data
         expected_verify_data = self._key_schedule.finished_verify_data(
             self._dec_secret[Epoch.HANDSHAKE], self._transcript
         )
-        if not compare_digest(verify_data, expected_verify_data):
-            raise AlertDecryptError("Server finished verify data mismatch")
+        if not compare_digest(finished.verify_data, expected_verify_data):
+            raise AlertDecryptError("finished verify data mismatch")
 
         self.message_cb(Direction.READ, finished)
         self._next_message()
@@ -1669,7 +1682,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _do_send_client_certificate_tls13(self) -> Status:
         if self._peer_cert_request is not None:
-            peer_cert_request = typing.cast(
+            peer_cert_request = cast(
                 CertificateRequestTLS13, self._peer_cert_request
             )
             self._send_certificate_tls13(peer_cert_request)
@@ -1743,7 +1756,9 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _post_handshake(self, message: Handshake) -> Status:
-        raise AlertUnexpectedMessage()
+        raise AlertUnexpectedMessage(
+            "received post handshake message in TLS 1.2 or earlier"
+        )
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
         assert self._session is not None
@@ -1792,7 +1807,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         if message.handshake_type == HandshakeType.CERTIFICATE_REQUEST:
             if not self._enable_pha:
-                raise AlertUnexpectedMessage("Unexpected certificate request")
+                raise AlertUnexpectedMessage(
+                    "received unexpected certificate request"
+                )
 
             cert_request = message.parse_as(CertificateRequestTLS13)
             self.message_cb(Direction.READ, cert_request)
@@ -1812,14 +1829,16 @@ class TLSHandshakeClient(TLSHandshake):
             key_update = message.parse_as(KeyUpdate)
 
             if self.has_unprocessed_data():
-                raise AlertUnexpectedMessage("Trailing handshake data")
+                raise AlertUnexpectedMessage("trailing handshake data")
 
             message_type = key_update.message_type
             if message_type not in (
                 KeyUpdateMessageType.UPDATE_NOT_REQUESTED,
                 KeyUpdateMessageType.UPDATE_REQUESTED,
             ):
-                raise AlertIllegalParameter("Invalid key update message type")
+                raise AlertIllegalParameter(
+                    "received invalid key update message type"
+                )
 
             self.message_cb(Direction.READ, key_update)
             self._next_message(update_hash=False)
@@ -1836,7 +1855,9 @@ class TLSHandshakeClient(TLSHandshake):
 
             return Status.OK
 
-        raise AlertUnexpectedMessage()
+        raise AlertUnexpectedMessage(
+            "received unexpected post handshake message"
+        )
 
     def _build_client_hello(self, is_hrr: bool = False) -> ClientHello:
         client_hello = ClientHello(
@@ -1964,7 +1985,7 @@ class TLSHandshakeClient(TLSHandshake):
         )
         encoded_hello_inner_data += bytes(padding_len)
 
-        hpke_context = typing.cast(hpke.SenderContext, ech_config.hpke_context)
+        hpke_context = cast(hpke.SenderContext, ech_config.hpke_context)
         aead_overhead = hpke_context.aead_overhead
         payload_len = len(encoded_hello_inner_data) + aead_overhead
         if not is_hrr:
@@ -2273,7 +2294,9 @@ class TLSHandshakeClient(TLSHandshake):
             if ext_data is None:
                 return False
             if len(ext_data) != 8:
-                raise AlertIllegalParameter("")
+                raise AlertIllegalParameter(
+                    "received invalid ECH accept confirmation length"
+                )
 
             label = b"hrr ech accept confirmation"
 
@@ -2304,29 +2327,29 @@ class TLSHandshakeClient(TLSHandshake):
         cipher_suite = self._cipher_suite
 
         # Renegotiation info extension
-        ri_ext = typing.cast(
+        ri_ext = cast(
             RenegotiationInfoExtension | None,
             ext_map.pop(ExtensionType.RENEGOTIATION_INFO, None),
         )
         if ri_ext is not None:
             if version >= TLSVersion.TLSv1_3:
                 raise AlertUnsupportedExtension(
-                    "Unexpected renegotiation info extension"
+                    "received unexpected renegotiation info extension"
                 )
 
             self._secure_renegotiation = True
-
-        elif (
-            version <= TLSVersion.TLSv1_2
-            and not self.configuration.legacy_server_connect
-        ):
-            raise AlertInsufficientSecurity(
-                "Peer doesn't support secure renegotiation"
-            )
+        else:
+            if (
+                version <= TLSVersion.TLSv1_2
+                and not self.configuration.legacy_server_connect
+            ):
+                raise AlertInsufficientSecurity(
+                    "peer does not support secure renegotiation"
+                )
 
         # Check all extension received was sent by client hello
         if not self._extensions_sent.issuperset(ext_map):
-            raise AlertUnsupportedExtension("Unexpected extensions")
+            raise AlertUnsupportedExtension("received unexpected extensions")
 
         forbid_extensions = set(
             (
@@ -2339,17 +2362,22 @@ class TLSHandshakeClient(TLSHandshake):
         )
 
         # SNI extension
-        pass
+        sni_ext = cast(
+            SNIServerExtension | None, ext_map.get(ExtensionType.SERVER_NAME)
+        )
+        if sni_ext is not None:
+            pass
 
         # ALPN extension
-        alpn_ext = typing.cast(
+        alpn_ext = cast(
             ALPNServerExtension | None, ext_map.get(ExtensionType.ALPN)
         )
         if alpn_ext is not None:
             assert self._alpn_protocols is not None
+
             if alpn_ext.protocol not in self._alpn_protocols:
                 raise AlertIllegalParameter(
-                    "Unexpected protocol in ALPN extension"
+                    "received unexpected protocol in ALPN extension"
                 )
 
             self._alpn_selected = alpn_ext.protocol
@@ -2360,12 +2388,10 @@ class TLSHandshakeClient(TLSHandshake):
             forbid_extensions.add(ExtensionType.SESSION_TICKET)
             forbid_extensions.add(ExtensionType.ENCRYPT_THEN_MAC)
             forbid_extensions.add(ExtensionType.EC_POINT_FORMATS)
-
-            # Status request is sent in certificate extension
             forbid_extensions.add(ExtensionType.STATUS_REQUEST)
 
             # Encrypted client hello extension
-            ech_ext = typing.cast(
+            ech_ext = cast(
                 ECHServerExtension | None,
                 ext_map.get(ExtensionType.ENCRYPTED_CLIENT_HELLO),
             )
@@ -2373,7 +2399,7 @@ class TLSHandshakeClient(TLSHandshake):
                 self._peer_ech_retry_configs = list(ech_ext.retry_configs)
 
             # Early data extension
-            early_data_ext = typing.cast(
+            early_data_ext = cast(
                 EarlyDataServerExtension | None,
                 ext_map.get(ExtensionType.EARLY_DATA),
             )
@@ -2381,9 +2407,8 @@ class TLSHandshakeClient(TLSHandshake):
                 assert self._early_data_offered
 
                 if self._hello_retry_request_used:
-                    AlertIllegalParameter(
-                        "Unexpected early data extension after hello retry "
-                        "requested"
+                    raise AlertIllegalParameter(
+                        "received unexpected early data extension"
                     )
 
                 self._early_data_accepted = True
@@ -2394,7 +2419,7 @@ class TLSHandshakeClient(TLSHandshake):
             forbid_extensions.add(ExtensionType.EARLY_DATA)
 
             # Extended master secret extension
-            ems_ext = typing.cast(
+            ems_ext = cast(
                 ExtendedMasterSecretExtension | None,
                 ext_map.get(ExtensionType.EXTENDED_MAIN_SECRET),
             )
@@ -2402,7 +2427,7 @@ class TLSHandshakeClient(TLSHandshake):
                 self._extended_master_secret = True
 
             # NPN extension
-            npn_ext = typing.cast(
+            npn_ext = cast(
                 NPNServerExtension | None,
                 ext_map.get(ExtensionType.SUPPORTS_NPN),
             )
@@ -2418,14 +2443,14 @@ class TLSHandshakeClient(TLSHandshake):
                 self._npn_selected = npn_selected
 
             # Session ticket extension
-            session_ticket_ext = typing.cast(
+            session_ticket_ext = cast(
                 TLSSession | None, ext_map.get(ExtensionType.SESSION_TICKET)
             )
             if session_ticket_ext is not None:
                 self._ticket_expected = True
 
             # Encrypt-then-mac extension
-            etm_ext = typing.cast(
+            etm_ext = cast(
                 EncryptThenMacExtension | None,
                 ext_map.get(ExtensionType.ENCRYPT_THEN_MAC),
             )
@@ -2437,13 +2462,13 @@ class TLSHandshakeClient(TLSHandshake):
                 ):
                     # This cipher suite doesnt support encrypt-then-mac
                     raise AlertIllegalParameter(
-                        "Unexpected encrypt-then-mac extension"
+                        "received unexpected encrypt-then-mac extension"
                     )
 
                 self._encrypt_then_mac = True
 
             # EC point formats extension
-            ecpfs_ext = typing.cast(
+            ecpfs_ext = cast(
                 ECPointFormatsExtension | None,
                 ext_map.get(ExtensionType.EC_POINT_FORMATS),
             )
@@ -2452,11 +2477,13 @@ class TLSHandshakeClient(TLSHandshake):
                 _ = negotiate(
                     self._ec_point_formats,
                     ecpfs_ext.data,
-                    AlertIllegalParameter("Unexpected ec point format"),
+                    AlertIllegalParameter(
+                        "received unexpected EC point format"
+                    ),
                 )
 
         if forbid_extensions.intersection(ext_map):
-            raise AlertUnsupportedExtension("Unexpected extensions")
+            raise AlertUnsupportedExtension("received unexpected extensions")
 
     def _send_certificate_tls13(
         self, cert_request: CertificateRequestTLS13
@@ -2474,11 +2501,11 @@ class TLSHandshakeClient(TLSHandshake):
         signature_algorithms = cert_request.signature_algorithms
         if not signature_algorithms:
             raise AlertMissingExtension(
-                "Missing signature algorithms extension in certificate request"
+                "missing signature algorithms extension"
             )
 
         private_key: BasePrivateKey | None = None
-        x509_certificates: typing.Sequence[x509.Certificate] | None = None
+        x509_certificates: Sequence[x509.Certificate] | None = None
         signature_algorithm: int | None = None
 
         # draft-ietf-tls-esni 25 Section 6.1.7
@@ -2508,7 +2535,7 @@ class TLSHandshakeClient(TLSHandshake):
             )
 
         if signature_algorithm is not None:
-            x509_certificates = typing.cast(
+            x509_certificates = cast(
                 tuple[x509.Certificate, ...], x509_certificates
             )
         else:
@@ -2527,7 +2554,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         assert self._key_schedule is not None
 
-        private_key = typing.cast(BasePrivateKey, private_key)
+        private_key = cast(BasePrivateKey, private_key)
         data = self._key_schedule.certificate_verify_data(
             TLS13_CLIENT_CONTEXT_STRING, self._transcript
         )

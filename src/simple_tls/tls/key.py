@@ -21,7 +21,8 @@
 
 from __future__ import annotations
 
-import typing
+from collections.abc import Callable
+from typing import ClassVar, cast
 
 from cryptography import exceptions, x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -78,12 +79,12 @@ class RSAPrivateKey(BasePrivateKey):
             func, hashalg = self._SIGNING_FUNCS[signature_algorithm]
         except KeyError:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             ) from None
 
         if hashalg == UNSPECIFIED:
-            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
-            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
+            algorithm = cast(hashes.HashAlgorithm, _MD5SHA1())
+            hashobj = cast(hashes.Hash, _MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
@@ -126,7 +127,7 @@ class RSAPrivateKey(BasePrivateKey):
 
     # fmt: off
     # ruff: disable[E501]
-    _SIGNING_FUNCS: typing.ClassVar[dict[int, tuple[typing.Callable, int]]] = {
+    _SIGNING_FUNCS: ClassVar[dict[int, tuple[Callable, int]]] = {
         SignatureScheme.RSA_PSS_RSAE_SHA512: (_sign_rsa_pss, HashAlgorithm.SHA512),
         SignatureScheme.RSA_PSS_RSAE_SHA384: (_sign_rsa_pss, HashAlgorithm.SHA384),
         SignatureScheme.RSA_PSS_RSAE_SHA256: (_sign_rsa_pss, HashAlgorithm.SHA256),
@@ -158,12 +159,12 @@ class RSAPublicKey(BasePublicKey):
             func, hashalg = self._VERIFYING_FUNCS[signature_algorithm]
         except KeyError:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             ) from None
 
         if hashalg == UNSPECIFIED:
-            algorithm = typing.cast(hashes.HashAlgorithm, _MD5SHA1())
-            hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
+            algorithm = cast(hashes.HashAlgorithm, _MD5SHA1())
+            hashobj = cast(hashes.Hash, _MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
@@ -208,7 +209,7 @@ class RSAPublicKey(BasePublicKey):
 
     # fmt: off
     # ruff: disable[E501]
-    _VERIFYING_FUNCS: typing.ClassVar[dict[int, tuple[typing.Callable, int]]] = {
+    _VERIFYING_FUNCS: ClassVar[dict[int, tuple[Callable, int]]] = {
         SignatureScheme.RSA_PSS_RSAE_SHA512: (_verify_rsa_pss, HashAlgorithm.SHA512),
         SignatureScheme.RSA_PSS_RSAE_SHA384: (_verify_rsa_pss, HashAlgorithm.SHA384),
         SignatureScheme.RSA_PSS_RSAE_SHA256: (_verify_rsa_pss, HashAlgorithm.SHA256),
@@ -233,7 +234,7 @@ class DSAPrivateKey(BasePrivateKey):
     def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm not in DSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         hashalg = (signature_algorithm >> 8) & 0xFF
@@ -258,7 +259,7 @@ class DSAPublicKey(BasePublicKey):
     ) -> None:
         if signature_algorithm not in DSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         hashalg = (signature_algorithm >> 8) & 0xFF
@@ -298,7 +299,7 @@ class ECPrivateKey(BasePrivateKey):
     def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm not in ECDSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         hashalg = (signature_algorithm >> 8) & 0xFF
@@ -323,7 +324,7 @@ class ECPublicKey(BasePublicKey):
     ) -> None:
         if signature_algorithm not in ECDSA_SIGNATURE_ALGORITHMS:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         hashalg = (signature_algorithm >> 8) & 0xFF
@@ -346,7 +347,7 @@ class Ed25519PrivateKey(BasePrivateKey):
     def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm != SignatureScheme.ED25519:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         return self._key.sign(message)
@@ -364,7 +365,7 @@ class Ed25519PublicKey(BasePublicKey):
     ) -> None:
         if signature_algorithm != SignatureScheme.ED25519:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         try:
@@ -380,7 +381,7 @@ class Ed448PrivateKey(BasePrivateKey):
     def sign(self, message: bytes, signature_algorithm: int) -> bytes:
         if signature_algorithm != SignatureScheme.ED448:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         return self._key.sign(message)
@@ -398,7 +399,7 @@ class Ed448PublicKey(BasePublicKey):
     ) -> None:
         if signature_algorithm != SignatureScheme.ED448:
             raise ValueError(
-                f"Invalid signature_algorithm '{signature_algorithm}'"
+                f"invalid signature_algorithm '{signature_algorithm}'"
             )
 
         try:
@@ -418,10 +419,7 @@ def _map_public_key(public_key: PublicKeyTypes) -> BasePublicKey:
         return Ed448PublicKey(public_key)
     if isinstance(public_key, dsa.DSAPublicKey):
         return DSAPublicKey(public_key)
-
-    raise TypeError(
-        f"Unsupported key type in certificate: {type(public_key).__name__}"
-    )
+    raise TypeError("Unsupported public key type in certificate")
 
 
 def _map_private_key(private_key: PrivateKeyTypes) -> BasePrivateKey:

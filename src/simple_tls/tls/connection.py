@@ -21,8 +21,9 @@
 from __future__ import annotations
 
 import struct
-import typing
+from collections.abc import Callable
 from ssl import MemoryBIO
+from typing import Any, Literal, NoReturn, cast, overload
 
 from cryptography import x509
 
@@ -60,9 +61,7 @@ from .utils import (
     version_to_wire,
 )
 
-MessageCallback = typing.Callable[
-    ["TLSConnection", Direction, int, int, bytes], None
-]
+MessageCallback = Callable[["TLSConnection", Direction, int, int, bytes], None]
 
 
 HEADER_LENGTH = 5
@@ -117,7 +116,7 @@ class TLSConnection:
         handshake.message_cb = self._do_hs_callback
         handshake.setup_traffic_cb = self._setup_traffic
 
-        self._handshake: TLSHandshake = typing.cast(TLSHandshake, handshake)
+        self._handshake: TLSHandshake = cast(TLSHandshake, handshake)
         """handshake object"""
         self._handshake_status: Status = Status.OK
         """current handshake status"""
@@ -180,17 +179,17 @@ class TLSConnection:
     def ech_accepted(self) -> bool:
         return self._handshake.ech_status == ECHStatus.ACCEPTED
 
-    @typing.overload
+    @overload
     def get_peer_ech_retry_configs(
-        self, binary_form: typing.Literal[True] = ...
+        self, binary_form: Literal[True] = ...
     ) -> bytes | None: ...
 
-    @typing.overload
+    @overload
     def get_peer_ech_retry_configs(
-        self, binary_form: typing.Literal[False] = ...
+        self, binary_form: Literal[False] = ...
     ) -> list[ECHConfig] | None: ...
 
-    @typing.overload
+    @overload
     def get_peer_ech_retry_configs(
         self, binary_form: bool = ...
     ) -> list[ECHConfig] | bytes | None: ...
@@ -238,16 +237,24 @@ class TLSConnection:
             raise TLSWantReadError()
         return data
 
-    @typing.overload
-    def read(self, length: int = 1024, buffer: None = ...) -> bytes: ...
-
-    @typing.overload
+    @overload
     def read(
-        self, length: int = 1024, buffer: WritableBuffer = ...
+        self,
+        length: int = 1024,
+        buffer: None = ...,
+    ) -> bytes: ...
+
+    @overload
+    def read(
+        self,
+        length: int = 1024,
+        buffer: WritableBuffer = ...,
     ) -> int: ...
 
     def read(
-        self, length: int = 1024, buffer: WritableBuffer | None = None
+        self,
+        length: int = 1024,
+        buffer: WritableBuffer | None = None,
     ) -> int | bytes:
         """
         Read up to 'len' bytes from the SSL object and return them.
@@ -267,7 +274,8 @@ class TLSConnection:
                 if content_type != ContentType.HANDSHAKE:
                     self._send_alert(
                         AlertDescription.UNEXPECTED_MESSAGE,
-                        f"Unexpected ContentType '{content_type}'",
+                        f"received unexpected record with content type "
+                        f"'0x{content_type:02X}'",
                     )
 
                 hs.feed_data(data)
@@ -285,18 +293,17 @@ class TLSConnection:
                 if self._early_data_processed > hs.max_early_data:
                     self._send_alert(
                         AlertDescription.UNEXPECTED_MESSAGE,
-                        "Too much early data",
+                        "received too much early data",
                     )
 
             data_len = len(data)
             if data_len > 0 and data_len <= length:
                 if buffer is None:
                     return data.tobytes()
-                else:
-                    if len(buffer) < data_len:
-                        raise ValueError("buffer too small")
-                    buffer[:data_len] = data
-                    return data_len
+                if len(buffer) < data_len:
+                    raise ValueError("buffer too small")
+                buffer[:data_len] = data
+                return data_len
 
             self._pending_app_data.extend(data)
 
@@ -424,7 +431,9 @@ class TLSConnection:
     # Callbacks
 
     def _do_hs_callback(
-        self, direction: Direction, message: HandshakeMessage
+        self,
+        direction: Direction,
+        message: HandshakeMessage,
     ) -> None:
         if self._message_callback is None:
             return
@@ -515,7 +524,11 @@ class TLSConnection:
     def _read_ccs(self) -> None:
         content_type, data = self._open_record()
         if content_type != ContentType.CHANGE_CIPHER_SPEC:
-            self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE,
+                f"received unexpected record with content type "
+                f"'0x{content_type:02X}'",
+            )
         self._verify_ccs(data)
         self._current_read_epoch = Epoch.APPLICATION_DATA
 
@@ -524,7 +537,8 @@ class TLSConnection:
         if content_type != ContentType.HANDSHAKE:
             self._send_alert(
                 AlertDescription.UNEXPECTED_MESSAGE,
-                f"Unexpected content type '0x{content_type:02X}'",
+                f"received unexpected record with content type "
+                f"'0x{content_type:02X}'",
             )
         self._handshake.feed_data(data)
 
@@ -587,7 +601,10 @@ class TLSConnection:
         return original_buf[:written]
 
     def _seal_record_internal(
-        self, content_type: int, plaintext: Buffer, buf: WritableBuffer
+        self,
+        content_type: int,
+        plaintext: Buffer,
+        buf: WritableBuffer,
     ) -> int:
         assert len(plaintext) <= self._send_record_limit
 
@@ -634,7 +651,7 @@ class TLSConnection:
 
     def _open_record_internal(self) -> tuple[int, memoryview]:
         if self._read_shutdown != Shutdown.NONE:
-            raise TLSEOFError()
+            raise TLSEOFError("protocol is shutdown")
 
         state = self._read_state
         out = self._read_buf
@@ -658,7 +675,8 @@ class TLSConnection:
 
         if not version_ok:
             self._send_alert(
-                AlertDescription.PROTOCOL_VERSION, "Wrong version number"
+                AlertDescription.PROTOCOL_VERSION,
+                "received record with wrong version number",
             )
 
         # Check the record header fields
@@ -667,7 +685,8 @@ class TLSConnection:
         # 1024 (maximum encryption overhead)
         if length > self._recv_record_limit + 1024 + 1024:
             self._send_alert(
-                AlertDescription.RECORD_OVERFLOW, "record too large"
+                AlertDescription.RECORD_OVERFLOW,
+                "received record too large",
             )
 
         # Extract full record
@@ -689,7 +708,7 @@ class TLSConnection:
             if self._handshake.session_established:
                 self._send_alert(
                     AlertDescription.UNEXPECTED_MESSAGE,
-                    "Unexpected change cipher spec message",
+                    "received unexpected change cipher spec message",
                 )
             raise SkipDataException()
 
@@ -726,7 +745,8 @@ class TLSConnection:
                 self._skip_early_data(len(ciphertext))
                 raise SkipDataException() from None
             self._send_alert(
-                AlertDescription.BAD_RECORD_MAC, "Payload decryption failed"
+                AlertDescription.BAD_RECORD_MAC,
+                "record payload decryption failed",
             )
         else:
             state.sequence_number += 1
@@ -736,7 +756,11 @@ class TLSConnection:
 
         if state.hide_content_type:
             if content_type != ContentType.APPLICATION_DATA:
-                self._send_alert(AlertDescription.ILLEGAL_PARAMETER)
+                self._send_alert(
+                    AlertDescription.ILLEGAL_PARAMETER,
+                    "received record with outer content type is not "
+                    "application data in TLSv1.3",
+                )
             pt_limit = self._recv_record_limit + 1
         else:
             pt_limit = self._recv_record_limit
@@ -744,7 +768,10 @@ class TLSConnection:
         # RFC 5246 section 6.2.1
         # RFC 8446 section 5.4
         if pt_len > pt_limit:
-            self._send_alert(AlertDescription.RECORD_OVERFLOW)
+            self._send_alert(
+                AlertDescription.RECORD_OVERFLOW,
+                "received record too large",
+            )
 
         if state.hide_content_type:
             content_type, pt_len = self._unpad_data_tlsv1_3(out[:pt_len])
@@ -757,7 +784,8 @@ class TLSConnection:
         # types other than Application Data.
         if content_type != ContentType.APPLICATION_DATA and pt_len == 0:
             self._send_alert(
-                AlertDescription.UNEXPECTED_MESSAGE, "Empty handshake message"
+                AlertDescription.UNEXPECTED_MESSAGE,
+                "received record with empty message",
             )
 
         if content_type == ContentType.ALERT:
@@ -774,7 +802,7 @@ class TLSConnection:
         ):
             self._send_alert(
                 AlertDescription.UNEXPECTED_MESSAGE,
-                "Interleaved handshake message",
+                "handshake messages interleaved with other record types",
             )
 
         return content_type, out[:pt_len]
@@ -782,7 +810,10 @@ class TLSConnection:
     def _skip_early_data(self, ciphertext_length: int) -> None:
         self._early_data_ignored += ciphertext_length
         if self._early_data_ignored > self._recv_record_limit:
-            self._send_alert(AlertDescription.UNEXPECTED_MESSAGE)
+            self._send_alert(
+                AlertDescription.UNEXPECTED_MESSAGE,
+                "received too many early data",
+            )
 
     def _record_version(self) -> int:
         if self._handshake.version == UNSPECIFIED:
@@ -803,38 +834,39 @@ class TLSConnection:
                 break
         else:
             self._send_alert(
-                AlertDescription.UNEXPECTED_MESSAGE, "Missing content type"
+                AlertDescription.UNEXPECTED_MESSAGE,
+                "received record with missing content type",
             )
         return value, pos
 
-    @typing.overload
+    @overload
     def _send_alert(
         self,
         description: int,
-        reason: typing.Any | None = ...,
-        fatal: typing.Literal[True] = ...,
-    ) -> typing.NoReturn: ...
+        reason: Any | None = ...,
+        fatal: Literal[True] = ...,
+    ) -> NoReturn: ...
 
-    @typing.overload
+    @overload
     def _send_alert(
         self,
         description: int,
-        reason: typing.Any | None = ...,
-        fatal: typing.Literal[False] = ...,
+        reason: Any | None = ...,
+        fatal: Literal[False] = ...,
     ) -> None: ...
 
-    @typing.overload
+    @overload
     def _send_alert(
         self,
         description: int,
-        reason: typing.Any | None = ...,
+        reason: Any | None = ...,
         fatal: bool = ...,
     ) -> None: ...
 
     def _send_alert(
         self,
         description: int,
-        reason: typing.Any | None = None,
+        reason: Any | None = None,
         fatal: bool = True,
     ) -> None:
         if self._write_shutdown == Shutdown.NONE:
@@ -853,10 +885,11 @@ class TLSConnection:
         if fatal:
             raise TLSLocalAlert(description, reason)
 
-    def _process_alert(self, data: Buffer) -> typing.NoReturn:
+    def _process_alert(self, data: Buffer) -> NoReturn:
         if len(data) != 2:
             self._send_alert(
-                AlertDescription.DECODE_ERROR, "Malformed alert message"
+                AlertDescription.DECODE_ERROR,
+                "received invalid alert message",
             )
 
         level = data[0]
@@ -867,20 +900,23 @@ class TLSConnection:
                 self._read_shutdown = Shutdown.CLOSE_NOTIFY
                 raise TLSEOFError()
 
-            self._warning_alert_received += 1
-
-            if self._warning_alert_received > MAX_WARNING_ALERTS:
-                self._send_alert(
-                    AlertDescription.UNEXPECTED_MESSAGE,
-                    "Too many warning alerts received.",
-                )
-
             if (
                 self._has_final_version()
                 and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
                 and description != AlertDescription.USER_CANCELLED
             ):
-                self._send_alert(AlertDescription.DECODE_ERROR)
+                self._send_alert(
+                    AlertDescription.DECODE_ERROR,
+                    "received unexpected warning alert in TLSv1.3",
+                )
+
+            self._warning_alert_received += 1
+
+            if self._warning_alert_received > MAX_WARNING_ALERTS:
+                self._send_alert(
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "received too many warning alerts",
+                )
 
             raise SkipDataException()
 
@@ -889,19 +925,22 @@ class TLSConnection:
             raise TLSRemoteAlert(description)
 
         self._send_alert(
-            AlertDescription.UNEXPECTED_MESSAGE, "Unknown alert type"
+            AlertDescription.UNEXPECTED_MESSAGE,
+            "received unknown alert type",
         )
 
     def _verify_ccs(self, data: Buffer) -> None:
         if len(data) != 1:
             self._send_alert(
-                AlertDescription.DECODE_ERROR, "Malformed CCS message"
+                AlertDescription.DECODE_ERROR,
+                "received malformed CCS message type",
             )
 
         # RFC 8446 section 5
         if data != b"\x01":
             self._send_alert(
-                AlertDescription.UNEXPECTED_MESSAGE, "Invalid CCS message"
+                AlertDescription.UNEXPECTED_MESSAGE,
+                "received invalid CCS message",
             )
 
     @staticmethod

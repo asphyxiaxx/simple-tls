@@ -390,7 +390,7 @@ def get_dh_parameters(group: int) -> DHParameters:
     try:
         dh_group = _RFC7919_FFDHE_GROUPS[group]
     except KeyError:
-        raise ValueError(f"Unsupported dh group '{group}'")
+        raise ValueError(f"unsupported dh group '{group}'")
 
     return DHParameters(p=dh_group.p, g=dh_group.g, q=dh_group.q)
 
@@ -456,7 +456,7 @@ _NAMEDGROUP_TO_CURVE: dict[int, ec.EllipticCurve] = {
 class ECDHKeyExchange(BaseKeyExchange):
     def __init__(self, group: int) -> None:
         if group not in ECC_GROUPS:
-            raise ValueError(f"Unsupported group for EC curve '{group}'")
+            raise ValueError(f"unsupported EC group '{group}'")
 
         private_key: (
             x25519.X25519PrivateKey
@@ -488,13 +488,16 @@ class ECDHKeyExchange(BaseKeyExchange):
                 self._private_key.curve, peer_public
             )
             return self._private_key.exchange(algorithm, pk_ec)
+
         if isinstance(self._private_key, x25519.X25519PrivateKey):
             pk_x25519 = x25519.X25519PublicKey.from_public_bytes(peer_public)
             return self._private_key.exchange(pk_x25519)
+
         if isinstance(self._private_key, x448.X448PrivateKey):
             pk_x448 = x448.X448PublicKey.from_public_bytes(peer_public)
             return self._private_key.exchange(pk_x448)
-        raise ValueError("Unsupported private key type for key exchange.")
+
+        raise AssertionError("invalid private key type")
 
     def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
         key_share = self.generate_key_share()
@@ -536,7 +539,7 @@ class KEMKeyExchange(BaseKeyExchange):
             curve = NamedGroup.SECP384R1
             level = 1024
         else:
-            raise ValueError(f"Unsupported KEM group '{group}'")
+            raise ValueError(f"unsupported KEM group '{group}'")
 
         self._group = group
         self._ec_kex = ECDHKeyExchange(curve)
@@ -590,10 +593,7 @@ class KEMKeyExchange(BaseKeyExchange):
         ec_key_len = _EC_KEY_LEN[self._group]
 
         if len(pk) != ec_key_len + pqc_data_len:
-            raise ValueError(
-                f"Invalid key size '{len(pk)}' for the selected group. "
-                f"Expected '{ec_key_len + pqc_data_len}'."
-            )
+            raise ValueError("invalid public key length for given group")
 
         if self._group == NamedGroup.X25519MLKEM768:
             pqc_data = pk[:pqc_data_len]

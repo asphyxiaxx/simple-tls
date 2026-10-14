@@ -119,3 +119,7 @@ class AlertNoRenegotiation(AlertException):
 
 class AlertECHRequired(AlertException):
     description = AlertDescription.ECH_REQUIRED
+
+
+class AlertNoApplicationProtocol(AlertException):
+    description = AlertDescription.NO_APPLICATION_PROTOCOL

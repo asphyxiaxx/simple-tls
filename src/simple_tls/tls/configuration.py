@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import os
-import typing
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -83,7 +83,7 @@ class TLSCredential:
     certificate chain."""
 
     private_key: BasePrivateKey
-    x509_certificates: typing.Sequence[x509.Certificate]
+    x509_certificates: Sequence[x509.Certificate]
 
     @classmethod
     def from_certfile(
@@ -132,7 +132,7 @@ class TLSConfiguration:
     maximum_version: TLSVersion = TLSVersion.TLSv1_3
     """Maximum supported TLS version."""
 
-    cipher_suites: typing.Sequence[CipherSuite] = (
+    cipher_suites: Sequence[CipherSuite] = (
         CipherSuite.TLS_AES_128_GCM_SHA256,
         CipherSuite.TLS_AES_256_GCM_SHA384,
         CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
@@ -154,7 +154,7 @@ class TLSConfiguration:
     dh_parameters: DHParameters | None = None
     """Custom Diffie-Hellman parameters for DHE cipher suites."""
 
-    supported_groups: typing.Sequence[int] | None = (
+    supported_groups: Sequence[int] | None = (
         NamedGroup.X25519MLKEM768,
         NamedGroup.X25519,
         NamedGroup.SECP256R1,
@@ -163,7 +163,7 @@ class TLSConfiguration:
     """Supported key exchange groups (ECC / PQ-hybrid curves) in order of
     preference."""
 
-    signature_algorithms: typing.Sequence[int] | None = (
+    signature_algorithms: Sequence[int] | None = (
         SignatureScheme.ECDSA_SECP256R1_SHA256,
         SignatureScheme.RSA_PSS_RSAE_SHA256,
         SignatureScheme.RSA_PKCS1_SHA256,
@@ -175,7 +175,7 @@ class TLSConfiguration:
     )
     """Supported signature and hash algorithms in order of preference."""
 
-    certificate_compressions: typing.Sequence[int] | None = None
+    certificate_compressions: Sequence[int] | None = None
     """Supported algorithms for certificate compression
     (e.g., zlib, brotli, zstd)."""
 
@@ -227,14 +227,14 @@ class TLSConfiguration:
     """Allow connections to legacy servers that do not support secure
     renegotiation."""
 
-    npn_protocols: typing.Sequence[bytes] | None = None
+    npn_protocols: Sequence[bytes] | None = None
     """Next Protocol Negotiation (NPN) protocol list (legacy)."""
 
-    alpn_protocols: typing.Sequence[bytes] | None = None
+    alpn_protocols: Sequence[bytes] | None = None
     """Application-Layer Protocol Negotiation (ALPN) protocol list in
     preference order."""
 
-    alps: typing.Mapping[bytes, bytes] | None = None
+    alps: Mapping[bytes, bytes] | None = None
     """Application-Layer Protocol Settings (ALPS) mapped by ALPN protocol name.
     """
 

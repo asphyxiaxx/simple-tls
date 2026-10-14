@@ -21,8 +21,9 @@
 from __future__ import annotations
 
 import enum
-import typing
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import ClassVar, TypeVar
 
 from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.crypto.utils import int_to_bytes
@@ -34,10 +35,10 @@ from .constants import (
     NameType,
 )
 
-_E = typing.TypeVar("_E", bound="Extension")
-_PBE = typing.TypeVar("_PBE", bound="PrefixedBytesExtension")
-_PILE = typing.TypeVar("_PILE", bound="PrefixedIntListExtension")
-_IE = typing.TypeVar("_IE", bound="IntExtension")
+_E = TypeVar("_E", bound="Extension")
+_PBE = TypeVar("_PBE", bound="PrefixedBytesExtension")
+_PILE = TypeVar("_PILE", bound="PrefixedIntListExtension")
+_IE = TypeVar("_IE", bound="IntExtension")
 
 
 class ExtensionSource(enum.IntEnum):
@@ -48,7 +49,7 @@ class ExtensionSource(enum.IntEnum):
 
 @dataclass
 class Extension:
-    extension_type: typing.ClassVar[int]
+    extension_type: ClassVar[int]
 
     @classmethod
     def from_bytes(cls: type[_E], data: bytes) -> _E:
@@ -70,7 +71,7 @@ class ExtensionsMessage:
 
     def get_extension(self, extclass: type[_E]) -> _E | None:
         if not issubclass(extclass, Extension):
-            raise TypeError("extclass must be type of TLSExtension")
+            raise TypeError("extclass must be type of Extension")
 
         for ext_type, ext_data in self.extensions:
             if ext_type == extclass.extension_type:
@@ -89,13 +90,7 @@ class ExtensionsMessage:
                 # Fallback: unknown or unsupported extension
                 ext_map[ext_type] = GenericExtension(ext_type, ext_data)
             else:
-                try:
-                    ext_map[ext_type] = ext_cls.from_bytes(ext_data)
-                except ParseError as exc:
-                    raise ParseError(
-                        f"Error in parsing extension data for "
-                        f"'0x{ext_type:02X}': {exc}"
-                    ) from exc
+                ext_map[ext_type] = ext_cls.from_bytes(ext_data)
 
         return ext_map
 
@@ -112,9 +107,12 @@ class ExtensionsMessage:
                     ext_data = parser.read_prefixed_bytes(2)
                 except ParseError as exc:
                     if ext_type is None:
-                        raise ParseError("Not an extension") from None
+                        raise ParseError(
+                            "failed to read extension type"
+                        ) from None
+
                     raise ParseError(
-                        f"Error in reading extension data for "
+                        f"failed to read extension data for "
                         f"'0x{ext_type:02X}': {exc}"
                     ) from exc
 
@@ -122,7 +120,7 @@ class ExtensionsMessage:
                 seen.add(ext_type)
 
         if len(extensions) != len(seen):
-            raise ParseError("Duplicated extension")
+            raise ParseError("duplicated extension found")
 
         return extensions
 
@@ -151,7 +149,7 @@ class EmptyExtension(Extension):
     @classmethod
     def from_bytes(cls: type[_E], data: bytes) -> _E:
         if data:
-            raise ParseError("trailing data")
+            raise ParseError("trailing extension data")
         return cls()
 
     def serialize(self) -> bytes:
@@ -177,11 +175,11 @@ class GenericExtension(Extension):
 
 @dataclass
 class PrefixedBytesExtension(Extension):
-    extension_type: typing.ClassVar[int]
+    extension_type: ClassVar[int]
     data: bytes
 
     # Internal
-    _prefix_size: typing.ClassVar[int] = 0
+    _prefix_size: ClassVar[int] = 0
 
     @classmethod
     def from_bytes(cls: type[_PBE], data: bytes) -> _PBE:
@@ -189,7 +187,7 @@ class PrefixedBytesExtension(Extension):
         value = parser.read_prefixed_bytes(cls._prefix_size)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing extension data")
 
         return cls(value)
 
@@ -201,14 +199,14 @@ class PrefixedBytesExtension(Extension):
 
 @dataclass
 class PrefixedIntListExtension(Extension):
-    extension_type: typing.ClassVar[int]
-    data: typing.Sequence[int]
+    extension_type: ClassVar[int]
+    data: Sequence[int]
 
     # Internal
-    _item_size: typing.ClassVar[int] = 0
-    _prefix_size: typing.ClassVar[int] = 0
-    _min_length: typing.ClassVar[int] = 0
-    _max_length: typing.ClassVar[int] = 0xFFFF
+    _item_size: ClassVar[int] = 0
+    _prefix_size: ClassVar[int] = 0
+    _min_length: ClassVar[int] = 0
+    _max_length: ClassVar[int] = 0xFFFF
 
     @classmethod
     def from_bytes(cls: type[_PILE], data: bytes) -> _PILE:
@@ -217,7 +215,7 @@ class PrefixedIntListExtension(Extension):
 
         if not (total_min <= len(data) <= total_max):
             raise ParseError(
-                f"data length {len(data)} not within boundaries "
+                f"extension data length {len(data)} not within boundaries "
                 f"({total_min}-{total_max})"
             )
 
@@ -225,7 +223,7 @@ class PrefixedIntListExtension(Extension):
         value = parser.read_prefixed_int_list(cls._item_size, cls._prefix_size)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing extension data")
 
         return cls(value)
 
@@ -241,7 +239,7 @@ class PrefixedIntListExtension(Extension):
 
         if not (total_min <= len(data) <= total_max):
             raise ParseError(
-                f"serialized data length {len(data)} not within boundaries "
+                f"extension data length {len(data)} not within boundaries "
                 f"({total_min}-{total_max})"
             )
 
@@ -250,11 +248,11 @@ class PrefixedIntListExtension(Extension):
 
 @dataclass
 class IntExtension(Extension):
-    extension_type: typing.ClassVar[int]
+    extension_type: ClassVar[int]
     data: int
 
     # Internal
-    _item_size: typing.ClassVar[int] = 0
+    _item_size: ClassVar[int] = 0
 
     @classmethod
     def from_bytes(cls: type[_IE], data: bytes) -> _IE:
@@ -262,7 +260,7 @@ class IntExtension(Extension):
         value = parser.read_int(cls._item_size)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing extension data")
 
         return cls(value)
 
@@ -270,28 +268,28 @@ class IntExtension(Extension):
         try:
             return int_to_bytes(self.data, self._item_size)
         except OverflowError:
-            raise ValueError("data too large") from None
+            raise ValueError("extension data too large") from None
 
 
 @dataclass
 class EncryptThenMacExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPT_THEN_MAC
+    extension_type: ClassVar[int] = ExtensionType.ENCRYPT_THEN_MAC
 
 
 @dataclass
 class ExtendedMasterSecretExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.EXTENDED_MAIN_SECRET
+    extension_type: ClassVar[int] = ExtensionType.EXTENDED_MAIN_SECRET
 
 
 @dataclass
 class RenegotiationInfoExtension(PrefixedBytesExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.RENEGOTIATION_INFO
-    _prefix_size: typing.ClassVar[int] = 1
+    extension_type: ClassVar[int] = ExtensionType.RENEGOTIATION_INFO
+    _prefix_size: ClassVar[int] = 1
 
 
 @dataclass
 class SessionTicketExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SESSION_TICKET
+    extension_type: ClassVar[int] = ExtensionType.SESSION_TICKET
     ticket: bytes
 
     @classmethod
@@ -304,33 +302,33 @@ class SessionTicketExtension(Extension):
 
 @dataclass
 class CompressedCertificateExtension(PrefixedIntListExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.COMPRESS_CERTIFICATE
-    _item_size: typing.ClassVar[int] = 2
-    _prefix_size: typing.ClassVar[int] = 1
-    _min_length: typing.ClassVar[int] = 2
-    _max_length: typing.ClassVar[int] = 2**8 - 2
+    extension_type: ClassVar[int] = ExtensionType.COMPRESS_CERTIFICATE
+    _item_size: ClassVar[int] = 2
+    _prefix_size: ClassVar[int] = 1
+    _min_length: ClassVar[int] = 2
+    _max_length: ClassVar[int] = 2**8 - 2
 
 
 @dataclass
 class SupportedVersionsClientExtension(PrefixedIntListExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
-    _item_size: typing.ClassVar[int] = 2
-    _prefix_size: typing.ClassVar[int] = 1
-    _min_length: typing.ClassVar[int] = 2
-    _max_length: typing.ClassVar[int] = 254
+    extension_type: ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
+    _item_size: ClassVar[int] = 2
+    _prefix_size: ClassVar[int] = 1
+    _min_length: ClassVar[int] = 2
+    _max_length: ClassVar[int] = 254
 
 
 @dataclass
 class SupportedVersionServerExtension(IntExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
-    _item_size: typing.ClassVar[int] = 2
+    extension_type: ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
+    _item_size: ClassVar[int] = 2
 
 
 @dataclass
 class SupportedGroupsClientExtension(PrefixedIntListExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTED_GROUPS
-    _item_size: typing.ClassVar[int] = 2
-    _prefix_size: typing.ClassVar[int] = 2
+    extension_type: ClassVar[int] = ExtensionType.SUPPORTED_GROUPS
+    _item_size: ClassVar[int] = 2
+    _prefix_size: ClassVar[int] = 2
     _min_length = 2
 
 
@@ -340,16 +338,16 @@ class ECPointFormatsExtension(PrefixedIntListExtension):
     RFC4492.
     """
 
-    extension_type: typing.ClassVar[int] = ExtensionType.EC_POINT_FORMATS
-    _item_size: typing.ClassVar[int] = 1
-    _prefix_size: typing.ClassVar[int] = 1
-    _min_length: typing.ClassVar[int] = 1
-    _max_length: typing.ClassVar[int] = 2**8 - 1
+    extension_type: ClassVar[int] = ExtensionType.EC_POINT_FORMATS
+    _item_size: ClassVar[int] = 1
+    _prefix_size: ClassVar[int] = 1
+    _min_length: ClassVar[int] = 1
+    _max_length: ClassVar[int] = 2**8 - 1
 
 
 @dataclass
 class ClientHelloPaddingExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.CLIENT_HELLO_PADDING
+    extension_type: ClassVar[int] = ExtensionType.CLIENT_HELLO_PADDING
     padding_length: int
 
     @classmethod
@@ -366,26 +364,26 @@ class SignatureAlgorithmsExtension(PrefixedIntListExtension):
     RFC5246.
     """
 
-    extension_type: typing.ClassVar[int] = ExtensionType.SIGNATURE_ALGORITHMS
-    _item_size: typing.ClassVar[int] = 2
-    _prefix_size: typing.ClassVar[int] = 2
-    _min_length: typing.ClassVar[int] = 2
-    _max_length: typing.ClassVar[int] = 2**16 - 2
+    extension_type: ClassVar[int] = ExtensionType.SIGNATURE_ALGORITHMS
+    _item_size: ClassVar[int] = 2
+    _prefix_size: ClassVar[int] = 2
+    _min_length: ClassVar[int] = 2
+    _max_length: ClassVar[int] = 2**16 - 2
 
 
 @dataclass
 class PSKKeyExchangeModesExtension(PrefixedIntListExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.PSK_KEY_EXCHANGE_MODES
-    _item_size: typing.ClassVar[int] = 1
-    _prefix_size: typing.ClassVar[int] = 1
-    _min_length: typing.ClassVar[int] = 1
-    _max_length: typing.ClassVar[int] = 255
+    extension_type: ClassVar[int] = ExtensionType.PSK_KEY_EXCHANGE_MODES
+    _item_size: ClassVar[int] = 1
+    _prefix_size: ClassVar[int] = 1
+    _min_length: ClassVar[int] = 1
+    _max_length: ClassVar[int] = 255
 
 
 @dataclass
 class ALPSClientExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
-    protocols: typing.Sequence[bytes]
+    extension_type: ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
+    protocols: Sequence[bytes]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ALPSClientExtension:
@@ -402,7 +400,7 @@ class ALPSClientExtension(Extension):
         if not all(bool(p) for p in protocols):
             raise ParseError("empty protocol in protocol list")
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in ALPS extension")
 
         return ALPSClientExtension(protocols)
 
@@ -423,7 +421,7 @@ class ALPSClientExtension(Extension):
 
 @dataclass
 class ALPSExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
+    extension_type: ClassVar[int] = ExtensionType.APPLICATION_SETTINGS
     settings: bytes
 
     @classmethod
@@ -436,13 +434,13 @@ class ALPSExtension(Extension):
 
 @dataclass
 class CookieExtension(PrefixedBytesExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.COOKIE
-    _prefix_size: typing.ClassVar[int] = 2
+    extension_type: ClassVar[int] = ExtensionType.COOKIE
+    _prefix_size: ClassVar[int] = 2
 
 
 @dataclass
 class ECHOuterExtension(PrefixedIntListExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ECH_OUTER_EXTENSIONS
+    extension_type: ClassVar[int] = ExtensionType.ECH_OUTER_EXTENSIONS
     _item_size = 2
     _prefix_size = 1
 
@@ -453,7 +451,7 @@ class SNIClientExtension(Extension):
     RFC 4366. Server Name Indication extension
     """
 
-    extension_type: typing.ClassVar[int] = ExtensionType.SERVER_NAME
+    extension_type: ClassVar[int] = ExtensionType.SERVER_NAME
     hostname: bytes
 
     @classmethod
@@ -462,7 +460,7 @@ class SNIClientExtension(Extension):
         _ = parser.read_int(2)  # prefixed list size
 
         name_type = parser.read_int(1)
-        if not name_type == NameType.HOSTNAME:
+        if name_type != NameType.HOSTNAME:
             raise ParseError("invalid name type")
 
         hostname = parser.read_prefixed_bytes(2)
@@ -490,18 +488,18 @@ class SNIServerExtension(EmptyExtension):
     RFC 4366. Server Name Indication extension
     """
 
-    extension_type: typing.ClassVar[int] = ExtensionType.SERVER_NAME
+    extension_type: ClassVar[int] = ExtensionType.SERVER_NAME
 
 
 @dataclass
 class NPNClientExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTS_NPN
+    extension_type: ClassVar[int] = ExtensionType.SUPPORTS_NPN
 
 
 @dataclass
 class NPNServerExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.SUPPORTS_NPN
-    protocols: typing.Sequence[bytes]
+    extension_type: ClassVar[int] = ExtensionType.SUPPORTS_NPN
+    protocols: Sequence[bytes]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> NPNServerExtension:
@@ -517,7 +515,7 @@ class NPNServerExtension(Extension):
         if not all(bool(p) for p in protocols):
             raise ParseError("empty protocol in protocol list")
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in NPN extension")
 
         return NPNServerExtension(protocols)
 
@@ -536,8 +534,8 @@ class NPNServerExtension(Extension):
 
 @dataclass
 class ALPNClientExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ALPN
-    protocols: typing.Sequence[bytes]
+    extension_type: ClassVar[int] = ExtensionType.ALPN
+    protocols: Sequence[bytes]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ALPNClientExtension:
@@ -554,7 +552,7 @@ class ALPNClientExtension(Extension):
         if not all(bool(p) for p in protocols):
             raise ParseError("empty protocol in protocol list")
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in ALPN extension")
 
         return ALPNClientExtension(protocols=protocols)
 
@@ -575,7 +573,7 @@ class ALPNClientExtension(Extension):
 
 @dataclass
 class ALPNServerExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ALPN
+    extension_type: ClassVar[int] = ExtensionType.ALPN
     protocol: bytes
 
     @classmethod
@@ -587,7 +585,7 @@ class ALPNServerExtension(Extension):
             raise ParseError("empty protocol")
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in ALPN extension")
 
         return ALPNServerExtension(protocol)
 
@@ -605,8 +603,8 @@ class ALPNServerExtension(Extension):
 
 @dataclass
 class StatusRequestClientExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
-    responder_id_list: typing.Sequence[bytes] = ()
+    extension_type: ClassVar[int] = ExtensionType.STATUS_REQUEST
+    responder_id_list: Sequence[bytes] = ()
     request_extensions: bytes = b""
 
     @classmethod
@@ -614,7 +612,7 @@ class StatusRequestClientExtension(Extension):
         parser = Parser(data)
         status_type = parser.read_int(1)
         if status_type != CertificateStatusType.OCSP:
-            raise ParseError("Unknown certificate status type")
+            raise ParseError("unknown certificate status type")
 
         responder_id_list: list[bytes] = []
         with parser.assert_length(2) as end:
@@ -625,7 +623,7 @@ class StatusRequestClientExtension(Extension):
         request_extensions = parser.read_prefixed_bytes(2)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in status request extension")
 
         return StatusRequestClientExtension(
             responder_id_list, request_extensions
@@ -646,12 +644,12 @@ class StatusRequestClientExtension(Extension):
 
 @dataclass
 class StatusRequestServerExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
+    extension_type: ClassVar[int] = ExtensionType.STATUS_REQUEST
 
 
 @dataclass
 class StatusRequestCertificateExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.STATUS_REQUEST
+    extension_type: ClassVar[int] = ExtensionType.STATUS_REQUEST
     response: bytes
 
     @classmethod
@@ -659,12 +657,14 @@ class StatusRequestCertificateExtension(Extension):
         parser = Parser(data)
         status_type = parser.read_int(1)
         if status_type != CertificateStatusType.OCSP:
-            raise ParseError("invalid certificate status type")
+            raise ParseError("unknown certificate status type")
 
         response = parser.read_prefixed_bytes(3)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError(
+                "trailing data in status request certificate extension"
+            )
 
         return StatusRequestCertificateExtension(response)
 
@@ -699,8 +699,8 @@ class KeyShareEntry:
 
 @dataclass
 class KeyShareClientExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
-    key_shares: typing.Sequence[KeyShareEntry]
+    extension_type: ClassVar[int] = ExtensionType.KEY_SHARE
+    key_shares: Sequence[KeyShareEntry]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> KeyShareClientExtension:
@@ -713,7 +713,7 @@ class KeyShareClientExtension(Extension):
                 key_shares.append(key_share_entry)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in key share extension")
 
         return KeyShareClientExtension(key_shares)
 
@@ -729,7 +729,7 @@ class KeyShareClientExtension(Extension):
 
 @dataclass
 class KeyShareServerExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
+    extension_type: ClassVar[int] = ExtensionType.KEY_SHARE
     key_share: KeyShareEntry
 
     @classmethod
@@ -738,7 +738,7 @@ class KeyShareServerExtension(Extension):
         key_share = KeyShareEntry.parse(parser)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in key share extension")
 
         return KeyShareServerExtension(key_share)
 
@@ -750,8 +750,8 @@ class KeyShareServerExtension(Extension):
 
 @dataclass
 class KeyShareHRRExtension(IntExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.KEY_SHARE
-    _item_size: typing.ClassVar[int] = 2
+    extension_type: ClassVar[int] = ExtensionType.KEY_SHARE
+    _item_size: ClassVar[int] = 2
 
 
 @dataclass(frozen=True)
@@ -779,9 +779,9 @@ class PSKIdentity:
 
 @dataclass
 class PSKClientExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.PRE_SHARED_KEY
-    identities: typing.Sequence[PSKIdentity]
-    binders: typing.Sequence[bytes]
+    extension_type: ClassVar[int] = ExtensionType.PRE_SHARED_KEY
+    identities: Sequence[PSKIdentity]
+    binders: Sequence[bytes]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> PSKClientExtension:
@@ -802,19 +802,19 @@ class PSKClientExtension(Extension):
                 binders.append(binder)
 
         if len(identities) != len(binders):
-            raise ParseError("invalid extension")
+            raise ParseError("mismatched identities and binders length")
         if not identities:
-            raise ParseError("empty identities")
+            raise ParseError("empty identities list")
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in PSK extension")
 
         return PSKClientExtension(identities, binders)
 
     def serialize(self) -> bytes:
         if len(self.identities) != len(self.binders):
-            raise ValueError("invalid extension")
+            raise ValueError("mismatched identities and binders length")
         if not self.identities:
-            raise ValueError("empty identities")
+            raise ValueError("empty identities list")
 
         ids_writer = Writer()
         binder_writer = Writer()
@@ -835,43 +835,39 @@ class PSKClientExtension(Extension):
 
 @dataclass
 class PSKServerExtension(IntExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.PRE_SHARED_KEY
-    _item_size: typing.ClassVar[int] = 2
+    extension_type: ClassVar[int] = ExtensionType.PRE_SHARED_KEY
+    _item_size: ClassVar[int] = 2
 
 
 @dataclass
 class PostHandshakeAuthExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.POST_HANDSHAKE_AUTH
+    extension_type: ClassVar[int] = ExtensionType.POST_HANDSHAKE_AUTH
 
 
 @dataclass
 class EarlyDataExtension(IntExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.EARLY_DATA
-    _item_size: typing.ClassVar[int] = 4
+    extension_type: ClassVar[int] = ExtensionType.EARLY_DATA
+    _item_size: ClassVar[int] = 4
 
 
 @dataclass
 class EarlyDataClientExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.EARLY_DATA
+    extension_type: ClassVar[int] = ExtensionType.EARLY_DATA
 
 
 @dataclass
 class EarlyDataServerExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = ExtensionType.EARLY_DATA
+    extension_type: ClassVar[int] = ExtensionType.EARLY_DATA
 
 
 @dataclass
 class SCTClientExtension(EmptyExtension):
-    extension_type: typing.ClassVar[int] = (
-        ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
-    )
+    extension_type: ClassVar[int] = ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
 
 
 @dataclass
 class SCTServerExtension(PrefixedBytesExtension):
-    extension_type: typing.ClassVar[int] = (
-        ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
-    )
+    extension_type: ClassVar[int] = ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP
     _prefix_size = 2
 
 
@@ -879,7 +875,7 @@ class SCTServerExtension(PrefixedBytesExtension):
 class ECHConfigContents(ExtensionsMessage):
     public_key: bytes
     public_name: bytes
-    cipher_suites: typing.Sequence[tuple[int, int]]
+    cipher_suites: Sequence[tuple[int, int]]
     kem_id: int
     maximum_name_length: int
     config_id: int
@@ -972,7 +968,7 @@ class ECHConfig:
 
 @dataclass
 class ECHClientExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
+    extension_type: ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     ech_client_hello_type: int
     hpke_kdf_id: int = 0
     hpke_aead_id: int = 0
@@ -1025,8 +1021,8 @@ class ECHClientExtension(Extension):
 
 @dataclass
 class ECHServerExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
-    retry_configs: typing.Sequence[ECHConfig]
+    extension_type: ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
+    retry_configs: Sequence[ECHConfig]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ECHServerExtension:
@@ -1058,7 +1054,7 @@ class ECHServerExtension(Extension):
 
 @dataclass
 class ECHHRRExtension(Extension):
-    extension_type: typing.ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
+    extension_type: ClassVar[int] = ExtensionType.ENCRYPTED_CLIENT_HELLO
     data: bytes
 
     @classmethod

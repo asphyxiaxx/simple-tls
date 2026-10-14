@@ -20,8 +20,9 @@
 
 from __future__ import annotations
 
-import typing
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import ClassVar, TypeVar
 
 from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.compression import ZLIB, ZSTD, Brotli
@@ -38,11 +39,11 @@ from .extensions import (
     SignatureAlgorithmsExtension,
 )
 
-_M = typing.TypeVar("_M", bound="HandshakeMessage")
+_M = TypeVar("_M", bound="HandshakeMessage")
 
 
 class HandshakeMessage:
-    handshake_type: typing.ClassVar[int]
+    handshake_type: ClassVar[int]
 
     @classmethod
     def from_bytes(cls: type[_M], data: bytes) -> _M:
@@ -54,12 +55,12 @@ class HandshakeMessage:
 
 @dataclass
 class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CLIENT_HELLO
+    handshake_type: ClassVar[int] = HandshakeType.CLIENT_HELLO
     version: int
     random: bytes
     session_id: bytes
-    cipher_suites: typing.Sequence[int]
-    compression_methods: typing.Sequence[int]
+    cipher_suites: Sequence[int]
+    compression_methods: Sequence[int]
     extensions: list[tuple[int, bytes]] = field(default_factory=list)
 
     @classmethod
@@ -75,7 +76,7 @@ class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
         extensions = cls._parse_exts(parser)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in client hello")
 
         return ClientHello(
             version=version,
@@ -102,12 +103,12 @@ class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
 
 @dataclass
 class HelloRequest(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.HELLO_REQUEST
+    handshake_type: ClassVar[int] = HandshakeType.HELLO_REQUEST
 
     @classmethod
     def from_bytes(cls, data: bytes) -> HelloRequest:
         if data:
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in hello request")
         return HelloRequest()
 
     def serialize(self) -> bytes:
@@ -116,7 +117,7 @@ class HelloRequest(HandshakeMessage):
 
 @dataclass
 class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.SERVER_HELLO
+    handshake_type: ClassVar[int] = HandshakeType.SERVER_HELLO
     version: int
     random: bytes
     session_id: bytes
@@ -137,7 +138,7 @@ class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
         extensions = cls._parse_exts(parser)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in server hello")
 
         return ServerHello(
             version=version,
@@ -164,7 +165,7 @@ class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
 
 @dataclass
 class ClientKeyExchange(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CLIENT_KEY_EXCHANGE
+    handshake_type: ClassVar[int] = HandshakeType.CLIENT_KEY_EXCHANGE
     data: bytes
 
     @classmethod
@@ -177,7 +178,7 @@ class ClientKeyExchange(HandshakeMessage):
 
 @dataclass
 class ServerKeyExchange(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.SERVER_KEY_EXCHANGE
+    handshake_type: ClassVar[int] = HandshakeType.SERVER_KEY_EXCHANGE
     data: bytes
 
     @classmethod
@@ -190,12 +191,12 @@ class ServerKeyExchange(HandshakeMessage):
 
 @dataclass
 class ServerHelloDone(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.SERVER_HELLO_DONE
+    handshake_type: ClassVar[int] = HandshakeType.SERVER_HELLO_DONE
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ServerHelloDone:
         if data:
-            raise ParseError("Trailing Data")
+            raise ParseError("trailing data in server hello done")
         return ServerHelloDone()
 
     def serialize(self) -> bytes:
@@ -204,7 +205,7 @@ class ServerHelloDone(HandshakeMessage):
 
 @dataclass
 class NextProtocol(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.NEXT_PROTO
+    handshake_type: ClassVar[int] = HandshakeType.NEXT_PROTO
     next_protocol: bytes
 
     @classmethod
@@ -214,7 +215,7 @@ class NextProtocol(HandshakeMessage):
         _ = parser.read_prefixed_bytes(1)  # padding
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in next protocol")
 
         return NextProtocol(next_proto)
 
@@ -228,7 +229,7 @@ class NextProtocol(HandshakeMessage):
 
 @dataclass
 class EncryptedExtensions(HandshakeMessage, ExtensionsMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.ENCRYPTED_EXTENSIONS
+    handshake_type: ClassVar[int] = HandshakeType.ENCRYPTED_EXTENSIONS
     extensions: list[tuple[int, bytes]] = field(default_factory=list)
 
     @classmethod
@@ -237,7 +238,7 @@ class EncryptedExtensions(HandshakeMessage, ExtensionsMessage):
         extensions = cls._parse_exts(parser)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in encrypted extensions")
 
         return EncryptedExtensions(extensions)
 
@@ -249,12 +250,12 @@ class EncryptedExtensions(HandshakeMessage, ExtensionsMessage):
 
 @dataclass
 class EndOfEarlyData(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.END_OF_EARLY_DATA
+    handshake_type: ClassVar[int] = HandshakeType.END_OF_EARLY_DATA
 
     @classmethod
     def from_bytes(cls, data: bytes) -> EndOfEarlyData:
         if data:
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in end of early data")
         return EndOfEarlyData()
 
     def serialize(self) -> bytes:
@@ -263,7 +264,7 @@ class EndOfEarlyData(HandshakeMessage):
 
 @dataclass
 class Finished(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.FINISHED
+    handshake_type: ClassVar[int] = HandshakeType.FINISHED
     verify_data: bytes
 
     @classmethod
@@ -276,7 +277,7 @@ class Finished(HandshakeMessage):
 
 @dataclass
 class NewSessionTicket(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.NEWSESSION_TICKET
+    handshake_type: ClassVar[int] = HandshakeType.NEWSESSION_TICKET
     ticket_lifetime: int
     ticket: bytes
 
@@ -287,7 +288,7 @@ class NewSessionTicket(HandshakeMessage):
         ticket = parser.read_prefixed_bytes(2)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in new session ticket")
 
         return NewSessionTicket(ticket_lifetime, ticket)
 
@@ -300,7 +301,7 @@ class NewSessionTicket(HandshakeMessage):
 
 @dataclass
 class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.NEWSESSION_TICKET
+    handshake_type: ClassVar[int] = HandshakeType.NEWSESSION_TICKET
     ticket_lifetime: int
     ticket_age_add: int
     ticket_nonce: bytes
@@ -317,7 +318,7 @@ class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
         extensions = cls._parse_exts(parser)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in new session ticket")
 
         return NewSessionTicketTLS13(
             ticket_lifetime=ticket_lifetime,
@@ -339,7 +340,7 @@ class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
 
 @dataclass
 class KeyUpdate(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.KEY_UPDATE
+    handshake_type: ClassVar[int] = HandshakeType.KEY_UPDATE
     message_type: int
 
     @classmethod
@@ -373,7 +374,7 @@ class CertificateEntry(ExtensionsMessage):
 
 @dataclass
 class CertificateStatus(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE_STATUS
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_STATUS
     ocsp: bytes
 
     @classmethod
@@ -385,7 +386,7 @@ class CertificateStatus(HandshakeMessage):
         ocsp = parser.read_prefixed_bytes(3)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate status")
 
         return CertificateStatus(ocsp)
 
@@ -398,8 +399,8 @@ class CertificateStatus(HandshakeMessage):
 
 @dataclass
 class Certificate(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE
-    certificates: typing.Sequence[bytes]
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE
+    certificates: Sequence[bytes]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Certificate:
@@ -414,7 +415,7 @@ class Certificate(HandshakeMessage):
                 certificates.append(certificate)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate")
 
         return Certificate(certificates)
 
@@ -432,9 +433,9 @@ class Certificate(HandshakeMessage):
 
 @dataclass
 class CertificateTLS13(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE
     context: bytes
-    certificate_entries: typing.Sequence[CertificateEntry]
+    certificate_entries: Sequence[CertificateEntry]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> CertificateTLS13:
@@ -448,7 +449,7 @@ class CertificateTLS13(HandshakeMessage):
                 certificates.append(cert_entry)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate")
 
         return CertificateTLS13(context, certificates)
 
@@ -465,7 +466,7 @@ class CertificateTLS13(HandshakeMessage):
 
 @dataclass
 class CompressedCertificate(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.COMPRESSED_CERTIFICATE
+    handshake_type: ClassVar[int] = HandshakeType.COMPRESSED_CERTIFICATE
     compression: int
     """compression algorihtm"""
     length: int
@@ -483,7 +484,7 @@ class CompressedCertificate(HandshakeMessage):
         if not compressed_data:
             raise ParseError("empty payload in compressed certificate")
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in compressed certificate")
 
         return CompressedCertificate(compression, length, compressed_data)
 
@@ -539,9 +540,9 @@ class CompressedCertificate(HandshakeMessage):
 
 @dataclass
 class CertificateRequest(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
-    certificate_types: typing.Sequence[int]
-    certificate_authorities: typing.Sequence[bytes]
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
+    certificate_types: Sequence[int]
+    certificate_authorities: Sequence[bytes]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> CertificateRequest:
@@ -555,7 +556,7 @@ class CertificateRequest(HandshakeMessage):
                 authorities.append(certificate_authority)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate request")
 
         return CertificateRequest(types, authorities)
 
@@ -572,10 +573,10 @@ class CertificateRequest(HandshakeMessage):
 
 @dataclass
 class CertificateRequestTLS12(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
-    certificate_types: typing.Sequence[int]
-    certificate_authorities: typing.Sequence[bytes]
-    signature_algorithms: typing.Sequence[int]
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
+    certificate_types: Sequence[int]
+    certificate_authorities: Sequence[bytes]
+    signature_algorithms: Sequence[int]
 
     @classmethod
     def from_bytes(cls, data: bytes) -> CertificateRequestTLS12:
@@ -590,7 +591,7 @@ class CertificateRequestTLS12(HandshakeMessage):
                 cert_authorities.append(authority)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate request")
 
         return CertificateRequestTLS12(
             certificate_types=cert_types,
@@ -612,12 +613,12 @@ class CertificateRequestTLS12(HandshakeMessage):
 
 @dataclass
 class CertificateRequestTLS13(HandshakeMessage, ExtensionsMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
     context: bytes
     extensions: list[tuple[int, bytes]] = field(default_factory=list)
 
     @property
-    def signature_algorithms(self) -> typing.Sequence[int] | None:
+    def signature_algorithms(self) -> Sequence[int] | None:
         sigalg_ext = self.get_extension(SignatureAlgorithmsExtension)
         if sigalg_ext is not None:
             return sigalg_ext.data
@@ -630,7 +631,7 @@ class CertificateRequestTLS13(HandshakeMessage, ExtensionsMessage):
         extensions = cls._parse_exts(parser)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate request")
 
         return CertificateRequestTLS13(context, extensions)
 
@@ -643,7 +644,7 @@ class CertificateRequestTLS13(HandshakeMessage, ExtensionsMessage):
 
 @dataclass
 class CertificateVerify(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE_VERIFY
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_VERIFY
     signature: bytes
 
     @classmethod
@@ -652,7 +653,7 @@ class CertificateVerify(HandshakeMessage):
         signature = parser.read_prefixed_bytes(2)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate verify")
 
         return CertificateVerify(signature=signature)
 
@@ -664,7 +665,7 @@ class CertificateVerify(HandshakeMessage):
 
 @dataclass
 class CertificateVerifyTLS12(HandshakeMessage):
-    handshake_type: typing.ClassVar[int] = HandshakeType.CERTIFICATE_VERIFY
+    handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_VERIFY
     signature: bytes
     signature_algorithm: int
 
@@ -675,7 +676,7 @@ class CertificateVerifyTLS12(HandshakeMessage):
         signature = parser.read_prefixed_bytes(2)
 
         if parser.remaining():
-            raise ParseError("trailing data")
+            raise ParseError("trailing data in certificate verify")
 
         return CertificateVerifyTLS12(signature, signature_algorithm)
 

@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import typing
+from collections.abc import Container, Iterable, Sequence
 from datetime import datetime, timezone
 from os import PathLike
-from typing import TypeAlias
+from typing import Any, ClassVar, TypeAlias, TypeVar, cast, overload
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, hmac
@@ -44,32 +44,32 @@ Buffer: TypeAlias = bytes | bytearray | memoryview
 WritableBuffer: TypeAlias = bytearray | memoryview
 StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
 
-_T = typing.TypeVar("_T")
+_T = TypeVar("_T")
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-@typing.overload
+@overload
 def negotiate(
-    supported: typing.Iterable[_T],
-    offered: typing.Iterable[typing.Any] | None,
+    supported: Iterable[_T],
+    offered: Iterable[Any] | None,
     exception: None = None,
 ) -> _T | None: ...
 
 
-@typing.overload
+@overload
 def negotiate(
-    supported: typing.Iterable[_T],
-    offered: typing.Iterable[typing.Any] | None,
+    supported: Iterable[_T],
+    offered: Iterable[Any] | None,
     exception: Exception = ...,
 ) -> _T: ...
 
 
 def negotiate(
-    supported: typing.Iterable[_T],
-    offered: typing.Iterable[typing.Any] | None,
+    supported: Iterable[_T],
+    offered: Iterable[Any] | None,
     exception: Exception | None = None,
 ) -> _T | None:
     if offered is not None:
@@ -82,13 +82,10 @@ def negotiate(
 
 
 def check_server_hostname(server_hostname: bytes) -> None:
-    # must be a non-empty string
     if not server_hostname or server_hostname.startswith(b"."):
         raise ValueError(
             "server_hostname cannot be an empty or start with a leading dot."
         )
-
-    # max 253 characters for a domain name
     if len(server_hostname) > 253:
         raise ValueError("SNI hostname is too long")
 
@@ -102,26 +99,26 @@ def is_ipaddress(server_hostname: bytes) -> bool:
         return False
 
 
-@typing.overload
+@overload
 def filter(
-    items: typing.Iterable[_T] | None,
-    valid_items: typing.Container[_T],
-    default_items: typing.Sequence[_T],
+    items: Iterable[_T] | None,
+    valid_items: Container[_T],
+    default_items: Sequence[_T],
 ) -> tuple[_T, ...]: ...
 
 
-@typing.overload
+@overload
 def filter(
-    items: typing.Iterable[_T] | None,
-    valid_items: typing.Container[_T],
+    items: Iterable[_T] | None,
+    valid_items: Container[_T],
     default_items: None = None,
 ) -> tuple[_T, ...] | None: ...
 
 
 def filter(
-    items: typing.Iterable[_T] | None,
-    valid_items: typing.Container[_T],
-    default_items: typing.Sequence[_T] | None = None,
+    items: Iterable[_T] | None,
+    valid_items: Container[_T],
+    default_items: Sequence[_T] | None = None,
 ) -> tuple[_T, ...] | None:
     if items is not None:
         filtered = tuple(i for i in items if i in valid_items)
@@ -136,14 +133,14 @@ def version_from_wire(protocol: Protocol, version: int) -> int:
     if protocol == Protocol.TLS:
         if version in TLS_VERSIONS:
             return version
-    raise ValueError(f"Unknown version {version}")
+    raise ValueError(f"unknown version {version}")
 
 
 def version_to_wire(protocol: Protocol, version: int) -> int:
     if protocol == Protocol.TLS:
         if version in TLS_VERSIONS:
             return version
-    raise ValueError(f"Unknown version {version}")
+    raise ValueError(f"unknown version {version}")
 
 
 def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
@@ -155,7 +152,7 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
 
 def get_hash(hash_algorithm: int, message: Buffer = b"") -> hashes.Hash:
     if hash_algorithm == UNSPECIFIED:
-        hashobj = typing.cast(hashes.Hash, _MD5SHA1Hash())
+        hashobj = cast(hashes.Hash, _MD5SHA1Hash())
     else:
         algorithm = get_algorithm(hash_algorithm)
         hashobj = hashes.Hash(algorithm)
@@ -237,7 +234,8 @@ class Transcript:
         new = cls.__new__(cls)
         new.__buffer = self.__buffer.copy()
         new.__hashes = {
-            hashalg: h.copy() for hashalg, h in self.__hashes.items()
+            hashalg: hashobj.copy()
+            for hashalg, hashobj in self.__hashes.items()
         }
         return new
 
@@ -249,7 +247,6 @@ class KeySchedule:
         self.digest_size = self.algorithm.digest_size
         self.generation = 0
         self.secret = bytes(self.digest_size)
-        self.label_prefix = b"tls13"
 
     def certificate_verify_data(
         self, context: bytes, transcript: Transcript
@@ -334,13 +331,13 @@ class KeySchedule:
 
 
 class Validator:
-    oid: typing.ClassVar[x509.ObjectIdentifier]
+    oid: ClassVar[x509.ObjectIdentifier]
 
     def __call__(
         self,
         verifier: Verifier,
         ee: x509.Certificate,
-        extension: typing.Any,
+        extension: Any,
     ) -> None:
         raise NotImplementedError
 

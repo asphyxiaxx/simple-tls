@@ -21,8 +21,9 @@
 from __future__ import annotations
 
 import struct
-import typing
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypeAlias, Union, cast
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hmac
@@ -58,8 +59,8 @@ __all__ = [
     "get_key_iv_lens",
 ]
 
-_CipherType: typing.TypeAlias = CipherContext
-_AEADCipherType: typing.TypeAlias = typing.Union[
+_CipherType: TypeAlias = CipherContext
+_AEADCipherType: TypeAlias = Union[
     aead.AESCCM,
     aead.AESGCM,
     aead.ChaCha20Poly1305,
@@ -94,10 +95,10 @@ class TLSCipher:
         mac_key: bytes,
         encrypt_then_mac: bool = False,
     ) -> None:
-        self.open: typing.Callable[
+        self.open: Callable[
             [int, int, Buffer, int, bytes, WritableBuffer], int
         ]
-        self.seal: typing.Callable[
+        self.seal: Callable[
             [int, int, Buffer, int, bytes, WritableBuffer], int
         ]
 
@@ -115,10 +116,12 @@ class TLSCipher:
         if cipher_suite.aead:
             if encrypt_then_mac:
                 raise ValueError(
-                    "encrypt-then-mac is not supported for this cipher suite"
+                    "encrypt-then-mac is not supported for AEAD cipher suites"
                 )
             if len(mac_key) != 0:
-                raise ValueError("mac_key must be empty for aead cipher suite")
+                raise ValueError(
+                    "mac_key must be empty for AEAD cipher suites"
+                )
 
             aead_spec = _AEAD_CIPHERS[cipher_suite.symmetric]
             key_len = aead_spec.key_length
@@ -131,9 +134,9 @@ class TLSCipher:
                 iv_len = aead_spec.iv_length
 
             if len(enc_key) != key_len:
-                raise ValueError("incorrect enc_key length")
+                raise ValueError("enc_key length is incorrect")
             if len(fixed_iv) != iv_len:
-                raise ValueError("incorrect fixed_iv length")
+                raise ValueError("fixed_iv length is incorrect")
 
             if (
                 cipher_suite.minimum_version >= TLSVersion.TLSv1_3
@@ -166,16 +169,16 @@ class TLSCipher:
             if cipher_suite.minimum_version >= TLSVersion.TLSv1_3:
                 raise ValueError("cipher suite is not supported for TLSv1.3")
             if cipher_suite.digest is None:
-                raise ValueError("cipher suite is not supported")
+                raise ValueError("unsupported cipher suite")
 
             spec = _CIPHERS[cipher_suite.symmetric]
             key_len = spec.key_length
             iv_len = spec.iv_length
 
             if len(enc_key) != key_len:
-                raise ValueError("incorrect enc_key length")
+                raise ValueError("enc_key length is incorrect")
             if len(fixed_iv) != iv_len:
-                raise ValueError("incorrect fixed_iv length")
+                raise ValueError("fixed_iv length is incorrect")
 
             algorithm = get_algorithm(cipher_suite.digest)
             cipher = spec.create(enc_key, fixed_iv)
@@ -211,8 +214,8 @@ class TLSCipher:
             else:
                 if self._is_etm:
                     raise ValueError(
-                        "encrypt-then-mac is not supported for selected "
-                        "cipher suite"
+                        "encrypt-then-mac is not supported for this cipher "
+                        "suite"
                     )
 
                 seal = self._mac_then_encrypt_stream
@@ -222,11 +225,11 @@ class TLSCipher:
 
             if direction == Direction.WRITE:
                 if cipher is not None:
-                    self._cipher = typing.cast(_CipherType, cipher.encryptor())
+                    self._cipher = cast(_CipherType, cipher.encryptor())
                 self.seal = seal
             else:
                 if cipher is not None:
-                    self._cipher = typing.cast(_CipherType, cipher.decryptor())
+                    self._cipher = cast(_CipherType, cipher.decryptor())
                 self.open = open
 
     def ciphertext_length(self, plaintext_length: int) -> int:
@@ -318,7 +321,7 @@ class TLSCipher:
         else:
             nonce = self._fixed_nonce + seq_bytes
 
-        cipher = typing.cast(_AEADCipherType, self._cipher)
+        cipher = cast(_AEADCipherType, self._cipher)
         ciphertext = cipher.encrypt(nonce, plaintext, aad)  # type: ignore
 
         written = 0
@@ -341,8 +344,8 @@ class TLSCipher:
         header: bytes,
         out: WritableBuffer,
     ) -> int:
-        mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(CipherContext, self._cipher)
+        mac = cast(hmac.HMAC, self._mac)
+        cipher = cast(CipherContext, self._cipher)
         block_size = self._block_size
         mac_size = mac.algorithm.digest_size
         rand_iv = self._fixed_nonce
@@ -381,8 +384,8 @@ class TLSCipher:
         header: bytes,
         out: WritableBuffer,
     ) -> int:
-        mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(CipherContext, self._cipher)
+        mac = cast(hmac.HMAC, self._mac)
+        cipher = cast(CipherContext, self._cipher)
         block_size = self._block_size
         rand_iv = self._fixed_nonce
 
@@ -419,8 +422,8 @@ class TLSCipher:
         header: bytes,
         out: WritableBuffer,
     ) -> int:
-        mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(CipherContext | None, self._cipher)
+        mac = cast(hmac.HMAC, self._mac)
+        cipher = cast(CipherContext | None, self._cipher)
 
         if len(out) < len(plaintext) + self._max_overhead:
             raise ValueError("out buffer too small")
@@ -466,7 +469,7 @@ class TLSCipher:
             aad = header
         else:
             if len(ciphertext) < self._max_overhead:
-                raise InvalidTag("Truncated tag")
+                raise InvalidTag("ciphertext too short")
 
             plaintext_len = len(ciphertext) - self._max_overhead
             aad = struct.pack(
@@ -479,7 +482,7 @@ class TLSCipher:
             assert not self._xor_fixed_nonce
 
             if self._variable_nonce_len > len(ciphertext):
-                raise InvalidTag("Truncated nonce")
+                raise InvalidTag("ciphertext too short for nonce")
 
             nonce = self._fixed_nonce + ciphertext[: self._variable_nonce_len]
             ciphertext = ciphertext[self._variable_nonce_len :]
@@ -491,7 +494,7 @@ class TLSCipher:
         else:
             nonce = self._fixed_nonce + seq_bytes
 
-        cipher = typing.cast(_AEADCipherType, self._cipher)
+        cipher = cast(_AEADCipherType, self._cipher)
         plaintext = cipher.decrypt(nonce, ciphertext, aad)  # type: ignore
         out[: len(plaintext)] = plaintext
 
@@ -506,17 +509,16 @@ class TLSCipher:
         header: bytes,
         out: WritableBuffer,
     ) -> int:
-        mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(_CipherType, self._cipher)
+        mac = cast(hmac.HMAC, self._mac)
+        cipher = cast(_CipherType, self._cipher)
         block_size = self._block_size
         mac_size = mac.algorithm.digest_size
         rand_iv_len = self._variable_nonce_len
 
         if len(out) < len(ciphertext) + block_size:
             raise ValueError("out buffer too small")
-
         if len(ciphertext) < mac_size + rand_iv_len:
-            raise InvalidTag("Truncated mac")
+            raise InvalidTag("ciphertext too short")
 
         if not isinstance(ciphertext, memoryview):
             ciphertext = memoryview(ciphertext)
@@ -562,17 +564,16 @@ class TLSCipher:
         header: bytes,
         out: WritableBuffer,
     ) -> int:
-        mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(_CipherType, self._cipher)
+        mac = cast(hmac.HMAC, self._mac)
+        cipher = cast(_CipherType, self._cipher)
         block_size = self._block_size
         mac_size = mac.algorithm.digest_size
         rand_iv_len = self._variable_nonce_len
 
         if len(out) < len(ciphertext) + self._block_size:
             raise ValueError("out buffer too small")
-
         if len(ciphertext) < mac_size + rand_iv_len:
-            raise InvalidTag("Truncated mac")
+            raise InvalidTag("ciphertext too short")
 
         # For TLSv1.1+, remove explicit IV
         iv, ciphertext = ciphertext[:rand_iv_len], ciphertext[rand_iv_len:]
@@ -612,8 +613,8 @@ class TLSCipher:
         header: bytes,
         out: WritableBuffer,
     ) -> int:
-        mac = typing.cast(hmac.HMAC, self._mac)
-        cipher = typing.cast(_CipherType | None, self._cipher)
+        mac = cast(hmac.HMAC, self._mac)
+        cipher = cast(_CipherType | None, self._cipher)
         block_size = 1
         mac_size = mac.algorithm.digest_size
 
@@ -643,7 +644,7 @@ class TLSCipher:
         )
 
         if not compare_digest(expected_mac, extracted_mac):
-            raise InvalidTag("Mac mismatch")
+            raise InvalidTag("MAC mismatch")
 
         return plaintext_len
 
@@ -699,7 +700,7 @@ class NullCipher(TLSCipher):
 class _Cipher:
     key_length: int
     iv_length: int
-    cipher_factory: typing.Callable[[bytes, bytes], Cipher | None]
+    cipher_factory: Callable[[bytes, bytes], Cipher | None]
 
     def create(self, key: bytes, iv: bytes) -> Cipher | None:
         return self.cipher_factory(key, iv)

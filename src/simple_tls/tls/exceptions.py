@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-import typing
+from typing import Any
 
 from .constants import AlertDescription
 
@@ -44,7 +44,7 @@ class TLSWantReadError(TLSError):
 
 
 class TLSAlert(TLSError):
-    def __init__(self, description: int, reason: typing.Any = None) -> None:
+    def __init__(self, description: int, reason: Any = None) -> None:
         self.description = description
         self.reason = reason
         try:
