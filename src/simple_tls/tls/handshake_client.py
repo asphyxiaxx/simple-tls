@@ -992,11 +992,11 @@ class TLSHandshakeClient(TLSHandshake):
 
             try:
                 key_share, premaster_secret = (
-                    self._key_exchange.generate_and_compute(self._peer_key)
+                    self._key_exchange.generate_and_exchange(self._peer_key)
                 )
             except ValueError as exc:
                 raise AlertIllegalParameter(
-                    "failed to generate secret and compute key share"
+                    "failed to generate key share and exchange key"
                 ) from exc
 
             if cipher_suite.kea == KeyExchange.ECDHE:
@@ -1417,9 +1417,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             kex = self._key_exchanges[key_share.group]
             try:
-                shared_secret = kex.compute_shared_secret(
-                    key_share.key_exchange
-                )
+                shared_secret = kex.exchange(key_share.key_exchange)
             except ValueError as exc:
                 raise AlertIllegalParameter(
                     "failed to compute shared secret"
@@ -2233,7 +2231,7 @@ class TLSHandshakeClient(TLSHandshake):
             # can be empty
             keyshare_entries: list[KeyShareEntry] = []
             for key_share_group, kex in self._key_exchanges.items():
-                keyshare = kex.generate_key_share()
+                keyshare = kex.generate_share()
                 keyshare_entry = KeyShareEntry(key_share_group, keyshare)
                 keyshare_entries.append(keyshare_entry)
 

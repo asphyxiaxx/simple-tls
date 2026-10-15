@@ -36,13 +36,13 @@ from .constants import ECC_GROUPS, NamedGroup
 
 
 class BaseKeyExchange:
-    def generate_key_share(self) -> bytes:
+    def generate_share(self) -> bytes:
         raise NotImplementedError
 
-    def compute_shared_secret(self, peer_public: bytes) -> bytes:
+    def exchange(self, peer_public: bytes) -> bytes:
         raise NotImplementedError
 
-    def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
+    def generate_and_exchange(self, peer_public: bytes) -> tuple[bytes, bytes]:
         raise NotImplementedError
 
 
@@ -413,21 +413,21 @@ class FFDHKeyExchange(BaseKeyExchange):
     def g(self) -> int:
         return self._parameters.g
 
-    def generate_key_share(self) -> bytes:
+    def generate_share(self) -> bytes:
         p = self.p
         y = self.y
         return int_to_bytes(y, byte_length(p))
 
-    def compute_shared_secret(self, peer_public: bytes) -> bytes:
+    def exchange(self, peer_public: bytes) -> bytes:
         y = bytes_to_int(peer_public, "big")
         parameter_numbers = self._parameters.parameter_numbers
         peer_public_numbers = dh.DHPublicNumbers(y, parameter_numbers)
         peer_public_key = peer_public_numbers.public_key()
         return self._private_key.exchange(peer_public_key)
 
-    def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
-        key_share = self.generate_key_share()
-        shared_secret = self.compute_shared_secret(peer_public)
+    def generate_and_exchange(self, peer_public: bytes) -> tuple[bytes, bytes]:
+        key_share = self.generate_share()
+        shared_secret = self.exchange(peer_public)
         return (key_share, shared_secret)
 
 
@@ -474,14 +474,14 @@ class ECDHKeyExchange(BaseKeyExchange):
         self._private_key = private_key
         self._public_key = private_key.public_key()
 
-    def generate_key_share(self) -> bytes:
+    def generate_share(self) -> bytes:
         if isinstance(self._public_key, ec.EllipticCurvePublicKey):
             return self._public_key.public_bytes(
                 Encoding.X962, PublicFormat.UncompressedPoint
             )
         return self._public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
 
-    def compute_shared_secret(self, peer_public: bytes) -> bytes:
+    def exchange(self, peer_public: bytes) -> bytes:
         if isinstance(self._private_key, ec.EllipticCurvePrivateKey):
             algorithm = ec.ECDH()
             pk_ec = ec.EllipticCurvePublicKey.from_encoded_point(
@@ -499,9 +499,9 @@ class ECDHKeyExchange(BaseKeyExchange):
 
         raise AssertionError("invalid private key type")
 
-    def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
-        key_share = self.generate_key_share()
-        shared_secret = self.compute_shared_secret(peer_public)
+    def generate_and_exchange(self, peer_public: bytes) -> tuple[bytes, bytes]:
+        key_share = self.generate_share()
+        shared_secret = self.exchange(peer_public)
         return (key_share, shared_secret)
 
 
@@ -548,9 +548,9 @@ class KEMKeyExchange(BaseKeyExchange):
         self._level = level
         self._public_key, self._private_key = mlkem.keygen(level, seed)
 
-    def generate_key_share(self) -> bytes:
+    def generate_share(self) -> bytes:
         pqc_pk = self._public_key
-        ec_pk = self._ec_kex.generate_key_share()
+        ec_pk = self._ec_kex.generate_share()
 
         if self._group == NamedGroup.X25519MLKEM768:
             key_share = pqc_pk + ec_pk
@@ -558,11 +558,11 @@ class KEMKeyExchange(BaseKeyExchange):
             key_share = ec_pk + pqc_pk
         return key_share
 
-    def compute_shared_secret(self, peer_public: bytes) -> bytes:
+    def exchange(self, peer_public: bytes) -> bytes:
         exp_pqc_ct_len = _PQC_CIPHERTEXT_LEN[self._group]
         peer_pqc_ct, peer_ec_pk = self._split_pk(peer_public, exp_pqc_ct_len)
 
-        ec_ss = self._ec_kex.compute_shared_secret(peer_ec_pk)
+        ec_ss = self._ec_kex.exchange(peer_ec_pk)
         pqc_ss = mlkem.decaps(self._level, peer_pqc_ct, self._private_key)
 
         if self._group == NamedGroup.X25519MLKEM768:
@@ -572,12 +572,12 @@ class KEMKeyExchange(BaseKeyExchange):
 
         return shared_secret
 
-    def generate_and_compute(self, peer_public: bytes) -> tuple[bytes, bytes]:
+    def generate_and_exchange(self, peer_public: bytes) -> tuple[bytes, bytes]:
         exp_pqc_pk_len = _PQC_KEY_LEN[self._group]
         peer_pqc_pk, peer_ec_pk = self._split_pk(peer_public, exp_pqc_pk_len)
 
         seed = get_random_bytes(32)
-        ec_pk, ec_ss = self._ec_kex.generate_and_compute(peer_ec_pk)
+        ec_pk, ec_ss = self._ec_kex.generate_and_exchange(peer_ec_pk)
         pqc_ct, pqc_ss = mlkem.encaps(self._level, peer_pqc_pk, seed)
 
         if self._group == NamedGroup.X25519MLKEM768:

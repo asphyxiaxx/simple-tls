@@ -655,7 +655,7 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.kea == KeyExchange.ECDHE:
             assert self._group_id is not None
             self._key_exchange = ECDHKeyExchange(self._group_id)
-            key_share = self._key_exchange.generate_key_share()
+            key_share = self._key_exchange.generate_share()
 
             writer.write_int(ECCurveType.NAMED_CURVE, 1)
             writer.write_int(self._group_id, 2)
@@ -803,9 +803,7 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertInternalError("unsupported cipher suite selected")
 
             try:
-                premaster_secret = self._key_exchange.compute_shared_secret(
-                    peer_key
-                )
+                premaster_secret = self._key_exchange.exchange(peer_key)
             except ValueError as exc:
                 raise AlertIllegalParameter("invalid key share") from exc
 
@@ -1338,13 +1336,12 @@ class TLSHandshakeServer(TLSHandshake):
             assert self._peer_key is not None
 
             group_id = self._group_id_tls13
+            key = self._peer_key
             kex = self._get_key_exchange(group_id)
             assert kex is not None
 
             try:
-                key_share, shared_secret = kex.generate_and_compute(
-                    self._peer_key
-                )
+                key_share, shared_secret = kex.generate_and_exchange(key)
             except ValueError as exc:
                 raise AlertIllegalParameter("invalid key share") from exc
 
