@@ -1247,19 +1247,15 @@ class TLSHandshakeClient(TLSHandshake):
             assert self._supported_groups is not None
 
             selected_group = key_share_ext.data
-            if selected_group not in self._supported_groups:
-                raise AlertIllegalParameter(
-                    "Unexpected group in key share extension"
-                )
-
-            if self._key_exchanges.get(selected_group):
-                raise AlertIllegalParameter(
-                    "Unexpected group in key share extension"
-                )
+            if (
+                selected_group not in self._supported_groups
+                or selected_group in self._key_exchanges
+            ):
+                raise AlertIllegalParameter("received unexpected group")
 
             kex = self._get_key_exchange(selected_group)
             if kex is None:
-                raise AlertIllegalParameter()
+                raise AlertIllegalParameter("received invalid group")
 
             self._key_exchanges.clear()
             self._key_exchanges[selected_group] = kex
@@ -1335,7 +1331,9 @@ class TLSHandshakeClient(TLSHandshake):
                     self._hello_retry_request_used
                     and self._ech_status == ECHStatus.ACCEPTED
                 ):
-                    raise AlertIllegalParameter()
+                    raise AlertIllegalParameter(
+                        "ECH not accepted after hello retry request"
+                    )
 
                 self._ech_status = ECHStatus.REJECTED
 
