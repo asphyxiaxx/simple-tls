@@ -107,7 +107,7 @@ from .extensions import (
     EncryptThenMacExtension,
     ExtendedMasterSecretExtension,
     Extension,
-    ExtensionSource,
+    ExtensionsMessage,
     GenericExtension,
     KeyShareClientExtension,
     KeyShareEntry,
@@ -335,7 +335,7 @@ class TLSHandshakeClient(TLSHandshake):
             | CertificateRequestTLS13
             | None
         ) = None
-        self._peer_ech_retry_configs: list[ECHConfig] | None = None
+        self._peer_ech_retry_configs: tuple[ECHConfig, ...] | None = None
         self._peer_quic_transport_parameters: bytes | None = None
 
         # Negotiated variable
@@ -391,7 +391,7 @@ class TLSHandshakeClient(TLSHandshake):
         return self._state == ClientState.DONE
 
     @property
-    def peer_ech_retry_configs(self) -> list[ECHConfig] | None:
+    def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
         return self._peer_ech_retry_configs
 
     def trigger_post_handshake(self) -> None:
@@ -681,8 +681,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._session = session
 
         # Process extensions
-        ext_map = server_hello.extension_map(ExtensionSource.SERVER)
-        self._process_extensions(ext_map)
+        self._process_extensions(server_hello)
 
         if self._session_reused:
             if session.extended_master_secret != self._extended_master_secret:
@@ -1200,15 +1199,19 @@ class TLSHandshakeClient(TLSHandshake):
 
         self._transcript.update_for_hello_retry_request(cipher_suite.prf_hash)
 
-        ext_map = server_hello.extension_map(
-            ExtensionSource.HELLO_RETRY_REQUEST
+        # Process extensions
+        allowed_extensions = set(
+            (
+                ExtensionType.SUPPORTED_VERSIONS,
+                ExtensionType.KEY_SHARE,
+                ExtensionType.COOKIE,
+            )
         )
-        ext_map.pop(ExtensionType.SUPPORTED_VERSIONS)
 
         if self._selected_ech_config is not None:
             assert self._inner_transcript is not None
 
-            ext_map.pop(ExtensionType.ENCRYPTED_CLIENT_HELLO, None)
+            allowed_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
             self._inner_transcript.update_for_hello_retry_request(
                 cipher_suite.prf_hash
             )
@@ -1220,32 +1223,13 @@ class TLSHandshakeClient(TLSHandshake):
             else:
                 self._ech_status = ECHStatus.REJECTED
 
-        cookie_ext = cast(
-            CookieExtension | None,
-            ext_map.pop(ExtensionType.COOKIE, None),
-        )
-        key_share_ext = cast(
-            KeyShareHRRExtension | None,
-            ext_map.pop(ExtensionType.KEY_SHARE, None),
-        )
-
-        if ext_map:
-            raise AlertUnsupportedExtension(
-                "Unexpected extension in hello retry request"
-            )
-
-        if cookie_ext is None and key_share_ext is None:
-            raise AlertIllegalParameter(
-                "Received hello retry request did not cause update to client "
-                "hello"
-            )
-
+        cookie_ext = server_hello.get_extension(CookieExtension)
         if cookie_ext is not None:
             self._peer_cookie = cookie_ext.data
 
+        key_share_ext = server_hello.get_extension(KeyShareHRRExtension)
         if key_share_ext is not None:
             assert self._supported_groups is not None
-
             selected_group = key_share_ext.data
             if (
                 selected_group not in self._supported_groups
@@ -1259,6 +1243,15 @@ class TLSHandshakeClient(TLSHandshake):
 
             self._key_exchanges.clear()
             self._key_exchanges[selected_group] = kex
+
+        # Check all extensions received was sent allowed
+        if not server_hello.has_allowed_extensions(allowed_extensions):
+            raise AlertUnsupportedExtension("received unexpected extensions")
+
+        if cookie_ext is None and key_share_ext is None:
+            raise AlertIllegalParameter(
+                "received hello retry request did not cause update"
+            )
 
         self.message_cb(Direction.READ, server_hello)
         self._next_message()
@@ -1337,30 +1330,11 @@ class TLSHandshakeClient(TLSHandshake):
 
                 self._ech_status = ECHStatus.REJECTED
 
-        ext_map = server_hello.extension_map(ExtensionSource.SERVER)
-        ext_map.pop(ExtensionType.SUPPORTED_VERSIONS, None)
+        # Process extensions
+        allowed_extensions = set((ExtensionType.SUPPORTED_VERSIONS,))
 
-        kex_ext = cast(
-            KeyShareServerExtension | None,
-            ext_map.pop(ExtensionType.KEY_SHARE, None),
-        )
-        psk_ext = cast(
-            PSKServerExtension | None,
-            ext_map.pop(ExtensionType.PRE_SHARED_KEY, None),
-        )
-        if kex_ext is None and psk_ext is None:
-            raise AlertMissingExtension(
-                "missing key share or pre shared key extension"
-            )
-
-        if ext_map:
-            raise AlertUnsupportedExtension("received unsupported extension")
-
+        psk_ext = server_hello.get_extension(PSKServerExtension)
         if psk_ext is not None:
-            assert self._offered_session is not None
-            offered_session = self._offered_session
-            assert offered_session.cipher_suite is not None
-
             if (
                 not self._pre_shared_keys
                 or self._ech_status == ECHStatus.REJECTED
@@ -1369,11 +1343,16 @@ class TLSHandshakeClient(TLSHandshake):
                     "received unexpected PSK extension"
                 )
 
+            allowed_extensions.add(ExtensionType.PRE_SHARED_KEY)
+
+            assert self._offered_session is not None
+            offered_session = self._offered_session
+            assert offered_session.cipher_suite is not None
+
             if offered_session.version != self._version:
                 raise AlertIllegalParameter(
                     "received protocol version mismatch"
                 )
-
             if offered_session.cipher_suite.prf_hash != cipher_suite.prf_hash:
                 raise AlertIllegalParameter("received invalid cipher suite")
 
@@ -1400,14 +1379,17 @@ class TLSHandshakeClient(TLSHandshake):
         session.cipher_suite = self._cipher_suite
         self._session = session
 
+        kex_ext = server_hello.get_extension(KeyShareServerExtension)
         if kex_ext is not None:
             if (
                 self._psk_kex_modes is not None
                 and PSKKeyExchangeMode.PSK_DHE_KE not in self._psk_kex_modes
             ):
                 raise AlertIllegalParameter(
-                    "received unexpected PSK key exchange modes extension"
+                    "received unexpected key share extension"
                 )
+
+            allowed_extensions.add(ExtensionType.KEY_SHARE)
 
             key_share = kex_ext.key_share
             if key_share.group not in self._key_exchanges:
@@ -1433,6 +1415,10 @@ class TLSHandshakeClient(TLSHandshake):
             shared_secret = None
 
         key_schedule.extract(shared_secret)
+
+        # Check all extensions received was sent allowed
+        if not server_hello.has_allowed_extensions(allowed_extensions):
+            raise AlertUnsupportedExtension("received unexpected extensions")
 
         self.message_cb(Direction.READ, server_hello)
         self._next_message()
@@ -1464,8 +1450,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         enc_ext = message.parse_as(EncryptedExtensions)
 
-        ext_map = enc_ext.extension_map(ExtensionSource.SERVER)
-        self._process_extensions(ext_map)
+        # Process extensions
+        self._process_extensions(enc_ext)
 
         self.message_cb(Direction.READ, enc_ext)
         self._next_message()
@@ -1496,10 +1482,7 @@ class TLSHandshakeClient(TLSHandshake):
         elif self._early_data_offered:
             self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
-        alps_ext = cast(
-            ALPSExtension | None,
-            ext_map.get(ExtensionType.APPLICATION_SETTINGS),
-        )
+        alps_ext = enc_ext.get_extension(ALPSExtension)
         if alps_ext is not None:
             if self._alpn_selected is None:
                 raise AlertIllegalParameter(
@@ -2317,22 +2300,23 @@ class TLSHandshakeClient(TLSHandshake):
 
         return False
 
-    def _process_extensions(self, ext_map: dict[int, Extension]) -> None:
+    def _process_extensions(self, ext_message: ExtensionsMessage) -> None:
         assert self._cipher_suite is not None
+
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
+        allowed_extensions: set[int] = set()
+        self._extensions_recv = set(ext_message.get_extension_types())
 
         # Renegotiation info extension
-        ri_ext = cast(
-            RenegotiationInfoExtension | None,
-            ext_map.pop(ExtensionType.RENEGOTIATION_INFO, None),
-        )
+        ri_ext = ext_message.get_extension(RenegotiationInfoExtension)
         if ri_ext is not None:
             if version >= TLSVersion.TLSv1_3:
                 raise AlertUnsupportedExtension(
                     "received unexpected renegotiation info extension"
                 )
 
+            allowed_extensions.add(ExtensionType.RENEGOTIATION_INFO)
             self._secure_renegotiation = True
         else:
             if (
@@ -2343,93 +2327,96 @@ class TLSHandshakeClient(TLSHandshake):
                     "peer does not support secure renegotiation"
                 )
 
-        # Check all extension received was sent by client hello
-        if not self._extensions_sent.issuperset(ext_map):
-            raise AlertUnsupportedExtension("received unexpected extensions")
-
-        forbid_extensions = set(
-            (
-                ExtensionType.SIGNATURE_ALGORITHMS,
-                ExtensionType.KEY_SHARE,
-                ExtensionType.PSK_KEY_EXCHANGE_MODES,
-                ExtensionType.SUPPORTED_VERSIONS,
-                ExtensionType.COOKIE,
-            )
-        )
-
         # SNI extension
-        sni_ext = cast(
-            SNIServerExtension | None, ext_map.get(ExtensionType.SERVER_NAME)
-        )
-        if sni_ext is not None:
-            pass
+        sni_ext = ext_message.get_extension(SNIServerExtension)
+        if (
+            sni_ext is not None
+            and ExtensionType.SERVER_NAME in self._extensions_sent
+        ):
+            allowed_extensions.add(ExtensionType.SERVER_NAME)
 
         # ALPN extension
-        alpn_ext = cast(
-            ALPNServerExtension | None, ext_map.get(ExtensionType.ALPN)
-        )
+        alpn_ext = ext_message.get_extension(ALPNServerExtension)
         if alpn_ext is not None:
-            assert self._alpn_protocols is not None
-
+            if self._alpn_protocols is None:
+                raise AlertUnsupportedExtension(
+                    "received unexpected ALPN extension"
+                )
             if alpn_ext.protocol not in self._alpn_protocols:
                 raise AlertIllegalParameter(
                     "received unexpected protocol in ALPN extension"
                 )
 
+            allowed_extensions.add(ExtensionType.ALPN)
             self._alpn_selected = alpn_ext.protocol
 
         if version >= TLSVersion.TLSv1_3:
-            forbid_extensions.add(ExtensionType.EXTENDED_MAIN_SECRET)
-            forbid_extensions.add(ExtensionType.SUPPORTS_NPN)
-            forbid_extensions.add(ExtensionType.SESSION_TICKET)
-            forbid_extensions.add(ExtensionType.ENCRYPT_THEN_MAC)
-            forbid_extensions.add(ExtensionType.EC_POINT_FORMATS)
-            forbid_extensions.add(ExtensionType.STATUS_REQUEST)
+            allowed_extensions.add(ExtensionType.APPLICATION_SETTINGS)
 
             # Encrypted client hello extension
-            ech_ext = cast(
-                ECHServerExtension | None,
-                ext_map.get(ExtensionType.ENCRYPTED_CLIENT_HELLO),
-            )
+            ech_ext = ext_message.get_extension(ECHServerExtension)
             if ech_ext is not None:
-                self._peer_ech_retry_configs = list(ech_ext.retry_configs)
+                if self._select_ech_config is None:
+                    raise AlertUnsupportedExtension(
+                        "received unexpected ECH extension"
+                    )
+
+                allowed_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
+                self._peer_ech_retry_configs = tuple(ech_ext.retry_configs)
 
             # Early data extension
-            early_data_ext = cast(
-                EarlyDataServerExtension | None,
-                ext_map.get(ExtensionType.EARLY_DATA),
+            early_data_ext = ext_message.get_extension(
+                EarlyDataServerExtension
             )
             if early_data_ext is not None:
-                assert self._early_data_offered
-
-                if self._hello_retry_request_used:
-                    raise AlertIllegalParameter(
+                if (
+                    not self._early_data_offered
+                    or self._hello_retry_request_used
+                ):
+                    raise AlertUnsupportedExtension(
                         "received unexpected early data extension"
                     )
 
+                allowed_extensions.add(ExtensionType.EARLY_DATA)
                 self._early_data_accepted = True
-
         else:
-            forbid_extensions.add(ExtensionType.APPLICATION_SETTINGS)
-            forbid_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
-            forbid_extensions.add(ExtensionType.EARLY_DATA)
+            allowed_extensions.add(ExtensionType.STATUS_REQUEST)
+
+            # Renegotiation info extension
+            ri_ext = ext_message.get_extension(RenegotiationInfoExtension)
+            if ri_ext is not None:
+                # Renegotiation info extension is always sent from client
+                allowed_extensions.add(ExtensionType.RENEGOTIATION_INFO)
+                self._secure_renegotiation = True
+            else:
+                if (
+                    version <= TLSVersion.TLSv1_2
+                    and not self.configuration.legacy_server_connect
+                ):
+                    raise AlertInsufficientSecurity(
+                        "peer does not support secure renegotiation"
+                    )
 
             # Extended master secret extension
-            ems_ext = cast(
-                ExtendedMasterSecretExtension | None,
-                ext_map.get(ExtensionType.EXTENDED_MAIN_SECRET),
-            )
+            ems_ext = ext_message.get_extension(ExtendedMasterSecretExtension)
             if ems_ext is not None:
+                if not self._enable_ems:
+                    raise AlertUnsupportedExtension(
+                        "received unexpected extended master secret extension"
+                    )
+
+                allowed_extensions.add(ExtensionType.EXTENDED_MAIN_SECRET)
                 self._extended_master_secret = True
 
             # NPN extension
-            npn_ext = cast(
-                NPNServerExtension | None,
-                ext_map.get(ExtensionType.SUPPORTS_NPN),
-            )
+            npn_ext = ext_message.get_extension(NPNServerExtension)
             if npn_ext is not None:
-                assert self._npn_protocols is not None
+                if self._npn_protocols is None:
+                    raise AlertUnsupportedExtension(
+                        "received unexpected NPN extension"
+                    )
 
+                allowed_extensions.add(ExtensionType.SUPPORTS_NPN)
                 npn_selected = negotiate(
                     self._npn_protocols, npn_ext.protocols
                 )
@@ -2439,18 +2426,25 @@ class TLSHandshakeClient(TLSHandshake):
                 self._npn_selected = npn_selected
 
             # Session ticket extension
-            session_ticket_ext = cast(
-                TLSSession | None, ext_map.get(ExtensionType.SESSION_TICKET)
+            session_ticket_ext = ext_message.get_extension(
+                SessionTicketExtension
             )
             if session_ticket_ext is not None:
+                if self._session_ticket is None:
+                    raise AlertUnsupportedExtension(
+                        "received unexpected session ticket extension"
+                    )
+
+                allowed_extensions.add(ExtensionType.SESSION_TICKET)
                 self._ticket_expected = True
 
             # Encrypt-then-mac extension
-            etm_ext = cast(
-                EncryptThenMacExtension | None,
-                ext_map.get(ExtensionType.ENCRYPT_THEN_MAC),
-            )
+            etm_ext = ext_message.get_extension(EncryptThenMacExtension)
             if etm_ext is not None:
+                if not self._enable_etm:
+                    raise AlertUnsupportedExtension(
+                        "received unexpected encrypt-then-mac extension"
+                    )
                 if cipher_suite.symmetric not in (
                     Symmetric.AES_128_CBC,
                     Symmetric.AES_256_CBC,
@@ -2461,15 +2455,18 @@ class TLSHandshakeClient(TLSHandshake):
                         "received unexpected encrypt-then-mac extension"
                     )
 
+                allowed_extensions.add(ExtensionType.ENCRYPT_THEN_MAC)
                 self._encrypt_then_mac = True
 
             # EC point formats extension
-            ecpfs_ext = cast(
-                ECPointFormatsExtension | None,
-                ext_map.get(ExtensionType.EC_POINT_FORMATS),
-            )
+            ecpfs_ext = ext_message.get_extension(ECPointFormatsExtension)
             if ecpfs_ext is not None:
-                assert self._ec_point_formats is not None
+                if self._ec_point_formats is None:
+                    raise AlertUnsupportedExtension(
+                        "recevied unexpected EC point formats extension"
+                    )
+
+                allowed_extensions.add(ExtensionType.EC_POINT_FORMATS)
                 _ = negotiate(
                     self._ec_point_formats,
                     ecpfs_ext.data,
@@ -2478,8 +2475,8 @@ class TLSHandshakeClient(TLSHandshake):
                     ),
                 )
 
-        if forbid_extensions.intersection(ext_map):
-            raise AlertUnsupportedExtension("received unexpected extensions")
+        if not ext_message.has_allowed_extensions(allowed_extensions):
+            raise AlertUnsupportedExtension("received unsupported extensions")
 
     def _send_certificate_tls13(
         self, cert_request: CertificateRequestTLS13

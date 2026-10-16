@@ -20,8 +20,7 @@
 
 from __future__ import annotations
 
-import enum
-from collections.abc import Sequence
+from collections.abc import Container, Sequence
 from dataclasses import dataclass, field
 from typing import ClassVar, TypeVar
 
@@ -39,12 +38,6 @@ _E = TypeVar("_E", bound="Extension")
 _PBE = TypeVar("_PBE", bound="PrefixedBytesExtension")
 _PILE = TypeVar("_PILE", bound="PrefixedIntListExtension")
 _IE = TypeVar("_IE", bound="IntExtension")
-
-
-class ExtensionSource(enum.IntEnum):
-    CLIENT = enum.auto()
-    SERVER = enum.auto()
-    HELLO_RETRY_REQUEST = enum.auto()
 
 
 @dataclass
@@ -79,20 +72,12 @@ class ExtensionsMessage:
 
         return None
 
-    def extension_map(self, source: ExtensionSource) -> dict[int, Extension]:
-        ext_map: dict[int, Extension] = {}
-        sources = _EXTENSION_SOUCES[source]
+    def get_extension_types(self) -> list[int]:
+        return [e[0] for e in self.extensions]
 
-        for ext_type, ext_data in self.extensions:
-            try:
-                ext_cls = sources[ext_type]
-            except KeyError:
-                # Fallback: unknown or unsupported extension
-                ext_map[ext_type] = GenericExtension(ext_type, ext_data)
-            else:
-                ext_map[ext_type] = ext_cls.from_bytes(ext_data)
-
-        return ext_map
+    def has_allowed_extensions(self, allowed: Container[int]) -> bool:
+        """Check if all extensions present are allowed for this message."""
+        return all(ext_type in allowed for ext_type, _ in self.extensions)
 
     @classmethod
     def _parse_exts(cls, parser: Parser[bytes]) -> list[tuple[int, bytes]]:
@@ -1083,74 +1068,3 @@ COMPRESSIBLE_EXTENSIONS = (
     ExtensionType.APPLICATION_SETTINGS,
     ExtensionType.POST_HANDSHAKE_AUTH,
 )
-
-
-_CLIENT_EXTENSION: dict[int, type[Extension]] = {
-    e.extension_type: e
-    for e in (
-        ALPSClientExtension,
-        ALPNClientExtension,
-        ClientHelloPaddingExtension,
-        CompressedCertificateExtension,
-        EarlyDataClientExtension,
-        ECHClientExtension,
-        ECHOuterExtension,
-        ECPointFormatsExtension,
-        EncryptThenMacExtension,
-        ExtendedMasterSecretExtension,
-        KeyShareClientExtension,
-        NPNClientExtension,
-        PostHandshakeAuthExtension,
-        PSKClientExtension,
-        PSKKeyExchangeModesExtension,
-        RenegotiationInfoExtension,
-        SCTClientExtension,
-        SessionTicketExtension,
-        SignatureAlgorithmsExtension,
-        SNIClientExtension,
-        StatusRequestClientExtension,
-        SupportedGroupsClientExtension,
-        SupportedVersionsClientExtension,
-    )
-}
-
-
-_SERVER_EXTENSIONS: dict[int, type[Extension]] = {
-    e.extension_type: e
-    for e in (
-        ALPNServerExtension,
-        ALPSExtension,
-        EarlyDataServerExtension,
-        ECHServerExtension,
-        ECPointFormatsExtension,
-        EncryptThenMacExtension,
-        ExtendedMasterSecretExtension,
-        KeyShareServerExtension,
-        NPNServerExtension,
-        PSKServerExtension,
-        RenegotiationInfoExtension,
-        SCTServerExtension,
-        SessionTicketExtension,
-        SNIServerExtension,
-        StatusRequestServerExtension,
-        SupportedVersionServerExtension,
-    )
-}
-
-
-_HELLO_RETRY_REQEUEST_EXTENSIONS: dict[int, type[Extension]] = {
-    e.extension_type: e
-    for e in (
-        CookieExtension,
-        ECHHRRExtension,
-        KeyShareHRRExtension,
-        SupportedVersionServerExtension,
-    )
-}
-
-
-_EXTENSION_SOUCES: dict[ExtensionSource, dict[int, type[Extension]]] = {
-    ExtensionSource.CLIENT: _CLIENT_EXTENSION,
-    ExtensionSource.SERVER: _SERVER_EXTENSIONS,
-    ExtensionSource.HELLO_RETRY_REQUEST: _HELLO_RETRY_REQEUEST_EXTENSIONS,
-}

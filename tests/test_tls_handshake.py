@@ -487,7 +487,7 @@ def test_tls13_handshake_hello_retry_request(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._hello_retry_request_used
-        assert server._group_id_tls13 == NamedGroup.X25519
+        assert server._group_id == NamedGroup.X25519
 
     with subtests.test(msg="Server priortize key_share_groups"):
         handshake(

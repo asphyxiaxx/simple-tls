@@ -202,7 +202,7 @@ class TLSConnection:
             if binary_form:
                 body = b"".join(c.serialize() for c in ech_retry_config)
                 return int_to_bytes(len(body), 2) + body
-            return ech_retry_config
+            return list(ech_retry_config)
         return None
 
     def get_peer_application_settings(self) -> bytes | None:

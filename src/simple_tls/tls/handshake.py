@@ -338,7 +338,7 @@ class TLSHandshake:
         return None
 
     @property
-    def peer_ech_retry_configs(self) -> list[ECHConfig] | None:
+    def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
         return None
 
     @property
