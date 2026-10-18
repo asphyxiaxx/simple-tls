@@ -657,9 +657,9 @@ class TLSHandshakeServer(TLSHandshake):
         if self._ticket_expected:
             extensions.append(SessionTicketExtension(b""))
 
-        if self._alpn_selected is not None:
+        if self._alpn_protocol is not None:
             assert not self._npn_expected
-            extensions.append(ALPNServerExtension(self._alpn_selected))
+            extensions.append(ALPNServerExtension(self._alpn_protocol))
 
         server_hello = ServerHello(
             version=self.protocol_version(),
@@ -945,7 +945,7 @@ class TLSHandshakeServer(TLSHandshake):
         if next_proto.next_protocol not in self._npn_protocols:
             raise AlertIllegalParameter("peer selected unexpected next_proto")
 
-        self._npn_selected = next_proto.next_protocol
+        self._npn_protocol = next_proto.next_protocol
 
         self.message_cb(Direction.READ, next_proto)
         self._next_message()
@@ -1181,17 +1181,17 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertHandshakeFailure("no supported key shares group")
 
         new_session.cipher_suite = self._cipher_suite
-        new_session.early_alpn = self._alpn_selected
+        new_session.early_alpn = self._alpn_protocol
 
         alps_ext = client_hello.get_extension(ALPSClientExtension)
         if (
             alps_ext is not None
-            and self._alpn_selected is not None
-            and self._alpn_selected in self._alps
-            and self._alpn_selected in alps_ext.protocols
+            and self._alpn_protocol is not None
+            and self._alpn_protocol in self._alps
+            and self._alpn_protocol in alps_ext.protocols
         ):
             new_session.has_alps = True
-            new_session.local_alps = self._alps[self._alpn_selected]
+            new_session.local_alps = self._alps[self._alpn_protocol]
 
         self._session = new_session
         self._key_schedule = key_schedule
@@ -1219,7 +1219,7 @@ class TLSHandshakeServer(TLSHandshake):
                 and not hrr
                 and session is not None
                 and session.ticket_max_early_data > 0
-                and (self._alpn_selected == session.early_alpn)
+                and (self._alpn_protocol == session.early_alpn)
                 and (
                     session.has_alps == new_session.has_alps
                     and session.local_alps == new_session.local_alps
@@ -1472,8 +1472,8 @@ class TLSHandshakeServer(TLSHandshake):
         if self._early_data_accepted:
             enc_extensions.append(EarlyDataServerExtension())
 
-        if self._alpn_selected is not None:
-            enc_extensions.append(ALPNServerExtension(self._alpn_selected))
+        if self._alpn_protocol is not None:
+            enc_extensions.append(ALPNServerExtension(self._alpn_protocol))
 
         if self._session.has_alps and not self._early_data_accepted:
             enc_extensions.append(ALPSExtension(self._session.local_alps))
@@ -1867,7 +1867,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         alpn_ext = ext_message.get_extension(ALPNClientExtension)
         if self._alpn_protocols is not None and alpn_ext is not None:
-            self._alpn_selected = negotiate(
+            self._alpn_protocol = negotiate(
                 self._alpn_protocols,
                 alpn_ext.protocols,
                 AlertNoApplicationProtocol("no supported ALPN protocols"),
@@ -1928,7 +1928,7 @@ class TLSHandshakeServer(TLSHandshake):
             # NPN extension
             npn_ext = ext_message.get_extension(NPNClientExtension)
             if (
-                self._alpn_selected is None
+                self._alpn_protocol is None
                 and npn_ext is not None
                 and self._npn_protocols is not None
             ):

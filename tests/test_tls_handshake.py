@@ -284,8 +284,8 @@ def test_handshake_with_alpn(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.alpn_selected == b"h2"
-    assert server.alpn_selected == b"h2"
+    assert client.alpn_protocol == b"h2"
+    assert server.alpn_protocol == b"h2"
 
 
 @pytest.mark.parametrize(
@@ -312,8 +312,8 @@ def test_handshake_with_npn(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.npn_selected == b"h2"
-    assert server.npn_selected == b"h2"
+    assert client.npn_protocol == b"h2"
+    assert server.npn_protocol == b"h2"
 
 
 @pytest.mark.parametrize(
@@ -871,8 +871,8 @@ def test_server_unsupported_npn(version):
 
     assert client.version == version
     assert server.version == version
-    assert client.npn_selected == b"sentinel"
-    assert server.npn_selected == b"sentinel"
+    assert client.npn_protocol == b"sentinel"
+    assert server.npn_protocol == b"sentinel"
 
 
 def test_tls13_server_unsuported_cipher_suite():

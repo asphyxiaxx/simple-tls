@@ -211,14 +211,14 @@ class SSLObject(_ssl.SSLObject):
         Return the currently selected NPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if NPN is not supported by one
         of the peers."""
-        return bytes_to_str(self._sslobj.selected_npn_protocol())
+        return bytes_to_str(self._sslobj.get_npn_negotiated())
 
     def selected_alpn_protocol(self) -> str | None:
         """
         Return the currently selected ALPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if ALPN is not supported by
         one of the peers."""
-        return bytes_to_str(self._sslobj.selected_alpn_protocol())
+        return bytes_to_str(self._sslobj.get_alpn_negotiated())
 
     def cipher(self) -> tuple[str, str, int] | None:
         """

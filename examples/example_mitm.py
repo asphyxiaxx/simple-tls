@@ -221,7 +221,7 @@ class SSLConnection:
     def get_alpn_proto_negotiated(self) -> bytes | None:
         if self._conn is None:
             raise TypeError("connection state not set")
-        return self._conn.selected_alpn_protocol()
+        return self._conn.get_alpn_negotiated()
 
     def get_cipher_name(self) -> str | None:
         if self._conn is None:

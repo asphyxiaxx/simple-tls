@@ -367,11 +367,11 @@ class TLSConnection:
     def get_unverified_chain(self) -> list[x509.Certificate]:
         return self._handshake.get_unverified_chain()
 
-    def selected_npn_protocol(self) -> bytes | None:
-        return self._handshake.npn_selected
+    def get_npn_negotiated(self) -> bytes | None:
+        return self._handshake.npn_protocol
 
-    def selected_alpn_protocol(self) -> bytes | None:
-        return self._handshake.alpn_selected
+    def get_alpn_negotiated(self) -> bytes | None:
+        return self._handshake.alpn_protocol
 
     def cipher(self) -> CipherSuite | None:
         return self._handshake.cipher_suite

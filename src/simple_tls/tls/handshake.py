@@ -214,8 +214,8 @@ class TLSHandshake:
         self._extended_master_secret: bool = False
         self._encrypt_then_mac: bool = False
         self._secure_renegotiation: bool = False
-        self._npn_selected: bytes | None = None
-        self._alpn_selected: bytes | None = None
+        self._npn_protocol: bytes | None = None
+        self._alpn_protocol: bytes | None = None
         self._ech_status: ECHStatus = ECHStatus.NONE
 
         # Buffer
@@ -323,15 +323,15 @@ class TLSHandshake:
         return self._cipher_suite
 
     @property
-    def npn_selected(self) -> bytes | None:
-        return self._npn_selected
+    def npn_protocol(self) -> bytes | None:
+        return self._npn_protocol
 
     @property
-    def alpn_selected(self) -> bytes | None:
+    def alpn_protocol(self) -> bytes | None:
         if self._in_early_data:
             assert self._session is not None
             return self._session.early_alpn
-        return self._alpn_selected
+        return self._alpn_protocol
 
     @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:

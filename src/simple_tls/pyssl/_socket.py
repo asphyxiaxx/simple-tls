@@ -321,13 +321,13 @@ class SSLSocket(_ssl.SSLSocket):
     def selected_npn_protocol(self) -> str | None:
         self._checkClosed()
         if self._sslobj is not None:
-            return bytes_to_str(self._sslobj.selected_npn_protocol())
+            return bytes_to_str(self._sslobj.get_npn_negotiated())
         return None
 
     def selected_alpn_protocol(self) -> str | None:
         self._checkClosed()
         if self._sslobj is not None:
-            return bytes_to_str(self._sslobj.selected_alpn_protocol())
+            return bytes_to_str(self._sslobj.get_alpn_negotiated())
         return None
 
     def cipher(self) -> tuple[str, str, int] | None:

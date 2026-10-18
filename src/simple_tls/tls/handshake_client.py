@@ -1066,8 +1066,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         self._setup_traffic(Direction.WRITE)
 
-        if self._npn_selected is not None:
-            npn = NextProtocol(self._npn_selected)
+        if self._npn_protocol is not None:
+            npn = NextProtocol(self._npn_protocol)
             self.message_cb(Direction.WRITE, npn)
             self._add_message(npn)
 
@@ -1472,7 +1472,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             if offered_session.cipher_suite != session.cipher_suite:
                 raise AlertIllegalParameter("received cipher suite mismatch")
-            if offered_session.early_alpn != self._alpn_selected:
+            if offered_session.early_alpn != self._alpn_protocol:
                 raise AlertIllegalParameter("received ALPN mismatch")
 
             session.has_alps = offered_session.has_alps
@@ -1484,20 +1484,20 @@ class TLSHandshakeClient(TLSHandshake):
 
         alps_ext = enc_ext.get_extension(ALPSExtension)
         if alps_ext is not None:
-            if self._alpn_selected is None:
+            if self._alpn_protocol is None:
                 raise AlertIllegalParameter(
                     "received unexpected ALPS extension"
                 )
-            if self._alpn_selected not in self._alps:
+            if self._alpn_protocol not in self._alps:
                 raise AlertIllegalParameter(
                     "received ALPS extension for unsupported ALPN"
                 )
 
             session.has_alps = True
-            session.local_alps = self._alps[self._alpn_selected]
+            session.local_alps = self._alps[self._alpn_protocol]
             session.peer_alps = alps_ext.settings
 
-        session.early_alpn = self._alpn_selected
+        session.early_alpn = self._alpn_protocol
 
         self._set_state(ClientState.READ_CERTIFICATE_REQUEST_TLS13)
         return Status.OK
@@ -2348,7 +2348,7 @@ class TLSHandshakeClient(TLSHandshake):
                 )
 
             allowed_extensions.add(ExtensionType.ALPN)
-            self._alpn_selected = alpn_ext.protocol
+            self._alpn_protocol = alpn_ext.protocol
 
         if version >= TLSVersion.TLSv1_3:
             allowed_extensions.add(ExtensionType.APPLICATION_SETTINGS)
@@ -2423,7 +2423,7 @@ class TLSHandshakeClient(TLSHandshake):
                 if npn_selected is None:
                     npn_selected = npn_ext.protocols[0]
 
-                self._npn_selected = npn_selected
+                self._npn_protocol = npn_selected
 
             # Session ticket extension
             session_ticket_ext = ext_message.get_extension(
