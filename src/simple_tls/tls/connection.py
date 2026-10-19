@@ -298,6 +298,47 @@ class TLSConnection:
 
         return len(data)
 
+    def pending(self) -> int:
+        return len(self._pending_app_data)
+
+    def do_handshake(self) -> None:
+        while True:
+            if self._handshake_status == Status.PACK_FLIGHT:
+                self._pack_handshake()
+            elif self._handshake_status == Status.FLUSH_MESSAGE:
+                self._flush_handshake()
+            elif self._handshake_status == Status.READ_MESSAGE:
+                self._read_handshake()
+            elif self._handshake_status == Status.READ_CHANGE_CIPHER_SPEC:
+                self._read_ccs()
+            elif self._handshake_status == Status.WRITE_CHANGE_CIPHER_SPEC:
+                self._write_ccs()
+            elif self._handshake_status == Status.EARLY_RETURN:
+                if isinstance(self._handshake, TLSHandshakeClient):
+                    assert self._handshake.ech_status != ECHStatus.REJECTED
+                self._handshake_status = Status.OK
+                break
+            elif self._handshake_status == Status.READ_END_OF_EARLY_DATA:
+                if self._handshake.can_early_read:
+                    break
+                self._handshake_status = Status.OK
+
+            try:
+                self._handshake_status = self._handshake.do_handshake()
+            except AlertException as exc:
+                self._send_alert(exc.description, exc.message, exc.fatal)
+
+            if self._handshake_status == Status.OK:
+                assert self._handshake.done
+                if isinstance(self._handshake, TLSHandshakeClient):
+                    assert self._handshake.ech_status != ECHStatus.REJECTED
+                break
+
+    def shutdown(self) -> None:
+        if self._write_shutdown == Shutdown.NONE:
+            self._send_alert(AlertDescription.CLOSE_NOTIFY, fatal=False)
+            self._write_shutdown = Shutdown.CLOSE_NOTIFY
+
     def update_key(self, request_receiver_update: bool = False) -> None:
         if request_receiver_update:
             message_type = KeyUpdateMessageType.UPDATE_REQUESTED
@@ -386,47 +427,6 @@ class TLSConnection:
                     continue
             return out
         return None
-
-    def pending(self) -> int:
-        return len(self._pending_app_data)
-
-    def do_handshake(self) -> None:
-        while True:
-            if self._handshake_status == Status.PACK_FLIGHT:
-                self._pack_handshake()
-            elif self._handshake_status == Status.FLUSH_MESSAGE:
-                self._flush_handshake()
-            elif self._handshake_status == Status.READ_MESSAGE:
-                self._read_handshake()
-            elif self._handshake_status == Status.READ_CHANGE_CIPHER_SPEC:
-                self._read_ccs()
-            elif self._handshake_status == Status.WRITE_CHANGE_CIPHER_SPEC:
-                self._write_ccs()
-            elif self._handshake_status == Status.EARLY_RETURN:
-                if isinstance(self._handshake, TLSHandshakeClient):
-                    assert self._handshake.ech_status != ECHStatus.REJECTED
-                self._handshake_status = Status.OK
-                break
-            elif self._handshake_status == Status.READ_END_OF_EARLY_DATA:
-                if self._handshake.can_early_read:
-                    break
-                self._handshake_status = Status.OK
-
-            try:
-                self._handshake_status = self._handshake.do_handshake()
-            except AlertException as exc:
-                self._send_alert(exc.description, exc.message, exc.fatal)
-
-            if self._handshake_status == Status.OK:
-                assert self._handshake.done
-                if isinstance(self._handshake, TLSHandshakeClient):
-                    assert self._handshake.ech_status != ECHStatus.REJECTED
-                break
-
-    def shutdown(self) -> None:
-        if self._write_shutdown == Shutdown.NONE:
-            self._send_alert(AlertDescription.CLOSE_NOTIFY, fatal=False)
-            self._write_shutdown = Shutdown.CLOSE_NOTIFY
 
     # Callbacks
 
