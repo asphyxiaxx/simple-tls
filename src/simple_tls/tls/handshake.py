@@ -338,6 +338,13 @@ class TLSHandshake:
         return None
 
     @property
+    def peer_certificate(self) -> x509.Certificate | None:
+        session = self._session
+        if session is not None:
+            return session.verified_x509_peer
+        return None
+
+    @property
     def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
         return None
 
@@ -350,12 +357,6 @@ class TLSHandshake:
     @property
     def ech_status(self) -> ECHStatus:
         return self._ech_status
-
-    def getpeercert(self) -> x509.Certificate | None:
-        session = self._session
-        if session is not None and session.verified_x509_peer is not None:
-            return session.verified_x509_peer
-        return None
 
     def get_verified_chain(self) -> list[x509.Certificate]:
         session = self._session

@@ -299,7 +299,7 @@ class SSLSocket(_ssl.SSLSocket):
         if self._sslobj is None:
             return None
 
-        peercert = self._sslobj.getpeercert()
+        peercert = self._sslobj.get_peer_certificate()
         if peercert is None:
             return None
         if binary_form:
@@ -334,7 +334,7 @@ class SSLSocket(_ssl.SSLSocket):
         self._checkClosed()
 
         if self._sslobj is not None:
-            cipher_suite = self._sslobj.cipher()
+            cipher_suite = self._sslobj.get_cipher_negotitated()
             if cipher_suite is not None:
                 cipher = get_cipher_tuple(cipher_suite)
                 assert cipher is not None
@@ -345,7 +345,7 @@ class SSLSocket(_ssl.SSLSocket):
         self._checkClosed()
 
         if self._sslobj is not None:
-            cipher_suites = self._sslobj.shared_ciphers()
+            cipher_suites = self._sslobj.get_peer_ciphers()
             if cipher_suites is not None:
                 ciphers = []
                 for cipher_suite in cipher_suites:

@@ -181,7 +181,7 @@ class SSLObject(_ssl.SSLObject):
         Return None if no certificate was provided, {} if a certificate was
         provided, but not validated.
         """
-        peercert = self._sslobj.getpeercert()
+        peercert = self._sslobj.get_peer_certificate()
         if peercert is None:
             return None
         if binary_form:
@@ -225,7 +225,7 @@ class SSLObject(_ssl.SSLObject):
         Return the currently selected cipher as a 3-tuple ``(name,
         ssl_version, secret_bits)``.
         """
-        cipher_suite = self._sslobj.cipher()
+        cipher_suite = self._sslobj.get_cipher_negotitated()
         if cipher_suite is not None:
             cipher = get_cipher_tuple(cipher_suite)
             assert cipher is not None
@@ -237,7 +237,7 @@ class SSLObject(_ssl.SSLObject):
         Return a list of ciphers shared by the client during the handshake or
         None if this is not a valid server connection.
         """
-        cipher_suites = self._sslobj.shared_ciphers()
+        cipher_suites = self._sslobj.get_peer_ciphers()
         if cipher_suites is not None:
             ciphers = []
             for cipher_suite in cipher_suites:

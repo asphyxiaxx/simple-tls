@@ -170,58 +170,6 @@ class TLSConnection:
     def server_hostname(self) -> bytes | None:
         return self._handshake.hostname
 
-    def handshake_complete(self) -> bool:
-        return self._handshake.session_established
-
-    def session_reused(self) -> bool:
-        return self._handshake.session_reused
-
-    def ech_accepted(self) -> bool:
-        return self._handshake.ech_status == ECHStatus.ACCEPTED
-
-    @overload
-    def get_peer_ech_retry_configs(
-        self, binary_form: Literal[True] = ...
-    ) -> bytes | None: ...
-
-    @overload
-    def get_peer_ech_retry_configs(
-        self, binary_form: Literal[False] = ...
-    ) -> list[ECHConfig] | None: ...
-
-    @overload
-    def get_peer_ech_retry_configs(
-        self, binary_form: bool = ...
-    ) -> list[ECHConfig] | bytes | None: ...
-
-    def get_peer_ech_retry_configs(
-        self, binary_form: bool = True
-    ) -> list[ECHConfig] | bytes | None:
-        ech_retry_config = self._handshake.peer_ech_retry_configs
-        if ech_retry_config is not None:
-            if binary_form:
-                body = b"".join(c.serialize() for c in ech_retry_config)
-                return int_to_bytes(len(body), 2) + body
-            return list(ech_retry_config)
-        return None
-
-    def get_peer_application_settings(self) -> bytes | None:
-        return self._handshake.peer_application_settings
-
-    def early_data_accepted(self) -> bool:
-        return self._handshake.early_data_accepted
-
-    def early_data_offered(self) -> bool:
-        return self._handshake.early_data_offered
-
-    def version(self) -> TLSVersion | None:
-        if self._has_final_version():
-            protocol = self.configuration.protocol
-            version = self._handshake.protocol_version()
-            wire_version = version_to_wire(protocol, version)
-            return TLSVersion(wire_version)
-        return None
-
     def bio_write(self, data: Buffer) -> None:
         """
         Data from the network
@@ -358,8 +306,60 @@ class TLSConnection:
 
         self._handshake.send_key_update(message_type)
 
-    def getpeercert(self) -> x509.Certificate | None:
-        return self._handshake.getpeercert()
+    def version(self) -> TLSVersion | None:
+        if self._has_final_version():
+            protocol = self.configuration.protocol
+            version = self._handshake.protocol_version()
+            wire_version = version_to_wire(protocol, version)
+            return TLSVersion(wire_version)
+        return None
+
+    def handshake_complete(self) -> bool:
+        return self._handshake.session_established
+
+    def session_reused(self) -> bool:
+        return self._handshake.session_reused
+
+    def early_data_accepted(self) -> bool:
+        return self._handshake.early_data_accepted
+
+    def early_data_offered(self) -> bool:
+        return self._handshake.early_data_offered
+
+    def ech_accepted(self) -> bool:
+        return self._handshake.ech_status == ECHStatus.ACCEPTED
+
+    @overload
+    def get_peer_ech_retry_configs(
+        self, binary_form: Literal[True] = ...
+    ) -> bytes | None: ...
+
+    @overload
+    def get_peer_ech_retry_configs(
+        self, binary_form: Literal[False] = ...
+    ) -> list[ECHConfig] | None: ...
+
+    @overload
+    def get_peer_ech_retry_configs(
+        self, binary_form: bool = ...
+    ) -> list[ECHConfig] | bytes | None: ...
+
+    def get_peer_ech_retry_configs(
+        self, binary_form: bool = True
+    ) -> list[ECHConfig] | bytes | None:
+        ech_retry_config = self._handshake.peer_ech_retry_configs
+        if ech_retry_config is not None:
+            if binary_form:
+                body = b"".join(c.serialize() for c in ech_retry_config)
+                return int_to_bytes(len(body), 2) + body
+            return list(ech_retry_config)
+        return None
+
+    def get_peer_application_settings(self) -> bytes | None:
+        return self._handshake.peer_application_settings
+
+    def get_peer_certificate(self) -> x509.Certificate | None:
+        return self._handshake.peer_certificate
 
     def get_verified_chain(self) -> list[x509.Certificate]:
         return self._handshake.get_verified_chain()
@@ -373,10 +373,10 @@ class TLSConnection:
     def get_alpn_negotiated(self) -> bytes | None:
         return self._handshake.alpn_protocol
 
-    def cipher(self) -> CipherSuite | None:
+    def get_cipher_negotitated(self) -> CipherSuite | None:
         return self._handshake.cipher_suite
 
-    def shared_ciphers(self) -> list[CipherSuite] | None:
+    def get_peer_ciphers(self) -> list[CipherSuite] | None:
         if self._handshake.peer_cipher_suites is not None:
             out: list[CipherSuite] = []
             for cipher_suite in self._handshake.peer_cipher_suites:
