@@ -440,6 +440,16 @@ class TLSHandshakeClient(TLSHandshake):
                     self._inner_transcript = Transcript()
                     self._inner_client_random = get_random_bytes(32)
 
+            if self._selected_ech_config is None and self._enable_grease_ech:
+                self._ech_client_outer = ECHClientExtension(
+                    ech_client_hello_type=ECHClientHelloType.OUTER,
+                    hpke_kdf_id=HpkeKdfId.HKDF_SHA256,
+                    hpke_aead_id=HpkeAeadId.AES_128_GCM,
+                    config_id=bytes_to_int(get_random_bytes(1)),
+                    enc=get_random_bytes(32),
+                    payload=get_random_bytes(get_random_int(180, 205)),
+                )
+
         session = self._offered_session
         if (
             session is not None
@@ -482,22 +492,9 @@ class TLSHandshakeClient(TLSHandshake):
             self._session_ticket = b""
 
         # Start building client hello
-        client_hello = None
-
-        if self._maximum_version >= TLSVersion.TLSv1_3:
-            if self._selected_ech_config is not None:
-                client_hello = self._build_encrypted_client_hello()
-            elif self._enable_grease_ech:
-                self._ech_client_outer = ECHClientExtension(
-                    ech_client_hello_type=ECHClientHelloType.OUTER,
-                    hpke_kdf_id=HpkeKdfId.HKDF_SHA256,
-                    hpke_aead_id=HpkeAeadId.AES_128_GCM,
-                    config_id=bytes_to_int(get_random_bytes(1)),
-                    enc=get_random_bytes(32),
-                    payload=get_random_bytes(get_random_int(180, 205)),
-                )
-
-        if client_hello is None:
+        if self._selected_ech_config is not None:
+            client_hello = self._build_encrypted_client_hello()
+        else:
             client_hello = self._build_client_hello()
 
         self.message_cb(Direction.WRITE, client_hello)
@@ -1869,20 +1866,6 @@ class TLSHandshakeClient(TLSHandshake):
     def _build_encrypted_client_hello(
         self, is_hrr: bool = False
     ) -> ClientHello:
-        client_hello = ClientHello(
-            version=self._client_version,
-            random=self._client_random,
-            session_id=self._session_id,
-            cipher_suites=self._get_cipher_suites(),
-            compression_methods=self._compresion_methods,
-        )
-        self._encrypt_client_hello(client_hello, is_hrr=is_hrr)
-        return client_hello
-
-    def _encrypt_client_hello(
-        self, hello_outer: ClientHello, is_hrr: bool
-    ) -> None:
-        assert not hello_outer.extensions
         assert self._selected_ech_config is not None
         assert self._inner_transcript is not None
         assert self._inner_client_random is not None
@@ -1992,6 +1975,13 @@ class TLSHandshakeClient(TLSHandshake):
                 bytes(payload_len),
             )
 
+        hello_outer = ClientHello(
+            version=self._client_version,
+            random=self._client_random,
+            session_id=self._session_id,
+            cipher_suites=self._get_cipher_suites(),
+            compression_methods=self._compresion_methods,
+        )
         extensions_outer = self._get_extensions(
             hello_type=ClientHelloType.OUTER,
             header_len=len(hello_outer.serialize()),
@@ -2011,6 +2001,8 @@ class TLSHandshakeClient(TLSHandshake):
         # new_ext_data = self._ech_client_outer.serialize()
         new_ext_data = ext_data[: -len(payload)] + payload
         hello_outer.extensions[idx] = (ext_type, new_ext_data)
+
+        return hello_outer
 
     def _get_extensions(
         self,
