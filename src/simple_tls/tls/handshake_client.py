@@ -2355,6 +2355,7 @@ class TLSHandshakeClient(TLSHandshake):
             self._alpn_protocol = alpn_ext.protocol
 
         if version >= TLSVersion.TLSv1_3:
+            allowed_extensions.add(ExtensionType.SUPPORTED_GROUPS)
             allowed_extensions.add(ExtensionType.APPLICATION_SETTINGS)
 
             # Encrypted client hello extension
