@@ -708,6 +708,7 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.OK
 
         assert self._cipher_suite is not None
+
         if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_KEY_EXCHANGE)
             return Status.OK
@@ -870,6 +871,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _do_read_certificate_request(self) -> Status:
         assert self._cipher_suite is not None
+
         if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ClientState.READ_SERVER_HELLO_DONE)
             return Status.OK
@@ -979,9 +981,9 @@ class TLSHandshakeClient(TLSHandshake):
             except ValueError as exc:
                 raise AlertHandshakeFailure(str(exc)) from exc
 
-            self._check_pubkey(version, peer_public_key, cipher_suite)
             assert isinstance(peer_public_key, RSAPublicKey)
 
+            self._check_pubkey(version, peer_public_key, cipher_suite)
             premaster_secret = int_to_bytes(version, 2) + get_random_bytes(46)
             enc_premaster_secret = peer_public_key.encrypt(premaster_secret)
             writer.write_prefixed_bytes(enc_premaster_secret, 2)
@@ -1036,6 +1038,7 @@ class TLSHandshakeClient(TLSHandshake):
             and self._signature_algorithm is not None
         ):
             assert self._credential is not None
+
             priv_key = self._credential.private_key
             signature_algorithm = self._signature_algorithm
             transcript = self._transcript.get()
@@ -1130,7 +1133,6 @@ class TLSHandshakeClient(TLSHandshake):
         finished = message.parse_as(Finished)
 
         assert self._session is not None
-
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"server finished"
@@ -1570,9 +1572,9 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        assert self._session is not None
-
         cert_verify = message.parse_as(CertificateVerifyTLS12)
+
+        assert self._session is not None
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
@@ -1638,14 +1640,13 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_client_encrypted_extensions_tls13(self) -> Status:
-        assert self._session is not None
-        session = self._session
-
         if self._early_data_accepted:
             self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
         extensions: list[Extension] = []
 
+        assert self._session is not None
+        session = self._session
         if session.has_alps and not self._early_data_accepted:
             alps = ALPSExtension(session.local_alps)
             extensions.append(alps)
@@ -1736,12 +1737,13 @@ class TLSHandshakeClient(TLSHandshake):
 
     def _post_handshake(self, message: Handshake) -> Status:
         raise AlertUnexpectedMessage(
-            "received post handshake message in TLS 1.2 or earlier"
+            "received unexpected post handshake message"
         )
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
         assert self._session is not None
         assert self._key_schedule is not None
+        assert self._key_schedule.generation == 3
 
         session = self._session
         key_schedule = self._key_schedule
@@ -1766,7 +1768,6 @@ class TLSHandshakeClient(TLSHandshake):
                 session.ticket_max_early_data = max_early_data
 
                 # Resumption master secret
-                assert key_schedule.generation == 3
                 master_secret = key_schedule.derive_secret(
                     b"res master", self._transcript
                 )
@@ -2481,6 +2482,12 @@ class TLSHandshakeClient(TLSHandshake):
     def _send_certificate_tls13(
         self, cert_request: CertificateRequestTLS13
     ) -> None:
+        sigalg_ext = cert_request.get_extension(SignatureAlgorithmsExtension)
+        if sigalg_ext is None:
+            raise AlertMissingExtension(
+                "missing signature algorithms extension"
+            )
+
         comp_cert_ext = cert_request.get_extension(
             CompressedCertificateExtension
         )
@@ -2490,12 +2497,6 @@ class TLSHandshakeClient(TLSHandshake):
             )
         else:
             compression = None
-
-        signature_algorithms = cert_request.signature_algorithms
-        if not signature_algorithms:
-            raise AlertMissingExtension(
-                "missing signature algorithms extension"
-            )
 
         private_key: BasePrivateKey | None = None
         x509_certificates: Sequence[x509.Certificate] | None = None
@@ -2523,9 +2524,7 @@ class TLSHandshakeClient(TLSHandshake):
                 public_key_oid=x509_leaf.public_key_algorithm_oid,
                 supported_sigalgs=self._signature_algorithms,
             )
-            signature_algorithm = negotiate(
-                supported_sigalgs, signature_algorithms
-            )
+            signature_algorithm = negotiate(supported_sigalgs, sigalg_ext.data)
 
         if signature_algorithm is not None:
             x509_certificates = cast(

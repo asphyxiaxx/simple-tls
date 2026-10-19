@@ -33,11 +33,7 @@ from .constants import (
     CertificateStatusType,
     HandshakeType,
 )
-from .extensions import (
-    ExtensionsMessage,
-    OptionalExtensionsMessage,
-    SignatureAlgorithmsExtension,
-)
+from .extensions import ExtensionsMessage, OptionalExtensionsMessage
 
 _M = TypeVar("_M", bound="HandshakeMessage")
 
@@ -468,11 +464,8 @@ class CertificateTLS13(HandshakeMessage):
 class CompressedCertificate(HandshakeMessage):
     handshake_type: ClassVar[int] = HandshakeType.COMPRESSED_CERTIFICATE
     compression: int
-    """compression algorihtm"""
     length: int
-    """expected length after decompress"""
     compressed_data: bytes
-    """compressed certificate bytes"""
 
     @classmethod
     def from_bytes(cls, data: bytes) -> CompressedCertificate:
@@ -616,13 +609,6 @@ class CertificateRequestTLS13(HandshakeMessage, ExtensionsMessage):
     handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
     context: bytes
     extensions: list[tuple[int, bytes]] = field(default_factory=list)
-
-    @property
-    def signature_algorithms(self) -> Sequence[int] | None:
-        sigalg_ext = self.get_extension(SignatureAlgorithmsExtension)
-        if sigalg_ext is not None:
-            return sigalg_ext.data
-        return None
 
     @classmethod
     def from_bytes(cls, data: bytes) -> CertificateRequestTLS13:

@@ -810,6 +810,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_verify_client_certificate(self) -> Status:
         assert self._session is not None
+
         if self._session.x509_peer is not None:
             self._verify_x509(self._session)
 
@@ -825,6 +826,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         assert self._cipher_suite is not None
         assert self._session is not None
+
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         parser = Parser(cke.data)
@@ -939,9 +941,9 @@ class TLSHandshakeServer(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
-        assert self._npn_protocols is not None
-
         next_proto = message.parse_as(NextProtocol)
+
+        assert self._npn_protocols is not None
         if next_proto.next_protocol not in self._npn_protocols:
             raise AlertIllegalParameter("peer selected unexpected next_proto")
 
@@ -961,7 +963,6 @@ class TLSHandshakeServer(TLSHandshake):
         finished = message.parse_as(Finished)
 
         assert self._session is not None
-
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"client finished"
@@ -1663,6 +1664,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_read_client_certificate_verify_tls13(self) -> Status:
         assert self._session is not None
+
         if self._session.x509_peer is None:
             self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
             return Status.OK
@@ -1761,6 +1763,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_finish_server_handshake(self) -> Status:
         assert self._session is not None
+
         if not self._session_reused:
             self._session.not_resumable = False
 
@@ -1791,7 +1794,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _post_handshake(self, message: Handshake) -> Status:
         raise AlertUnexpectedMessage(
-            "received post handshake message in TLS 1.2 or earlier"
+            "received unexpected post handshake message"
         )
 
     def _post_handshake_tls13(self, message: Handshake) -> Status:
