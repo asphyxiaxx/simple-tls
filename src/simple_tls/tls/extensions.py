@@ -1054,6 +1054,34 @@ class ECHHRRExtension(Extension):
         return self.data
 
 
+EXTENSION_TYPES = (
+    ExtensionType.SERVER_NAME,
+    ExtensionType.STATUS_REQUEST,
+    ExtensionType.SUPPORTED_GROUPS,
+    ExtensionType.EC_POINT_FORMATS,
+    ExtensionType.SIGNATURE_ALGORITHMS,
+    ExtensionType.ALPN,
+    ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP,
+    ExtensionType.CLIENT_HELLO_PADDING,
+    ExtensionType.ENCRYPT_THEN_MAC,
+    ExtensionType.EXTENDED_MAIN_SECRET,
+    ExtensionType.COMPRESS_CERTIFICATE,
+    ExtensionType.SESSION_TICKET,
+    ExtensionType.PRE_SHARED_KEY,
+    ExtensionType.EARLY_DATA,
+    ExtensionType.SUPPORTED_VERSIONS,
+    ExtensionType.COOKIE,
+    ExtensionType.PSK_KEY_EXCHANGE_MODES,
+    ExtensionType.POST_HANDSHAKE_AUTH,
+    ExtensionType.KEY_SHARE,
+    ExtensionType.SUPPORTS_NPN,
+    ExtensionType.APPLICATION_SETTINGS,
+    ExtensionType.ECH_OUTER_EXTENSIONS,
+    ExtensionType.ENCRYPTED_CLIENT_HELLO,
+    ExtensionType.RENEGOTIATION_INFO,
+)
+
+
 COMPRESSIBLE_EXTENSIONS = (
     ExtensionType.SIGNATURE_ALGORITHMS,
     ExtensionType.STATUS_REQUEST,

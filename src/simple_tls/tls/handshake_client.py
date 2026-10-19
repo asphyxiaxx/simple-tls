@@ -89,6 +89,7 @@ from .enums import (
 )
 from .extensions import (
     COMPRESSIBLE_EXTENSIONS,
+    EXTENSION_TYPES,
     ALPNClientExtension,
     ALPNServerExtension,
     ALPSClientExtension,
@@ -305,7 +306,6 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Temporary State
         self._state = ClientState.START_CONNECT
-        self._extension_order: list[int] | None = None
         self._extensions_sent: set[int] = set()
         self._session_ticket: bytes | None = None
         self._selected_ech_config: ECHConfigContent | None = None
@@ -320,6 +320,10 @@ class TLSHandshakeClient(TLSHandshake):
         greases = list(GREASES)
         random.shuffle(greases)
         self._greases: tuple[int, ...] = tuple(greases)
+
+        extension_types = list(EXTENSION_TYPES)
+        random.shuffle(extension_types)
+        self._extension_order: tuple[int, ...] = tuple(extension_types)
 
         # Inner client hello variable, will replace actual when ech accepted
         self._inner_transcript: Transcript | None = None
@@ -2229,9 +2233,6 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Reorder extensions
         if self._enable_permute_extensions:
-            if self._extension_order is None:
-                self._extension_order = [e.extension_type for e in extensions]
-                random.shuffle(self._extension_order)
             order_index = {e: i for i, e in enumerate(self._extension_order)}
             extensions.sort(
                 key=lambda e: order_index.get(e.extension_type, float("inf"))
