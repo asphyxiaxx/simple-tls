@@ -299,12 +299,13 @@ class SSLSocket(_ssl.SSLSocket):
         if self._sslobj is None:
             return None
 
-        peercert = self._sslobj.get_peer_certificate()
-        if peercert is None:
-            return None
-        if binary_form:
-            return peercert.public_bytes(serialization.Encoding.DER)
-        return parse_certificate(peercert)
+        chain = self._sslobj.get_verified_chain()
+        if chain:
+            peercert = chain[0]
+            if binary_form:
+                return peercert.public_bytes(serialization.Encoding.DER)
+            return parse_certificate(peercert)
+        return None
 
     def get_verified_chain(self) -> list[bytes]:
         if self._sslobj is None:
@@ -315,7 +316,7 @@ class SSLSocket(_ssl.SSLSocket):
     def get_unverified_chain(self) -> list[bytes]:
         if self._sslobj is None:
             return []
-        chain = self._sslobj.get_unverified_chain()
+        chain = self._sslobj.get_peer_cert_chain()
         return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:

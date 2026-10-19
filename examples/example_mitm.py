@@ -199,7 +199,7 @@ class SSLConnection:
         if self._conn is None:
             raise TypeError("connection state not set")
 
-        chain = self._conn.get_unverified_chain()
+        chain = self._conn.get_peer_cert_chain()
         if chain:
             certificate = chain[0]
             if as_cryptography:
@@ -213,7 +213,7 @@ class SSLConnection:
         if self._conn is None:
             raise TypeError("connection state not set")
 
-        chain = self._conn.get_unverified_chain()
+        chain = self._conn.get_peer_cert_chain()
         if as_cryptography:
             return chain
         return [OpenSSL_X509.from_cryptography(c) for c in chain]
@@ -227,7 +227,7 @@ class SSLConnection:
         if self._conn is None:
             raise TypeError("connection state not set")
 
-        c = self._conn.cipher()
+        c = self._conn.get_cipher_negotitated()
         if c:
             return c.name
         return None

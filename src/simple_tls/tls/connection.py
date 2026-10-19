@@ -402,11 +402,11 @@ class TLSConnection:
     def get_peer_certificate(self) -> x509.Certificate | None:
         return self._handshake.peer_certificate
 
+    def get_peer_cert_chain(self) -> list[x509.Certificate]:
+        return self._handshake.get_peer_cert_chain()
+
     def get_verified_chain(self) -> list[x509.Certificate]:
         return self._handshake.get_verified_chain()
-
-    def get_unverified_chain(self) -> list[x509.Certificate]:
-        return self._handshake.get_unverified_chain()
 
     def get_npn_negotiated(self) -> bytes | None:
         return self._handshake.npn_protocol

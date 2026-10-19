@@ -341,7 +341,7 @@ class TLSHandshake:
     def peer_certificate(self) -> x509.Certificate | None:
         session = self._session
         if session is not None:
-            return session.verified_x509_peer
+            return session.x509_peer
         return None
 
     @property
@@ -358,6 +358,17 @@ class TLSHandshake:
     def ech_status(self) -> ECHStatus:
         return self._ech_status
 
+    def get_peer_cert_chain(self) -> list[x509.Certificate]:
+        session = self._session
+        chain: list[x509.Certificate] = []
+        if session is not None:
+            if session.x509_peer is not None:
+                chain.append(session.x509_peer)
+            if session.x509_chain is not None:
+                assert session.x509_peer is not None
+                chain.extend(session.x509_chain)
+        return chain
+
     def get_verified_chain(self) -> list[x509.Certificate]:
         session = self._session
         chain: list[x509.Certificate] = []
@@ -365,17 +376,8 @@ class TLSHandshake:
             if session.verified_x509_peer is not None:
                 chain.append(session.verified_x509_peer)
             if session.verified_x509_chain is not None:
+                assert session.verified_x509_peer is not None
                 chain.extend(session.verified_x509_chain)
-        return chain
-
-    def get_unverified_chain(self) -> list[x509.Certificate]:
-        session = self._session
-        chain: list[x509.Certificate] = []
-        if session is not None:
-            if session.x509_peer is not None:
-                chain.append(session.x509_peer)
-            if session.x509_chain is not None:
-                chain.extend(session.x509_chain)
         return chain
 
     def do_handshake(self) -> Status:

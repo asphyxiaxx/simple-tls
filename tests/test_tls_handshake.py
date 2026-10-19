@@ -398,7 +398,7 @@ def test_handshake_with_certificate_request_no_certificate(subtests, version):
         assert client.version == version
         assert server.version == version
         assert client._peer_cert_request is not None
-        assert len(server.get_unverified_chain()) == 0
+        assert len(server.get_peer_cert_chain()) == 0
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
         client = create_client(
@@ -591,7 +591,7 @@ def test_tls13_handshake_with_certificate_request_no_certificate(subtests):
         assert client.version == TLSVersion.TLSv1_3
         assert server.version == TLSVersion.TLSv1_3
         assert client._peer_cert_request is not None
-        assert len(server.get_unverified_chain()) == 0
+        assert len(server.get_peer_cert_chain()) == 0
 
     with subtests.test(verify_mode="CERT_REQUIRED"):
         client = create_client(

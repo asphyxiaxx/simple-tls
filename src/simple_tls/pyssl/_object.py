@@ -181,12 +181,13 @@ class SSLObject(_ssl.SSLObject):
         Return None if no certificate was provided, {} if a certificate was
         provided, but not validated.
         """
-        peercert = self._sslobj.get_peer_certificate()
-        if peercert is None:
-            return None
-        if binary_form:
-            return peercert.public_bytes(serialization.Encoding.DER)
-        return parse_certificate(peercert)
+        chain = self._sslobj.get_verified_chain()
+        if chain:
+            peercert = chain[0]
+            if binary_form:
+                return peercert.public_bytes(serialization.Encoding.DER)
+            return parse_certificate(peercert)
+        return None
 
     def get_verified_chain(self) -> list[bytes]:
         """
@@ -203,7 +204,7 @@ class SSLObject(_ssl.SSLObject):
         """Returns raw certificate chain provided by the other
         end of the SSL channel as a list of DER-encoded bytes.
         """
-        chain = self._sslobj.get_unverified_chain()
+        chain = self._sslobj.get_peer_cert_chain()
         return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def selected_npn_protocol(self) -> str | None:
