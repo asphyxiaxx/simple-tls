@@ -1847,10 +1847,15 @@ class TLSHandshakeClient(TLSHandshake):
             cipher_suites=self._get_cipher_suites(),
             compression_methods=self._compresion_methods,
         )
+        header_len = len(client_hello.serialize())
+
+        if self._selected_ech_config is not None:
+            hello_type = ClientHelloType.OUTER
+        else:
+            hello_type = ClientHelloType.UNENCRYPTED
+
         client_hello.extensions = self._get_extensions(
-            hello_type=ClientHelloType.UNENCRYPTED,
-            header_len=len(client_hello.serialize()),
-            is_hrr=is_hrr,
+            hello_type, header_len, is_hrr
         )
 
         if self._pre_shared_keys:
@@ -2087,9 +2092,7 @@ class TLSHandshakeClient(TLSHandshake):
         return extensions
 
     def _get_extensions_internal(
-        self,
-        hello_type: ClientHelloType = ClientHelloType.UNENCRYPTED,
-        is_hrr: bool = False,
+        self, hello_type: ClientHelloType, is_hrr: bool
     ) -> list[tuple[int, bytes]]:
         extensions: list[Extension] = []
 
