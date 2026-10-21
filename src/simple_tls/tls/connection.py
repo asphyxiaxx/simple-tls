@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Callable
+from dataclasses import dataclass
 from ssl import MemoryBIO
 from typing import Any, Literal, NoReturn, cast, overload
 
@@ -30,7 +31,7 @@ from cryptography import x509
 from simple_tls.crypto.utils import int_to_bytes
 
 from .alerts import AlertException
-from .cipher import InvalidTag, NullCipher, TLSCipher, get_key_iv_lens
+from .cipher import InvalidTag, TLSCipher, get_key_iv_lens
 from .configuration import TLSConfiguration
 from .constants import (
     UNSPECIFIED,
@@ -72,25 +73,14 @@ class SkipDataException(Exception):
     pass
 
 
+@dataclass(slots=True)
 class ConnectionState:
-    def __init__(self, epoch: Epoch, cipher: TLSCipher):
-        self.epoch = epoch
-        self.cipher = cipher
-
-        self.record_splitting = False
-        self.hide_content_type = False
-        self.max_seal_overhead = 0
-
-        self.sequence_number = 0
-
-    @classmethod
-    def create_initial(cls, direction: Direction) -> ConnectionState:
-        cipher = NullCipher(direction)
-        return ConnectionState(Epoch.INITIAL, cipher)
-
-
-_NULL_WRITE_STATE = ConnectionState.create_initial(Direction.WRITE)
-_NULL_READ_STATE = ConnectionState.create_initial(Direction.READ)
+    epoch: Epoch
+    cipher: TLSCipher | None = None
+    record_splitting: bool = False
+    hide_content_type: bool = False
+    max_seal_overhead: int = 0
+    sequence_number: int = 0
 
 
 class TLSConnection:
@@ -152,8 +142,8 @@ class TLSConnection:
 
         self._write_shutdown: Shutdown = Shutdown.NONE
         self._read_shutdown: Shutdown = Shutdown.NONE
-        self._write_state: ConnectionState = _NULL_WRITE_STATE
-        self._read_state: ConnectionState = _NULL_READ_STATE
+        self._write_state: ConnectionState = ConnectionState(Epoch.INITIAL)
+        self._read_state: ConnectionState = ConnectionState(Epoch.INITIAL)
         self._early_data_ignored: int = 0
         self._early_data_processed: int = 0
         self._warning_alert_received: int = 0
@@ -186,23 +176,15 @@ class TLSConnection:
         return data
 
     @overload
-    def read(
-        self,
-        length: int = 1024,
-        buffer: None = ...,
-    ) -> bytes: ...
+    def read(self, length: int = 1024, buffer: None = ...) -> bytes: ...
 
     @overload
     def read(
-        self,
-        length: int = 1024,
-        buffer: WritableBuffer = ...,
+        self, length: int = 1024, buffer: WritableBuffer = ...
     ) -> int: ...
 
     def read(
-        self,
-        length: int = 1024,
-        buffer: WritableBuffer | None = None,
+        self, length: int = 1024, buffer: WritableBuffer | None = None
     ) -> int | bytes:
         """
         Read up to 'len' bytes from the SSL object and return them.
@@ -450,8 +432,6 @@ class TLSConnection:
         epoch: Epoch,
         context: TrafficContext | None,
     ) -> None:
-        state = None
-
         if context is not None:
             version = context.version
             cipher_suite = context.cipher_suite
@@ -501,15 +481,13 @@ class TLSConnection:
                 max_seal_overhead += 1
 
             state.max_seal_overhead = max_seal_overhead
+        else:
+            state = ConnectionState(epoch)
 
         if direction == Direction.WRITE:
             assert len(self._handshake.pending_flight()) == 0
-            if state is None:
-                state = _NULL_WRITE_STATE
             self._write_state = state
         else:
-            if state is None:
-                state = _NULL_READ_STATE
             self._read_state = state
 
     def _write_ccs(self) -> None:
@@ -604,12 +582,12 @@ class TLSConnection:
         self,
         content_type: int,
         plaintext: Buffer,
-        buf: WritableBuffer,
+        out_buf: WritableBuffer,
     ) -> int:
         assert len(plaintext) <= self._send_record_limit
 
         state = self._write_state
-        data_buf = buf[HEADER_LENGTH:]
+        out_data_buf = out_buf[HEADER_LENGTH:]
 
         if state.hide_content_type:
             pt_len = len(plaintext)
@@ -619,25 +597,27 @@ class TLSConnection:
             plaintext = temp_view
             content_type = ContentType.APPLICATION_DATA
 
-        cipher = state.cipher
-        seq_num = state.sequence_number
         record_version = self._record_version()
-        ciphertext_len = cipher.ciphertext_length(len(plaintext))
-        header = self._get_header(content_type, record_version, ciphertext_len)
 
-        ct_len = cipher.seal(
-            content_type,
-            record_version,
-            plaintext,
-            seq_num,
-            header,
-            data_buf,
-        )
-        assert ct_len == ciphertext_len
+        if state.cipher is not None:
+            exp_ct_len = state.cipher.ciphertext_length(len(plaintext))
+            header = self._get_header(content_type, record_version, exp_ct_len)
+            ct_len = state.cipher.seal(
+                content_type,
+                record_version,
+                plaintext,
+                state.sequence_number,
+                header,
+                out_data_buf,
+            )
+            assert ct_len == exp_ct_len
+            state.sequence_number += 1
+        else:
+            ct_len = len(plaintext)
+            out_data_buf[0:ct_len] = plaintext
+            header = self._get_header(content_type, record_version, ct_len)
 
-        state.sequence_number += 1
-
-        buf[0:HEADER_LENGTH] = header
+        out_buf[0:HEADER_LENGTH] = header
         out_len = HEADER_LENGTH + ct_len
 
         return out_len
@@ -654,7 +634,7 @@ class TLSConnection:
             raise TLSEOFError("protocol is shutdown")
 
         state = self._read_state
-        out = self._read_buf
+        out_buf = self._read_buf
         inbio = self._inbio
 
         # Parse header: ContentType (1), Version (2), Length (2)
@@ -668,7 +648,7 @@ class TLSConnection:
 
         content_type, record_version, length = struct.unpack("!BHH", header)
 
-        if isinstance(state.cipher, NullCipher):
+        if state.cipher is None:
             version_ok = record_version >> 8 == 0x03
         else:
             version_ok = record_version == self._record_version()
@@ -714,7 +694,7 @@ class TLSConnection:
 
         if (
             self._handshake.skip_early_data
-            and isinstance(state.cipher, NullCipher)
+            and state.cipher is None
             and content_type == ContentType.APPLICATION_DATA
         ):
             self._skip_early_data(len(ciphertext))
@@ -730,26 +710,30 @@ class TLSConnection:
         ):
             self._process_alert(ciphertext)
 
-        seq_num = state.sequence_number
-        try:
-            pt_len = state.cipher.open(
-                content_type,
-                record_version,
-                ciphertext,
-                seq_num,
-                header,
-                out,
-            )
-        except InvalidTag:
-            if self._handshake.skip_early_data:
-                self._skip_early_data(len(ciphertext))
-                raise SkipDataException() from None
-            self._send_alert(
-                AlertDescription.BAD_RECORD_MAC,
-                "record payload decryption failed",
-            )
+        if state.cipher is not None:
+            try:
+                pt_len = state.cipher.open(
+                    content_type,
+                    record_version,
+                    ciphertext,
+                    state.sequence_number,
+                    header,
+                    out_buf,
+                )
+            except InvalidTag:
+                if self._handshake.skip_early_data:
+                    self._skip_early_data(len(ciphertext))
+                    raise SkipDataException() from None
+
+                self._send_alert(
+                    AlertDescription.BAD_RECORD_MAC,
+                    "record payload decryption failed",
+                )
+            else:
+                state.sequence_number += 1
         else:
-            state.sequence_number += 1
+            pt_len = len(ciphertext)
+            out_buf[0:pt_len] = ciphertext
 
         if self._handshake.skip_early_data:
             self._handshake.close_early_data()
@@ -774,7 +758,7 @@ class TLSConnection:
             )
 
         if state.hide_content_type:
-            content_type, pt_len = self._unpad_data_tlsv1_3(out[:pt_len])
+            content_type, pt_len = self._unpad_data_tlsv1_3(out_buf[:pt_len])
 
         # RFC 8446 Section 5.1
         # Implementations MUST NOT send zero-length fragments of Handshake
@@ -789,7 +773,7 @@ class TLSConnection:
             )
 
         if content_type == ContentType.ALERT:
-            self._process_alert(out[:pt_len])
+            self._process_alert(out_buf[:pt_len])
 
         # RFC 8446 Section 5.1
         # TLS 1.3 Handshake messages MUST NOT be interleaved with other
@@ -805,7 +789,7 @@ class TLSConnection:
                 "handshake messages interleaved with other record types",
             )
 
-        return content_type, out[:pt_len]
+        return content_type, out_buf[:pt_len]
 
     def _skip_early_data(self, ciphertext_length: int) -> None:
         self._early_data_ignored += ciphertext_length
