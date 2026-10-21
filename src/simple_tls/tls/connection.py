@@ -560,9 +560,9 @@ class TLSConnection:
 
     def _seal_record(self, content_type: int, plaintext: Buffer) -> memoryview:
         state = self._write_state
-        original_buf = self._write_buf
-        buf = original_buf
-        written = 0
+        out_buf = self._write_buf
+        dest_view = out_buf  # Represents the remaining writable window/view
+        total_written = 0
 
         if (
             state.record_splitting
@@ -570,19 +570,22 @@ class TLSConnection:
             and len(plaintext) > 1
         ):
             written = self._seal_record_internal(
-                content_type, plaintext[:1], buf
+                content_type, plaintext[:1], dest_view
             )
             plaintext = plaintext[1:]
-            buf = buf[written:]
+            dest_view = dest_view[written:]
+            total_written = written
 
-        written += self._seal_record_internal(content_type, plaintext, buf)
-        return original_buf[:written]
+        total_written += self._seal_record_internal(
+            content_type, plaintext, dest_view
+        )
+        return out_buf[:total_written]
 
     def _seal_record_internal(
         self,
         content_type: int,
         plaintext: Buffer,
-        out_buf: WritableBuffer,
+        out_buf: memoryview,
     ) -> int:
         assert len(plaintext) <= self._send_record_limit
 
