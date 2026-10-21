@@ -2305,25 +2305,6 @@ class TLSHandshakeClient(TLSHandshake):
         allowed_extensions: set[int] = set()
         self._extensions_recv = set(ext_message.get_extension_types())
 
-        # Renegotiation info extension
-        ri_ext = ext_message.get_extension(RenegotiationInfoExtension)
-        if ri_ext is not None:
-            if version >= TLSVersion.TLSv1_3:
-                raise AlertUnsupportedExtension(
-                    "received unexpected renegotiation info extension"
-                )
-
-            allowed_extensions.add(ExtensionType.RENEGOTIATION_INFO)
-            self._secure_renegotiation = True
-        else:
-            if (
-                version <= TLSVersion.TLSv1_2
-                and not self.configuration.legacy_server_connect
-            ):
-                raise AlertInsufficientSecurity(
-                    "peer does not support secure renegotiation"
-                )
-
         # SNI extension
         sni_ext = ext_message.get_extension(SNIServerExtension)
         if (
@@ -2387,10 +2368,7 @@ class TLSHandshakeClient(TLSHandshake):
                 allowed_extensions.add(ExtensionType.RENEGOTIATION_INFO)
                 self._secure_renegotiation = True
             else:
-                if (
-                    version <= TLSVersion.TLSv1_2
-                    and not self.configuration.legacy_server_connect
-                ):
+                if not self.configuration.legacy_server_connect:
                     raise AlertInsufficientSecurity(
                         "peer does not support secure renegotiation"
                     )
