@@ -1020,7 +1020,7 @@ class ECHServerExtension(Extension):
                 configs.append(ech_config)
 
         if not configs:
-            raise ValueError("empty retry config list")
+            raise ParseError("empty retry config list")
 
         return ECHServerExtension(configs)
 
