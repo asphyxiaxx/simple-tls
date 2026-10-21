@@ -28,8 +28,6 @@ from typing import Any, Literal, NoReturn, cast, overload
 
 from cryptography import x509
 
-from simple_tls.crypto.utils import int_to_bytes
-
 from .alerts import AlertException
 from .cipher import InvalidTag, TLSCipher, get_key_iv_lens
 from .configuration import TLSConfiguration
@@ -49,7 +47,6 @@ from .exceptions import (
     TLSRemoteAlert,
     TLSWantReadError,
 )
-from .extensions import ECHConfig
 from .handshake import TLSHandshake, TrafficContext
 from .handshake_client import NewSessionHandler, TLSHandshakeClient
 from .handshake_server import SNICallback, TLSHandshakeServer
@@ -352,31 +349,8 @@ class TLSConnection:
     def ech_accepted(self) -> bool:
         return self._handshake.ech_status == ECHStatus.ACCEPTED
 
-    @overload
-    def get_peer_ech_retry_configs(
-        self, binary_form: Literal[True] = ...
-    ) -> bytes | None: ...
-
-    @overload
-    def get_peer_ech_retry_configs(
-        self, binary_form: Literal[False] = ...
-    ) -> list[ECHConfig] | None: ...
-
-    @overload
-    def get_peer_ech_retry_configs(
-        self, binary_form: bool = ...
-    ) -> list[ECHConfig] | bytes | None: ...
-
-    def get_peer_ech_retry_configs(
-        self, binary_form: bool = True
-    ) -> list[ECHConfig] | bytes | None:
-        ech_retry_config = self._handshake.peer_ech_retry_configs
-        if ech_retry_config is not None:
-            if binary_form:
-                body = b"".join(c.serialize() for c in ech_retry_config)
-                return int_to_bytes(len(body), 2) + body
-            return list(ech_retry_config)
-        return None
+    def get_peer_ech_retry_configs(self) -> bytes | None:
+        return self._handshake.peer_ech_retry_configs
 
     def get_peer_application_settings(self) -> bytes | None:
         return self._handshake.peer_application_settings

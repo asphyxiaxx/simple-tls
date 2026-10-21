@@ -339,7 +339,7 @@ class TLSHandshakeClient(TLSHandshake):
             | CertificateRequestTLS13
             | None
         ) = None
-        self._peer_ech_retry_configs: tuple[ECHConfig, ...] | None = None
+        self._peer_ech_retry_configs: bytes | None = None
         self._peer_quic_transport_parameters: bytes | None = None
 
         # Negotiated variable
@@ -395,7 +395,7 @@ class TLSHandshakeClient(TLSHandshake):
         return self._state == ClientState.DONE
 
     @property
-    def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
+    def peer_ech_retry_configs(self) -> bytes | None:
         return self._peer_ech_retry_configs
 
     def trigger_post_handshake(self) -> None:
@@ -2360,7 +2360,7 @@ class TLSHandshakeClient(TLSHandshake):
                     )
 
                 allowed_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
-                self._peer_ech_retry_configs = tuple(ech_ext.retry_configs)
+                self._peer_ech_retry_configs = ech_ext.serialize()
 
             # Early data extension
             early_data_ext = ext_message.get_extension(

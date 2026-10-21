@@ -76,11 +76,7 @@ from .constants import (
     TLSVersion,
 )
 from .enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from .extensions import (
-    ECHConfig,
-    Extension,
-    StatusRequestCertificateExtension,
-)
+from .extensions import Extension, StatusRequestCertificateExtension
 from .key import (
     BasePublicKey,
     DSAPublicKey,
@@ -345,7 +341,7 @@ class TLSHandshake:
         return None
 
     @property
-    def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
+    def peer_ech_retry_configs(self) -> bytes | None:
         return None
 
     @property
