@@ -1853,21 +1853,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         self._extensions_recv = set(ext_message.get_extension_types())
 
-        # Renegotiation info extension
-        ri_ext = ext_message.get_extension(RenegotiationInfoExtension)
-        if ri_ext is not None:
-            if ri_ext.data:
-                raise AlertHandshakeFailure(
-                    "received invalid renegotiation info extension"
-                )
-            self._secure_renegotiation = True
-        else:
-            if (
-                CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV
-                in self._peer_cipher_suites
-            ):
-                self._secure_renegotiation = True
-
         alpn_ext = ext_message.get_extension(ALPNClientExtension)
         if self._alpn_protocols is not None and alpn_ext is not None:
             self._alpn_protocol = negotiate(
@@ -1900,8 +1885,22 @@ class TLSHandshakeServer(TLSHandshake):
             )
             if early_data_ext is not None:
                 self._early_data_offered = True
-
         else:
+            # Renegotiation info extension
+            ri_ext = ext_message.get_extension(RenegotiationInfoExtension)
+            if ri_ext is not None:
+                if ri_ext.data:
+                    raise AlertHandshakeFailure(
+                        "received invalid renegotiation info extension"
+                    )
+                self._secure_renegotiation = True
+            else:
+                if (
+                    CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV
+                    in self._peer_cipher_suites
+                ):
+                    self._secure_renegotiation = True
+
             # Extended master secret extension
             ems_ext = ext_message.get_extension(ExtendedMasterSecretExtension)
             if self._enable_ems is not None:
