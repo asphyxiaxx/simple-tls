@@ -52,12 +52,7 @@ except ImportError:
         TripleDES,
     )
 
-__all__ = [
-    "InvalidTag",
-    "NullCipher",
-    "TLSCipher",
-    "get_key_iv_lens",
-]
+__all__ = ["InvalidTag", "TLSCipher", "get_key_iv_lens"]
 
 _CipherType: TypeAlias = CipherContext
 _AEADCipherType: TypeAlias = Union[
@@ -647,50 +642,6 @@ class TLSCipher:
             raise InvalidTag("MAC mismatch")
 
         return plaintext_len
-
-
-class NullCipher(TLSCipher):
-    def __init__(self, direction: Direction):
-        self._max_overhead = 0
-        self._block_size = 1
-
-        if direction == Direction.WRITE:
-            self.seal = self._encrypt_raw
-        else:
-            self.open = self._decrypt_raw
-
-    def ciphertext_length(self, plaintext_length: int) -> int:
-        return plaintext_length
-
-    def _encrypt_raw(
-        self,
-        content_type: int,
-        record_version: int,
-        plaintext: Buffer,
-        seq_num: int,
-        header: bytes,
-        out: WritableBuffer,
-    ) -> int:
-        if len(out) < len(plaintext) + self._max_overhead:
-            raise ValueError("out buffer too small")
-
-        out[0 : len(plaintext)] = plaintext
-        return len(plaintext)
-
-    def _decrypt_raw(
-        self,
-        content_type: int,
-        record_version: int,
-        ciphertext: Buffer,
-        seq_num: int,
-        header: bytes,
-        out: WritableBuffer,
-    ) -> int:
-        if len(out) < len(ciphertext):
-            raise ValueError("out buffer too small")
-
-        out[0 : len(ciphertext)] = ciphertext
-        return len(ciphertext)
 
 
 # Internal
