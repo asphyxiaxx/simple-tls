@@ -240,22 +240,22 @@ class SSLContext(_ssl.SSLContext):
             )
 
     def cert_store_stats(self) -> dict[str, int]:
-        data = {"x509": 0, "crl": 0, "x509_ca": 0}
+        certs = self._castore.get_certificates()
+        x509_count = 0
+        x509_ca_count = 0
 
-        for c in self._castore:
-            data["x509"] += 1
-
+        for cert in certs:
+            x509_count += 1
             try:
-                ba = c.extensions.get_extension_for_class(
+                ba = cert.extensions.get_extension_for_class(
                     x509.BasicConstraints
-                )
+                ).value
             except x509.ExtensionNotFound:
-                pass
-            else:
-                if ba.value.ca:
-                    data["x509_ca"] += 1
+                continue
+            if ba.ca:
+                x509_ca_count += 1
 
-        return data
+        return {"x509": x509_count, "crl": 0, "x509_ca": x509_ca_count}
 
     @overload
     def get_ca_certs(
@@ -273,10 +273,10 @@ class SSLContext(_ssl.SSLContext):
     def get_ca_certs(
         self, binary_form: bool = False
     ) -> list[PeerCertRetDictType] | list[bytes]:
-        castore = self._castore
+        certs = self._castore.get_certificates()
         if not binary_form:
-            return [parse_certificate(c) for c in castore]
-        return [c.public_bytes(serialization.Encoding.DER) for c in castore]
+            return [parse_certificate(c) for c in certs]
+        return [c.public_bytes(serialization.Encoding.DER) for c in certs]
 
     def load_cert_chain(
         self,
@@ -303,12 +303,13 @@ class SSLContext(_ssl.SSLContext):
         if isinstance(cadata, str):
             cadata = cadata.encode("ascii")
 
-        castore = tls.load_castore(
-            cafile=cafile,
-            capath=capath,
-            cadata=cadata,  # type: ignore
-        )
-        self._castore.extend(castore)
+        self._castore.load_locations(cafile, capath)
+
+        if cadata:
+            if not isinstance(cadata, bytes):
+                cadata = bytes(cadata)
+            cert = x509.load_der_x509_certificate(cadata)
+            self._castore.add_certificate(cert)
 
     def load_default_certs(
         self, purpose: Purpose = Purpose.SERVER_AUTH

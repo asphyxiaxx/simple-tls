@@ -1083,7 +1083,7 @@ class TLSHandshake:
             raise AlertBadCertificate(str(exc)) from None
 
         session.verified_x509_peer = verified_certs[0]
-        session.verified_x509_chain = verified_certs[1:]
+        session.verified_x509_chain = tuple(verified_certs[1:])
 
     def _process_certificate_verify(
         self,

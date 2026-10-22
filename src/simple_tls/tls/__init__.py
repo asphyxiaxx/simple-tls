@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from .configuration import TLSConfiguration, TLSCredential, load_castore
+from .configuration import TLSConfiguration, TLSCredential
 from .connection import TLSConnection
 from .constants import (
     AlertDescription,
@@ -78,7 +78,6 @@ __all__ = [
     "TicketAEAD",
     "TicketContext",
     "VerifyMode",
-    "load_castore",
     "load_pem_parameters",
     "load_pem_private_key",
 ]

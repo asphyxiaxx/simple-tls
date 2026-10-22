@@ -20,10 +20,8 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 
 from cryptography import x509
 
@@ -36,45 +34,6 @@ from .key import BasePrivateKey, load_pem_private_key
 from .keyexchange import DHParameters
 from .session import TicketAEAD, TLSSession
 from .utils import Buffer, StrOrBytesPath
-
-
-def _ensure_str_path(path_input: str | bytes | os.PathLike) -> str:
-    if isinstance(path_input, bytes):
-        return path_input.decode("utf-8")
-    return os.fspath(path_input)
-
-
-def load_castore(
-    cafile: StrOrBytesPath | None = None,
-    capath: StrOrBytesPath | None = None,
-    cadata: Buffer | None = None,
-) -> Store:
-    certs: list[x509.Certificate] = []
-
-    if cafile:
-        with open(cafile, "rb") as fp:
-            pem_data = fp.read()
-        certs.extend(x509.load_pem_x509_certificates(pem_data))
-
-    if capath:
-        path = Path(_ensure_str_path(capath))
-        if path.is_dir():
-            for file_path in path.iterdir():
-                if not file_path.is_file():
-                    continue
-                try:
-                    with open(file_path, "rb") as fp:
-                        pem_data = fp.read()
-                    certs.extend(x509.load_pem_x509_certificates(pem_data))
-                except Exception:
-                    pass
-
-    if cadata:
-        if not isinstance(cadata, bytes):
-            cadata = bytes(cadata)
-        certs.append(x509.load_der_x509_certificate(cadata))
-
-    return Store(certs)
 
 
 @dataclass(frozen=True)
@@ -262,15 +221,11 @@ class TLSConfiguration:
     """Whether to verify that the peer certificate matches `server_hostname`.
     """
 
-    ee_policy: ExtensionPolicy | None = field(
-        default_factory=ExtensionPolicy.defaults_ee
-    )
+    ee_policy: ExtensionPolicy | None = None
     """Validation policy applied to End-Entity (leaf) certificate extensions.
     """
 
-    ca_policy: ExtensionPolicy | None = field(
-        default_factory=ExtensionPolicy.defaults_ca
-    )
+    ca_policy: ExtensionPolicy | None = None
     """Validation policy applied to intermediate and root CA certificate
     extensions."""
 

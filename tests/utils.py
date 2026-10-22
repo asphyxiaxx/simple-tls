@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 import pytest
-from cryptography import x509
 
 from simple_tls.crypto.verification import Store
 from simple_tls.tls.configuration import TLSConfiguration, TLSCredential
@@ -149,9 +148,9 @@ class TicketAEAD:
 
 
 def load_castore(cafile):
-    with open(cafile, "rb") as fp:
-        cadata = fp.read()
-    return Store(x509.load_pem_x509_certificates(cadata))
+    castore = Store()
+    castore.load_locations(cafile=cafile)
+    return castore
 
 
 def create_server(
