@@ -333,7 +333,7 @@ def test_handshake_with_session_ticket(subtests, version):
         minimum_version=version,
         maximum_version=version,
     )
-    client.new_session_cb = session_handler
+    client._new_session_callback = session_handler
     server = create_server(
         minimum_version=version,
         maximum_version=version,
@@ -508,7 +508,7 @@ def test_tls13_handshake_with_psk(subtests):
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,
     )
-    client.new_session_cb = session_handler
+    client._new_session_callback = session_handler
     server = create_server(
         minimum_version=TLSVersion.TLSv1_3,
         maximum_version=TLSVersion.TLSv1_3,

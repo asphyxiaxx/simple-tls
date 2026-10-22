@@ -100,19 +100,19 @@ class SSLSocket(_ssl.SSLSocket):
             )
 
         if not server_side:
-            sni_callback = None
-            new_session_handler = self._new_session_handler
+            client_hello_callback = None
+            new_session_callback = self._new_session_handler
             if session is not None:
                 tls_session = session.session
             else:
                 tls_session = None
         else:
-            sni_callback = self._do_sni_callback
-            new_session_handler = None
+            client_hello_callback = self._do_sni_callback
+            new_session_callback = None
             tls_session = None
 
         if context.options & Options.OP_NO_TICKET:
-            new_session_handler = None
+            new_session_callback = None
 
         config = tls.TLSConfiguration(
             is_server=server_side,
@@ -174,8 +174,8 @@ class SSLSocket(_ssl.SSLSocket):
             if connected:
                 self._sslobj = SSLConnection(
                     configuration=config,
-                    new_session_handler=new_session_handler,
-                    sni_callback=sni_callback,
+                    new_session_callback=new_session_callback,
+                    client_hello_callback=client_hello_callback,
                 )
 
                 if do_handshake_on_connect:
@@ -512,7 +512,7 @@ class SSLSocket(_ssl.SSLSocket):
         )
         self._sslobj = SSLConnection(
             configuration=config,
-            new_session_handler=new_session_handler,
+            new_session_callback=new_session_handler,
         )
 
         try:

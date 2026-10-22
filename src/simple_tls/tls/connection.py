@@ -48,8 +48,8 @@ from .exceptions import (
     TLSWantReadError,
 )
 from .handshake import TLSHandshake, TrafficContext
-from .handshake_client import NewSessionHandler, TLSHandshakeClient
-from .handshake_server import SNICallback, TLSHandshakeServer
+from .handshake_client import NewSessionCallback, TLSHandshakeClient
+from .handshake_server import ClientHelloCallback, TLSHandshakeServer
 from .messages import HandshakeMessage
 from .utils import (
     Buffer,
@@ -86,19 +86,23 @@ class TLSConnection:
         configuration: TLSConfiguration,
         inbio: MemoryBIO | None = None,
         outbio: MemoryBIO | None = None,
-        new_session_handler: NewSessionHandler | None = None,
-        sni_callback: SNICallback | None = None,
+        new_session_callback: NewSessionCallback | None = None,
+        client_hello_callback: ClientHelloCallback | None = None,
         message_callback: MessageCallback | None = None,
     ) -> None:
         self._message_callback = message_callback
 
         handshake: TLSHandshakeClient | TLSHandshakeServer
         if configuration.is_server:
-            handshake = TLSHandshakeServer(configuration)
-            handshake.sni_callback = sni_callback
+            handshake = TLSHandshakeServer(
+                configuration=configuration,
+                client_hello_callback=client_hello_callback,
+            )
         else:
-            handshake = TLSHandshakeClient(configuration)
-            handshake.new_session_cb = new_session_handler
+            handshake = TLSHandshakeClient(
+                configuration=configuration,
+                new_session_callback=new_session_callback,
+            )
 
         handshake.message_cb = self._do_hs_callback
         handshake.setup_traffic_cb = self._setup_traffic

@@ -173,7 +173,7 @@ from .utils import (
     negotiate,
 )
 
-NewSessionHandler = Callable[[TLSSession], None]
+NewSessionCallback = Callable[[TLSSession], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,20 +192,23 @@ class ECHConfigContent:
 class TLSHandshakeClient(TLSHandshake):
     is_server = False
 
-    def __init__(self, configuration: TLSConfiguration) -> None:
+    def __init__(
+        self,
+        configuration: TLSConfiguration,
+        new_session_callback: NewSessionCallback | None = None,
+    ) -> None:
         server_hostname = configuration.server_hostname
         if server_hostname is not None:
             check_server_hostname(server_hostname)
         elif configuration.check_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
-        self.new_session_cb: NewSessionHandler | None = None
-
         # Initialization
         super().__init__(configuration)
 
         self._offered_session = configuration.session
         self._hostname = server_hostname
+        self._new_session_callback = new_session_callback
 
         # Compression methods
         self._compresion_methods: tuple[int, ...] = (Compression.NULL,)
@@ -490,7 +493,10 @@ class TLSHandshakeClient(TLSHandshake):
                 if self._should_offer_early_data():
                     self._early_data_offered = True
 
-        if self.new_session_cb is not None and self._session_ticket is None:
+        if (
+            self._new_session_callback is not None
+            and self._session_ticket is None
+        ):
             self._session_ticket = b""
 
         # Start building client hello
@@ -1697,7 +1703,7 @@ class TLSHandshakeClient(TLSHandshake):
             session.not_resumable = False
 
             if (
-                self.new_session_cb is not None
+                self._new_session_callback is not None
                 and session.protocol_version() <= TLSVersion.TLSv1_2
                 and (session.ticket or session.session_id)
             ):
@@ -1705,7 +1711,7 @@ class TLSHandshakeClient(TLSHandshake):
                     include_noauth=True, include_ticket=True
                 )
                 session.not_resumable = False
-                self.new_session_cb(session)
+                self._new_session_callback(session)
 
         self._session_establish = True
 
@@ -1748,7 +1754,7 @@ class TLSHandshakeClient(TLSHandshake):
         if message.handshake_type == HandshakeType.NEWSESSION_TICKET:
             new_session_ticket = message.parse_as(NewSessionTicketTLS13)
 
-            if self.new_session_cb is not None:
+            if self._new_session_callback is not None:
                 early_data_ext = new_session_ticket.get_extension(
                     EarlyDataExtension
                 )
@@ -1775,7 +1781,7 @@ class TLSHandshakeClient(TLSHandshake):
                 session.not_resumable = False
 
                 # Callback to user
-                self.new_session_cb(session)
+                self._new_session_callback(session)
 
             self.message_cb(Direction.READ, new_session_ticket)
             self._next_message(update_hash=False)

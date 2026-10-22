@@ -139,7 +139,7 @@ from .messages import (
 from .session import TicketContext, TLSSession
 from .utils import KeySchedule, filter, negotiate
 
-SNICallback = Callable[["ClientHelloInfo", "HandshakeContext"], None]
+ClientHelloCallback = Callable[["ClientHelloInfo", "HandshakeContext"], None]
 
 
 @dataclass(frozen=True)
@@ -171,11 +171,15 @@ class HandshakeContext:
 class TLSHandshakeServer(TLSHandshake):
     is_server = True
 
-    def __init__(self, configuration: TLSConfiguration) -> None:
-        self.sni_callback: SNICallback | None = None
-
+    def __init__(
+        self,
+        configuration: TLSConfiguration,
+        client_hello_callback: ClientHelloCallback | None = None,
+    ) -> None:
         # Initialization
         super().__init__(configuration)
+
+        self._client_hello_callback = client_hello_callback
 
         # Cipher Suites
         self._cipher_suites: tuple[CipherSuite, ...] = tuple(
@@ -435,7 +439,7 @@ class TLSHandshakeServer(TLSHandshake):
         if sni_ext is not None:
             self._hostname = sni_ext.hostname
 
-        if self.sni_callback is not None:
+        if self._client_hello_callback is not None:
             client_hello_info = ClientHelloInfo(
                 server_name=self._hostname,
                 cipher_suites=self._peer_cipher_suites,
@@ -448,7 +452,7 @@ class TLSHandshakeServer(TLSHandshake):
                 credential=self._credential,
                 verify_mode=self._verify_mode,
             )
-            self.sni_callback(client_hello_info, handshake_context)
+            self._client_hello_callback(client_hello_info, handshake_context)
 
             if handshake_context.alert_description is not None:
                 try:
