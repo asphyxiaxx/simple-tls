@@ -299,11 +299,9 @@ class TLSHandshake:
 
     @property
     def max_early_data(self) -> int:
-        if self._in_early_data or self._skip_early_data:
-            if self._session_reused:
-                assert self._session is not None
-                return self._session.ticket_max_early_data
-            return self._configuration.max_early_data_size
+        if self._in_early_data:
+            assert self._session is not None
+            return self._session.ticket_max_early_data
         return 0
 
     @property
