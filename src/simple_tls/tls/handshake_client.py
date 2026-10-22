@@ -21,11 +21,9 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import cast
-
-from cryptography import x509
 
 from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.crypto import hpke
@@ -919,7 +917,7 @@ class TLSHandshakeClient(TLSHandshake):
         version = self.protocol_version()
 
         if self._credential is not None:
-            x509_leaf = self._credential.x509_certificates[0]
+            x509_leaf = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -951,11 +949,9 @@ class TLSHandshakeClient(TLSHandshake):
 
         if self._signature_algorithm is not None:
             assert self._credential is not None
-            certificate = self._create_certificate(
-                self._credential.x509_certificates
-            )
+            certificate = self._create_certificate(self._credential)
         else:
-            certificate = self._create_certificate(())
+            certificate = self._create_certificate()
 
         self.message_cb(Direction.WRITE, certificate)
         self._add_message(certificate)
@@ -2474,7 +2470,6 @@ class TLSHandshakeClient(TLSHandshake):
             compression = None
 
         private_key: BasePrivateKey | None = None
-        x509_certificates: Sequence[x509.Certificate] | None = None
         signature_algorithm: int | None = None
 
         # draft-ietf-tls-esni 25 Section 6.1.7
@@ -2483,11 +2478,9 @@ class TLSHandshakeClient(TLSHandshake):
         # certificate.
         if self._ech_status == ECHStatus.REJECTED:
             pass
-
         elif self._credential is not None:
             private_key = self._credential.private_key
-            x509_certificates = self._credential.x509_certificates
-            x509_leaf = x509_certificates[0]
+            x509_leaf = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -2502,14 +2495,12 @@ class TLSHandshakeClient(TLSHandshake):
             signature_algorithm = negotiate(supported_sigalgs, sigalg_ext.data)
 
         if signature_algorithm is not None:
-            x509_certificates = cast(
-                tuple[x509.Certificate, ...], x509_certificates
-            )
+            credential = self._credential
         else:
-            x509_certificates = ()
+            credential = None
 
         certificate = self._create_certificate_tls13(
-            x509_certs=x509_certificates,
+            credential=credential,
             context=cert_request.context,
             compression=compression,
         )

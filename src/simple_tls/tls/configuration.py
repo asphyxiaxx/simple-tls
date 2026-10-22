@@ -83,7 +83,8 @@ class TLSCredential:
     certificate chain."""
 
     private_key: BasePrivateKey
-    x509_certificates: Sequence[x509.Certificate]
+    certificate: x509.Certificate
+    certificate_chain: Sequence[x509.Certificate]
 
     @classmethod
     def from_certfile(
@@ -101,6 +102,8 @@ class TLSCredential:
         if not certificates:
             raise ValueError(f"No certificates found in {certfile!r}")
 
+        certificate = certificates[0]
+        certificate_chain = tuple(certificates[1:])
         password = str_to_bytes(password)
 
         if b"PRIVATE KEY" in pem_data:
@@ -113,7 +116,7 @@ class TLSCredential:
             with open(keyfile, "rb") as fp:
                 key = load_pem_private_key(fp.read(), password)
 
-        return TLSCredential(key, tuple(certificates))
+        return TLSCredential(key, certificate, certificate_chain)
 
 
 @dataclass(frozen=True)

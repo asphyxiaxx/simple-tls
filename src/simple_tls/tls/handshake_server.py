@@ -482,7 +482,7 @@ class TLSHandshakeServer(TLSHandshake):
         peer_supported_groups = self._peer_supported_groups
 
         if self._credential is not None:
-            x509_leaf = self._credential.x509_certificates[0]
+            x509_leaf = self._credential.certificate
             algorithm_oid = x509_leaf.public_key_algorithm_oid
             if algorithm_oid in (
                 PublicKeyAlgorithmOID.RSASSA_PSS,
@@ -544,7 +544,7 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.auth != Authentication.ANON:
             assert self._credential is not None
 
-            x509_leaf = self._credential.x509_certificates[0]
+            x509_leaf = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -695,9 +695,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.OK
 
         assert self._credential is not None
-        certificate = self._create_certificate(
-            self._credential.x509_certificates
-        )
+        certificate = self._create_certificate(self._credential)
         self.message_cb(Direction.WRITE, certificate)
         self._add_message(certificate)
 
@@ -1122,7 +1120,7 @@ class TLSHandshakeServer(TLSHandshake):
                     "missing signature algorithms extension"
                 )
 
-            x509_leaf = self._credential.x509_certificates[0]
+            x509_leaf = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_leaf)
             except ValueError as exc:
@@ -1526,7 +1524,7 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._signature_algorithm is not None
 
         certificate = self._create_certificate_tls13(
-            x509_certs=self._credential.x509_certificates,
+            credential=self._credential,
             compression=self._certificate_compression,
         )
         self.message_cb(Direction.WRITE, certificate)

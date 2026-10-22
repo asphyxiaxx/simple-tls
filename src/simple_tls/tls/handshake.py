@@ -781,21 +781,37 @@ class TLSHandshake:
 
     @staticmethod
     def _create_certificate(
-        x509_certs: Iterable[x509.Certificate],
+        credential: TLSCredential | None = None,
     ) -> Certificate:
-        certificates = [c.public_bytes(Encoding.DER) for c in x509_certs]
-        return Certificate(certificates=certificates)
+        if credential is not None:
+            certificates = [
+                certificate.public_bytes(Encoding.DER)
+                for certificate in (
+                    credential.certificate,
+                    *credential.certificate_chain,
+                )
+            ]
+        else:
+            certificates = []
+        return Certificate(certificates)
 
     @staticmethod
     def _create_certificate_tls13(
-        x509_certs: Iterable[x509.Certificate],
+        credential: TLSCredential | None = None,
         context: bytes = b"",
         compression: int | None = None,
     ) -> CompressedCertificate | CertificateTLS13:
-        cert_entries = [
-            CertificateEntry(certificate.public_bytes(Encoding.DER))
-            for certificate in x509_certs
-        ]
+        if credential is not None:
+            cert_entries = [
+                CertificateEntry(certificate.public_bytes(Encoding.DER))
+                for certificate in (
+                    credential.certificate,
+                    *credential.certificate_chain,
+                )
+            ]
+        else:
+            cert_entries = []
+
         certificate = CertificateTLS13(context, cert_entries)
 
         if cert_entries and compression is not None:
