@@ -1203,7 +1203,9 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._early_data_offered:
             if psk_ext is None:
-                raise AlertIllegalParameter("unexpected early data extension")
+                raise AlertIllegalParameter(
+                    "received unexpected early data extension"
+                )
 
             if self._session_reused:
                 assert session is not None
