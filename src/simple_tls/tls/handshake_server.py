@@ -148,6 +148,8 @@ class ClientHelloInfo:
 
     server_name: bytes | None
     cipher_suites: Sequence[int]
+    signature_algorithms: Sequence[int] | None
+    supported_groups: Sequence[int] | None
 
 
 @dataclass
@@ -435,6 +437,8 @@ class TLSHandshakeServer(TLSHandshake):
             client_hello_info = ClientHelloInfo(
                 server_name=self._hostname,
                 cipher_suites=self._peer_cipher_suites,
+                signature_algorithms=self._peer_signature_algorithms,
+                supported_groups=self._peer_supported_groups,
             )
             handshake_context = HandshakeContext(
                 credential=self._credential,
