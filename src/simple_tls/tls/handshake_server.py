@@ -149,7 +149,7 @@ class ClientHelloInfo:
     server_name: bytes | None
     cipher_suites: Sequence[int]
     protocol_version: int
-    supported_versions: Sequence[int] | None
+    supported_versions: Sequence[int]
     signature_algorithms: Sequence[int] | None
     supported_groups: Sequence[int] | None
 
