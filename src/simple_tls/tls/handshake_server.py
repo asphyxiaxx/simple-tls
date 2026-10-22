@@ -136,7 +136,7 @@ from .messages import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from .session import TLSSession
+from .session import TicketContext, TLSSession
 from .utils import KeySchedule, filter, negotiate
 
 SNICallback = Callable[["ClientHelloInfo", "HandshakeContext"], None]
@@ -148,6 +148,8 @@ class ClientHelloInfo:
 
     server_name: bytes | None
     cipher_suites: Sequence[int]
+    protocol_version: int
+    supported_versions: Sequence[int] | None
     signature_algorithms: Sequence[int] | None
     supported_groups: Sequence[int] | None
 
@@ -437,6 +439,8 @@ class TLSHandshakeServer(TLSHandshake):
             client_hello_info = ClientHelloInfo(
                 server_name=self._hostname,
                 cipher_suites=self._peer_cipher_suites,
+                protocol_version=version,
+                supported_versions=tuple(real_version),
                 signature_algorithms=self._peer_signature_algorithms,
                 supported_groups=self._peer_supported_groups,
             )
@@ -1947,15 +1951,22 @@ class TLSHandshakeServer(TLSHandshake):
         if ticket_aead is None or not ticket:
             return None
 
-        session = None
-        session_data = ticket_aead.open(ticket)
+        assert self._cipher_suite is not None
 
+        ticket_context = TicketContext(
+            server_name=self._hostname,
+            cipher_suite=self._cipher_suite,
+            protocol_version=self.protocol_version(),
+        )
+        session_data = ticket_aead.open(ticket, ticket_context)
         if session_data is not None:
             session_data = bytes(session_data)
             try:
                 session = TLSSession.from_bytes(session_data)
             except Exception:
                 pass
+        else:
+            session = None
 
         if (
             session is not None
@@ -1966,7 +1977,6 @@ class TLSHandshakeServer(TLSHandshake):
             and not session.not_resumable
         ):
             return session
-
         return None
 
     def _encrypt_session(self, session: TLSSession) -> bytes | None:
@@ -1974,7 +1984,15 @@ class TLSHandshakeServer(TLSHandshake):
         if ticket_aead is None:
             return None
 
-        ticket = ticket_aead.seal(session.serialize())
+        assert self._cipher_suite is not None
+
+        session_data = session.serialize()
+        ticket_context = TicketContext(
+            server_name=self._hostname,
+            cipher_suite=self._cipher_suite,
+            protocol_version=self.protocol_version(),
+        )
+        ticket = ticket_aead.seal(session_data, ticket_context)
         if ticket is not None:
             return bytes(ticket)
         return None

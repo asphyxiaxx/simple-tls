@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+from typing import Any
 
 from simple_tls import tls
 
@@ -7,12 +10,12 @@ class TicketAEAD:
     def __init__(self) -> None:
         self._sessions: dict[bytes, bytes] = {}
 
-    def seal(self, data: bytes) -> bytes:
+    def seal(self, plaintext: bytes, _: Any) -> bytes:
         ticket = os.urandom(32)
-        self._sessions[ticket] = data
+        self._sessions[ticket] = plaintext
         return ticket
 
-    def open(self, ticket: bytes) -> bytes | None:
+    def open(self, ticket: bytes, _: Any) -> bytes | None:
         try:
             return self._sessions[ticket]
         except KeyError:

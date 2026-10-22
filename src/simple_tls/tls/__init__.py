@@ -46,7 +46,7 @@ from .exceptions import (
 from .handshake_server import ClientHelloInfo, HandshakeContext
 from .key import BasePrivateKey, load_pem_private_key
 from .keyexchange import DHParameters, load_pem_parameters
-from .session import TicketAEAD, TLSSession
+from .session import TicketAEAD, TicketContext, TLSSession
 
 __all__ = [
     "AlertDescription",
@@ -76,6 +76,7 @@ __all__ = [
     "TLSVersion",
     "TLSWantReadError",
     "TicketAEAD",
+    "TicketContext",
     "VerifyMode",
     "load_castore",
     "load_pem_parameters",

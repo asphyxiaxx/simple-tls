@@ -230,15 +230,24 @@ class TLSSession:
         return writer.tobytes()
 
 
+@dataclass(frozen=True)
+class TicketContext:
+    """Details extracted from the current connection."""
+
+    server_name: bytes | None
+    cipher_suite: CipherSuite
+    protocol_version: int
+
+
 class TicketAEAD(typing.Protocol):
     """Protocol-agnostic ticket AEAD interface"""
 
     @abc.abstractmethod
-    def seal(self, plaintext: bytes) -> Buffer | None:
+    def seal(self, plaintext: bytes, context: TicketContext) -> Buffer | None:
         """Encrypts raw session bytes into an opaque ticket payload."""
         ...
 
     @abc.abstractmethod
-    def open(self, ticket: bytes) -> Buffer | None:
+    def open(self, ticket: bytes, context: TicketContext) -> Buffer | None:
         """Decrypts ticket payload back into raw session bytes."""
         ...
