@@ -136,12 +136,12 @@ class TicketAEAD:
     def __init__(self):
         self._storage = {}
 
-    def seal(self, data):
+    def seal(self, plaintext, _):
         ticket = os.urandom(32)
-        self._storage[ticket] = data
+        self._storage[ticket] = plaintext
         return ticket
 
-    def open(self, ticket):
+    def open(self, ticket, _):
         try:
             return self._storage[ticket]
         except KeyError:
