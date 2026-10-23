@@ -77,14 +77,14 @@ class TLSSession:
     ticket_age_add: int = 0
     """age added"""
 
-    x509_peer: x509.Certificate | None = None
-    """peer's certificate"""
-    x509_chain: tuple[x509.Certificate, ...] | None = None
-    """certificate chain sent by the peer, without leaf certificate"""
-    verified_x509_peer: x509.Certificate | None = None
-    """verified peer's certificate"""
-    verified_x509_chain: tuple[x509.Certificate, ...] | None = None
-    """verified certificate chain sent by the peer, without leaf certificate"""
+    peer_cert: x509.Certificate | None = None
+    """Peer's leaf certificate."""
+    peer_chain: tuple[x509.Certificate, ...] | None = None
+    """Intermediate certificate chain sent by the peer (excluding the leaf)."""
+    verified_peer_cert: x509.Certificate | None = None
+    """Successfully verified peer leaf certificate."""
+    verified_peer_chain: tuple[x509.Certificate, ...] | None = None
+    """Successfully verified certificate chain."""
     ocsp_response: bytes | None = None
     """OCSP Response"""
 
@@ -141,10 +141,10 @@ class TLSSession:
             cipher_suite=self.cipher_suite,
             time=self.time,
             timeout=self.timeout,
-            x509_peer=self.x509_peer,
-            x509_chain=self.x509_chain,
-            verified_x509_peer=self.verified_x509_peer,
-            verified_x509_chain=self.verified_x509_chain,
+            peer_cert=self.peer_cert,
+            peer_chain=self.peer_chain,
+            verified_peer_cert=self.verified_peer_cert,
+            verified_peer_chain=self.verified_peer_chain,
             ocsp_response=self.ocsp_response,
         )
         if include_noauth:

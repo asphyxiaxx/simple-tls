@@ -335,7 +335,7 @@ class TLSHandshake:
     def peer_certificate(self) -> x509.Certificate | None:
         session = self._session
         if session is not None:
-            return session.x509_peer
+            return session.peer_cert
         return None
 
     @property
@@ -356,22 +356,22 @@ class TLSHandshake:
         session = self._session
         chain: list[x509.Certificate] = []
         if session is not None:
-            if session.x509_peer is not None:
-                chain.append(session.x509_peer)
-            if session.x509_chain is not None:
-                assert session.x509_peer is not None
-                chain.extend(session.x509_chain)
+            if session.peer_cert is not None:
+                chain.append(session.peer_cert)
+            if session.peer_chain is not None:
+                assert session.peer_cert is not None
+                chain.extend(session.peer_chain)
         return chain
 
     def get_verified_chain(self) -> list[x509.Certificate]:
         session = self._session
         chain: list[x509.Certificate] = []
         if session is not None:
-            if session.verified_x509_peer is not None:
-                chain.append(session.verified_x509_peer)
-            if session.verified_x509_chain is not None:
-                assert session.verified_x509_peer is not None
-                chain.extend(session.verified_x509_chain)
+            if session.verified_peer_cert is not None:
+                chain.append(session.verified_peer_cert)
+            if session.verified_peer_chain is not None:
+                assert session.verified_peer_cert is not None
+                chain.extend(session.verified_peer_chain)
         return chain
 
     def do_handshake(self) -> Status:
@@ -705,15 +705,15 @@ class TLSHandshake:
             return certificate
 
         try:
-            x509_peer = x509.load_der_x509_certificate(cert_chain[0])
-            x509_chain = tuple(
+            peer_cert = x509.load_der_x509_certificate(cert_chain[0])
+            peer_chain = tuple(
                 x509.load_der_x509_certificate(cert) for cert in cert_chain[1:]
             )
         except ValueError as exc:
             raise AlertBadCertificate(str(exc)) from exc
 
-        session.x509_peer = x509_peer
-        session.x509_chain = x509_chain
+        session.peer_cert = peer_cert
+        session.peer_chain = peer_chain
 
         return certificate
 
@@ -757,8 +757,8 @@ class TLSHandshake:
 
         cert_entry = cert_entries[0]
         try:
-            x509_peer = x509.load_der_x509_certificate(cert_entry.certificate)
-            x509_chain = tuple(
+            peer_cert = x509.load_der_x509_certificate(cert_entry.certificate)
+            peer_chain = tuple(
                 x509.load_der_x509_certificate(cert_entry.certificate)
                 for cert_entry in cert_entries[1:]
             )
@@ -773,8 +773,8 @@ class TLSHandshake:
         else:
             ocsp_response = None
 
-        session.x509_peer = x509_peer
-        session.x509_chain = x509_chain
+        session.peer_cert = peer_cert
+        session.peer_chain = peer_chain
         session.ocsp_response = ocsp_response
 
         return c_certificate or certificate
@@ -1033,8 +1033,8 @@ class TLSHandshake:
         session: TLSSession,
         hostname: bytes | None = None,
     ) -> None:
-        assert session.x509_peer is not None
-        assert session.x509_chain is not None
+        assert session.peer_cert is not None
+        assert session.peer_chain is not None
 
         configuration = self.configuration
 
@@ -1072,9 +1072,7 @@ class TLSHandshake:
             ca_policy=ca_policy,
         )
         try:
-            verified_certs = verifier.verify(
-                session.x509_peer, session.x509_chain
-            )
+            certs = verifier.verify(session.peer_cert, session.peer_chain)
         except (CertificateExpired, CertificateNotYetValid) as exc:
             raise AlertCertificateExpired(str(exc)) from None
         except UntrustedRoot as exc:
@@ -1082,8 +1080,8 @@ class TLSHandshake:
         except VerificationError as exc:
             raise AlertBadCertificate(str(exc)) from None
 
-        session.verified_x509_peer = verified_certs[0]
-        session.verified_x509_chain = tuple(verified_certs[1:])
+        session.verified_peer_cert = certs[0]
+        session.verified_peer_chain = tuple(certs[1:])
 
     def _process_certificate_verify(
         self,
@@ -1096,16 +1094,16 @@ class TLSHandshake:
                 "received certificate verify message with empty signature"
             )
 
-        assert session.x509_peer is not None
+        assert session.peer_cert is not None
 
         version = self.protocol_version()
-        x509_peer = session.x509_peer
+        peer_cert = session.peer_cert
         try:
-            peer_public_key = load_certificate_public_key(x509_peer)
+            peer_public_key = load_certificate_public_key(peer_cert)
         except ValueError as exc:
             raise AlertHandshakeFailure(str(exc)) from exc
 
-        peer_public_key_oid = x509_peer.public_key_algorithm_oid
+        peer_public_key_oid = peer_cert.public_key_algorithm_oid
 
         if version >= TLSVersion.TLSv1_2:
             cert_verify = cast(CertificateVerifyTLS12, cert_verify)

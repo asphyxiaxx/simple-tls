@@ -821,7 +821,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_verify_client_certificate(self) -> Status:
         assert self._session is not None
 
-        if self._session.x509_peer is not None:
+        if self._session.peer_cert is not None:
             self._verify_x509(self._session)
 
         self._set_state(ServerState.READ_CLIENT_KEY_EXCHANGE)
@@ -907,7 +907,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_read_client_certificate_verify(self) -> Status:
         assert self._session is not None
 
-        if self._session.x509_peer is None:
+        if self._session.peer_cert is None:
             self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
             return Status.OK
 
@@ -1663,7 +1663,7 @@ class TLSHandshakeServer(TLSHandshake):
             ),
         )
         if (
-            self._session.x509_peer is not None
+            self._session.peer_cert is not None
             and self._configuration.verify_mode != VerifyMode.CERT_NONE
         ):
             self._verify_x509(self._session)
@@ -1677,7 +1677,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_read_client_certificate_verify_tls13(self) -> Status:
         assert self._session is not None
 
-        if self._session.x509_peer is None:
+        if self._session.peer_cert is None:
             self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
             return Status.OK
 

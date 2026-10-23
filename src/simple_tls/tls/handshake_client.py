@@ -824,15 +824,16 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertInternalError("unsupported cipher suite selected")
 
         if cipher_suite.auth != Authentication.ANON:
-            assert session.x509_peer is not None
-            x509_peer = session.x509_peer
+            assert session.peer_cert is not None
+
+            peer_cert = session.peer_cert
             try:
-                peer_public_key = load_certificate_public_key(x509_peer)
+                peer_public_key = load_certificate_public_key(peer_cert)
             except ValueError as exc:
                 raise AlertHandshakeFailure(str(exc)) from exc
 
             ske_data = parser.data_since_bookmark()
-            peer_public_key_oid = x509_peer.public_key_algorithm_oid
+            peer_public_key_oid = peer_cert.public_key_algorithm_oid
 
             if version == TLSVersion.TLSv1_2:
                 verify_alg = parser.read_int(2)
@@ -976,11 +977,11 @@ class TLSHandshakeClient(TLSHandshake):
 
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
-            assert session.x509_peer is not None
+            assert session.peer_cert is not None
 
-            x509_peer = session.x509_peer
+            peer_cert = session.peer_cert
             try:
-                peer_public_key = load_certificate_public_key(x509_peer)
+                peer_public_key = load_certificate_public_key(peer_cert)
             except ValueError as exc:
                 raise AlertHandshakeFailure(str(exc)) from exc
 
@@ -1545,24 +1546,21 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.READ_MESSAGE
 
         assert self._session is not None
-        session = self._session
+
         certificate = self._process_certificate_tls13(
             message=message,
-            session=session,
+            session=self._session,
             supported_compressions=self._certificate_compressions,
             allow_anon=False,
         )
 
         if self._verify_mode != VerifyMode.CERT_NONE:
             hostname = self._hostname
-
-            if (
-                self._selected_ech_config is not None
-                and self._ech_status == ECHStatus.REJECTED
-            ):
+            if self._ech_status == ECHStatus.REJECTED:
+                assert self._selected_ech_config is not None
                 hostname = self._selected_ech_config.public_name
 
-            self._verify_x509(session, hostname)
+            self._verify_x509(self._session, hostname)
 
         self.message_cb(Direction.READ, certificate)
         self._next_message()
