@@ -11,8 +11,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from simple_tls import tls
-from simple_tls.crypto import verification
 from simple_tls.crypto.utils import str_to_bytes
+from simple_tls.crypto.verification import StoreBuilder
 
 from ._constants import (
     PROTOCOL_TLS,
@@ -68,6 +68,11 @@ class SSLContext(_ssl.SSLContext):
 
         self._config: dict[str, Any] = {}
         self._protocol = protocol
+        self._minimum_version: TLSVersion = _ssl.TLSVersion.MINIMUM_SUPPORTED
+        self._maximum_version: TLSVersion = _ssl.TLSVersion.MAXIMUM_SUPPORTED
+        self._cipher_suites: Sequence[tls.CipherSuite] = (
+            tls.TLSConfiguration.cipher_suites
+        )
         self._options: Options = (
             Options.OP_ENABLE_MIDDLEBOX_COMPAT
             | Options.OP_SINGLE_DH_USE
@@ -79,13 +84,7 @@ class SSLContext(_ssl.SSLContext):
             | Options.OP_NO_TLSv1
             | Options.OP_NO_TLSv1_1
         )
-
-        self._minimum_version: TLSVersion = _ssl.TLSVersion.MINIMUM_SUPPORTED
-        self._maximum_version: TLSVersion = _ssl.TLSVersion.MAXIMUM_SUPPORTED
-        self._cipher_suites: Sequence[tls.CipherSuite] = (
-            tls.TLSConfiguration.cipher_suites
-        )
-        self._castore: verification.Store = verification.Store()
+        self._castore_builder: StoreBuilder = StoreBuilder()
         self._verify_mode: _ssl.VerifyMode = verify_mode
         self._check_hostname: bool = check_hostname
         self._post_handshake_auth: bool = False
@@ -240,7 +239,7 @@ class SSLContext(_ssl.SSLContext):
             )
 
     def cert_store_stats(self) -> dict[str, int]:
-        certs = self._castore.get_certificates()
+        certs = self._castore_builder.get_certificates()
         x509_count = 0
         x509_ca_count = 0
 
@@ -273,7 +272,7 @@ class SSLContext(_ssl.SSLContext):
     def get_ca_certs(
         self, binary_form: bool = False
     ) -> list[PeerCertRetDictType] | list[bytes]:
-        certs = self._castore.get_certificates()
+        certs = self._castore_builder.get_certificates()
         if not binary_form:
             return [parse_certificate(c) for c in certs]
         return [c.public_bytes(serialization.Encoding.DER) for c in certs]
@@ -303,13 +302,13 @@ class SSLContext(_ssl.SSLContext):
         if isinstance(cadata, str):
             cadata = cadata.encode("ascii")
 
-        self._castore.load_locations(cafile, capath)
+        self._castore_builder.load_locations(cafile, capath)
 
         if cadata:
             if not isinstance(cadata, bytes):
                 cadata = bytes(cadata)
             cert = x509.load_der_x509_certificate(cadata)
-            self._castore.add_certificate(cert)
+            self._castore_builder.add_certificate(cert)
 
     def load_default_certs(
         self, purpose: Purpose = Purpose.SERVER_AUTH
@@ -353,11 +352,7 @@ class SSLContext(_ssl.SSLContext):
 
     @options.setter
     def options(self, value: Options) -> None:
-        try:
-            value = Options(value)
-        except ValueError:
-            raise ValueError(f"Unknown Options ({value})") from None
-        self._options = value
+        self._options = Options(value)
 
     @property
     def check_hostname(self) -> bool:
@@ -446,7 +441,7 @@ class SSLContext(_ssl.SSLContext):
             config["ticket_aead"] = self._ticket_aead
 
         config["cipher_suites"] = self._cipher_suites
-        config["castore"] = self._castore
+        config["castore"] = self._castore_builder.build()
         config["check_hostname"] = self._check_hostname
         config["post_handshake_auth"] = self._post_handshake_auth
 

@@ -22,11 +22,11 @@ from __future__ import annotations
 
 import os
 from collections import deque
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Generator, Iterable
 from datetime import datetime, timedelta, timezone
 from os import PathLike
 from pathlib import Path
-from typing import TypeAlias, Union
+from typing import TypeAlias
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -56,7 +56,7 @@ class VerificationError(Exception):
         self.certificate = certificate
 
 
-class SignatureVerificationError(VerificationError): ...
+class InvalidSignatureError(VerificationError): ...
 
 
 class PolicyViolationError(VerificationError): ...
@@ -71,7 +71,7 @@ class CertificateExpired(VerificationError): ...
 class UntrustedRoot(VerificationError): ...
 
 
-class Store:
+class StoreBuilder:
     def __init__(self) -> None:
         # trust map: subject -> list of certs with that subject
         self._trust_map: dict[x509.Name, list[x509.Certificate]] = {}
@@ -110,20 +110,41 @@ class Store:
         for cert in certs:
             self._trust_map.setdefault(cert.subject, []).append(cert)
 
+    def build(self) -> Store:
+        """
+        Freezes the staging data into immutable tuples and returns a Store.
+        """
+        trust_map = {
+            subject: list(certificates)
+            for subject, certificates in self._trust_map.items()
+        }
+        return Store(trust_map)
+
+
+class Store:
+    def __init__(
+        self, trust_map: dict[x509.Name, list[x509.Certificate]]
+    ) -> None:
+        self._trust_map = trust_map
+
     def get_trust_map(self) -> dict[x509.Name, list[x509.Certificate]]:
-        return self._trust_map.copy()
+        return self._trust_map
+
+
+_MaybePresentDict: TypeAlias = dict[
+    x509.ObjectIdentifier, MaybeExtensionCallback | None
+]
+_RequirePresentDict: TypeAlias = dict[
+    x509.ObjectIdentifier, PresentExtensionCallback | None
+]
 
 
 class ExtensionPolicy:
     def __init__(
         self,
         *,
-        _may_be_present: Union[
-            dict[x509.ObjectIdentifier, MaybeExtensionCallback | None], None
-        ] = None,
-        _require_present: Union[
-            dict[x509.ObjectIdentifier, PresentExtensionCallback | None], None
-        ] = None,
+        _may_be_present: _MaybePresentDict | None = None,
+        _require_present: _RequirePresentDict | None = None,
     ) -> None:
         self._may_be_present = (
             _may_be_present.copy() if _may_be_present else {}
@@ -187,7 +208,9 @@ class ExtensionPolicy:
         )
 
     def verify(
-        self, verifier: Verifier, certificate: x509.Certificate
+        self,
+        verifier: Verifier,
+        certificate: x509.Certificate,
     ) -> None:
         exts = certificate.extensions
 
@@ -227,7 +250,7 @@ class Verifier:
         if ee_policy is None:
             ee_policy = ExtensionPolicy.defaults_ee()
         if ca_policy is None:
-            ca_policy = ExtensionPolicy.defaults_ee()
+            ca_policy = ExtensionPolicy.defaults_ca()
 
         self._store = store
         self._allow_partial_chain = allow_partial_chain
@@ -248,34 +271,46 @@ class Verifier:
         return self._allow_partial_chain
 
     def verify(
-        self, leaf: x509.Certificate, intermediates: Iterable[x509.Certificate]
+        self,
+        leaf: x509.Certificate,
+        intermediates: Iterable[x509.Certificate],
     ) -> list[x509.Certificate]:
-        chains = self._build_candidate_chains(leaf, intermediates)
-        if not chains:
-            raise UntrustedRoot(leaf)
+        """
+        Verify chain top-down with short-circuiting across candidate paths.
 
-        chain = chains[0]
-        self._verify_chain(chain)
-        return chain
+        :raises VerificationError: on verification failure.
+        """
+
+        last_exc: Exception | None = None
+
+        for chain in self._candidate_chains(leaf, intermediates):
+            try:
+                self._verify_chain(chain)
+            except VerificationError as exc:
+                last_exc = exc
+            else:
+                return chain
+
+        if last_exc is not None:
+            raise last_exc
+        raise UntrustedRoot(leaf, "no trusted certification path found")
 
     # Internal
 
-    def _build_candidate_chains(
-        self, leaf: x509.Certificate, intermediates: Iterable[x509.Certificate]
-    ) -> list[list[x509.Certificate]]:
-        """
-        Build possible chains starting at leaf. Each chain is
-        [leaf, iss1, iss2, ..., trust_anchor_candidate]
-        Do BFS to find shortest chains first, and use basic
-        filters (subject/issuer, AKI/SKI).
-        """
-        # include store certs as possible issuers too
+    def _candidate_chains(
+        self,
+        leaf: x509.Certificate,
+        intermediates: Iterable[x509.Certificate],
+    ) -> Generator[list[x509.Certificate]]:
+        """Do BFS to find shortest chains first"""
+
         roots_by_subject = self.store.get_trust_map()
+
+        # include store certs as possible issuers too
         candidates_by_subject = roots_by_subject.copy()
         for c in intermediates:
             candidates_by_subject.setdefault(c.subject, []).append(c)
 
-        chains: list[list[x509.Certificate]] = []
         q: deque[list[x509.Certificate]] = deque()
         q.append([leaf])
 
@@ -316,36 +351,23 @@ class Verifier:
 
                 if is_trusted_anchor:
                     if self._is_self_issued(issuer):
-                        # assert issuer in store_certs
-                        chains.append(new_chain)
+                        yield new_chain
                     elif self.allow_partial_chain:
-                        # If partial chains are ok we accept this as candidate
-                        # anchor
-                        chains.append(new_chain)
+                        yield new_chain
 
                 # continue BFS
                 q.append(new_chain)
 
-        # If allow partial and no store anchors found,
-        # still add chains that end in an intermediate
-        # (if store contains that intermediate by subject)
-        return chains
+    def _verify_chain(self, chain: list[x509.Certificate]) -> None:
+        assert chain
 
-    def _verify_chain(self, chain: Sequence[x509.Certificate]) -> None:
-        """
-        Verify chain top-down: for i in range(len(chain)-1):
-            verify chain[i] signed by chain[i+1] (parent)
-
-        The last cert in chain should be a trusted anchor from policy.store
-
-        :raises VerificationError: on verification failure.
-        """
-        if not chain:
-            raise ValueError("chain cannot be empty")
         if len(chain) > self.max_chain_depth:
-            raise PolicyViolationError(
-                chain[0], "chain length exceeds max depth"
+            leaf = chain[0]
+            err_str = (
+                f"chain length exceeds max depth "
+                f"[{len(chain)} > {self.max_chain_depth}]"
             )
+            raise PolicyViolationError(leaf, err_str)
 
         now = datetime.now(timezone.utc)
         skew = 300
@@ -361,10 +383,10 @@ class Verifier:
             issuer = chain[index + 1]
 
             # validity
-            self._verify_validity_now(index, child, now, skew)
+            self._verify_validity_now(child, now, skew)
 
             # signature
-            self._verify_signature(index, child, issuer)
+            self._verify_signature(child, issuer)
 
             # Basic constraint
             try:
@@ -411,16 +433,20 @@ class Verifier:
 
     @staticmethod
     def _verify_signature(
-        index: int, child: x509.Certificate, issuer: x509.Certificate
+        child: x509.Certificate, issuer: x509.Certificate
     ) -> None:
         try:
             child.verify_directly_issued_by(issuer)
         except InvalidSignature:
-            raise SignatureVerificationError(child) from None
+            err_str = (
+                f"signature validation failed against issuer "
+                f"{issuer.subject.rfc4514_string()}"
+            )
+            raise InvalidSignatureError(child, err_str) from None
 
     @staticmethod
     def _verify_validity_now(
-        index: int, child: x509.Certificate, now: datetime, skew: int = 300
+        child: x509.Certificate, now: datetime, skew: int = 300
     ) -> None:
         """
         Return VerificationError if cert not valid wrt now +/- skew seconds.
@@ -430,15 +456,19 @@ class Verifier:
         delta = timedelta(seconds=skew)
 
         if now + delta < not_before:
-            raise CertificateNotYetValid(child)
+            err_str = (
+                f"certificate not yet valid before {not_before.isoformat()}"
+            )
+            raise CertificateNotYetValid(child, err_str)
+
         if now - delta > not_after:
-            raise CertificateExpired(child)
+            err_str = f"certificate expired at {not_after.isoformat()}"
+            raise CertificateExpired(child, err_str)
 
     @staticmethod
     def _aki_ski_compatible(
         issuer: x509.Certificate, cert: x509.Certificate
     ) -> bool:
-        # If AKI present in cert and SKI present in issuer, match them.
         try:
             aki = cert.extensions.get_extension_for_class(
                 x509.AuthorityKeyIdentifier
@@ -455,8 +485,7 @@ class Verifier:
 
         if aki is not None and ski is not None:
             return aki.key_identifier == ski.key_identifier
-        else:
-            return True  # if either missing, don't exclude
+        return True
 
     @staticmethod
     def _is_self_issued(certificate: x509.Certificate) -> bool:

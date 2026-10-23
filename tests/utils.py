@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from simple_tls.crypto.verification import Store
+from simple_tls.crypto.verification import StoreBuilder
 from simple_tls.tls.configuration import TLSConfiguration, TLSCredential
 from simple_tls.tls.enums import Protocol, VerifyMode
 from simple_tls.tls.handshake_client import TLSHandshakeClient
@@ -148,9 +148,9 @@ class TicketAEAD:
 
 
 def load_castore(cafile):
-    castore = Store()
-    castore.load_locations(cafile=cafile)
-    return castore
+    builder = StoreBuilder()
+    builder.load_locations(cafile=cafile)
+    return builder.build()
 
 
 def create_server(
