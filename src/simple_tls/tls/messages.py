@@ -33,7 +33,7 @@ from .constants import (
     CertificateStatusType,
     HandshakeType,
 )
-from .extensions import ExtensionsMessage, OptionalExtensionsMessage
+from .extensions import Extensions
 
 _M = TypeVar("_M", bound="HandshakeMessage")
 
@@ -50,14 +50,14 @@ class HandshakeMessage:
 
 
 @dataclass
-class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
+class ClientHello(HandshakeMessage):
     handshake_type: ClassVar[int] = HandshakeType.CLIENT_HELLO
     version: int
     random: bytes
     session_id: bytes
     cipher_suites: Sequence[int]
     compression_methods: Sequence[int]
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions = field(default_factory=Extensions)
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ClientHello:
@@ -65,12 +65,15 @@ class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
         version = parser.read_int(2)
         random = parser.read_bytes(32)
         session_id = parser.read_prefixed_bytes(1)
-        if len(session_id) > 32:
-            raise ParseError("session_id not within 32 bytes")
         cipher_suites = parser.read_prefixed_int_list(2, 2)
         compression_methods = parser.read_prefixed_int_list(1, 1)
-        extensions = cls._parse_exts(parser)
+        if parser.remaining():
+            extensions = Extensions.parse(parser)
+        else:
+            extensions = Extensions()
 
+        if len(session_id) > 32:
+            raise ParseError("session_id not within 32 bytes")
         if parser.remaining():
             raise ParseError("trailing data in client hello")
 
@@ -93,7 +96,9 @@ class ClientHello(HandshakeMessage, OptionalExtensionsMessage):
         writer.write_prefixed_bytes(self.session_id, 1)
         writer.write_prefixed_int_list(self.cipher_suites, 2, 2)
         writer.write_prefixed_int_list(self.compression_methods, 1, 1)
-        self._write_exts(writer)
+        if len(self.extensions) > 0:
+            self.extensions.write(writer)
+
         return writer.tobytes()
 
 
@@ -112,14 +117,14 @@ class HelloRequest(HandshakeMessage):
 
 
 @dataclass
-class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
+class ServerHello(HandshakeMessage):
     handshake_type: ClassVar[int] = HandshakeType.SERVER_HELLO
     version: int
     random: bytes
     session_id: bytes
     cipher_suite: int
     compression_method: int
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions = field(default_factory=Extensions)
 
     @classmethod
     def from_bytes(cls, data: bytes) -> ServerHello:
@@ -127,12 +132,15 @@ class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
         version = parser.read_int(2)
         random = parser.read_bytes(32)
         session_id = parser.read_prefixed_bytes(1)
-        if len(session_id) > 32:
-            raise ParseError("session_id not within 32 bytes")
         cipher_suite = parser.read_int(2)
         compression_method = parser.read_int(1)
-        extensions = cls._parse_exts(parser)
+        if parser.remaining():
+            extensions = Extensions.parse(parser)
+        else:
+            extensions = Extensions()
 
+        if len(session_id) > 32:
+            raise ParseError("session_id not within 32 bytes")
         if parser.remaining():
             raise ParseError("trailing data in server hello")
 
@@ -155,7 +163,9 @@ class ServerHello(HandshakeMessage, OptionalExtensionsMessage):
         writer.write_prefixed_bytes(self.session_id, 1)
         writer.write_int(self.cipher_suite, 2)
         writer.write_int(self.compression_method, 1)
-        self._write_exts(writer)
+        if len(self.extensions) > 0:
+            self.extensions.write(writer)
+
         return writer.tobytes()
 
 
@@ -224,24 +234,17 @@ class NextProtocol(HandshakeMessage):
 
 
 @dataclass
-class EncryptedExtensions(HandshakeMessage, ExtensionsMessage):
+class EncryptedExtensions(HandshakeMessage):
     handshake_type: ClassVar[int] = HandshakeType.ENCRYPTED_EXTENSIONS
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions
 
     @classmethod
     def from_bytes(cls, data: bytes) -> EncryptedExtensions:
-        parser = Parser(data)
-        extensions = cls._parse_exts(parser)
-
-        if parser.remaining():
-            raise ParseError("trailing data in encrypted extensions")
-
+        extensions = Extensions.from_bytes(data)
         return EncryptedExtensions(extensions)
 
     def serialize(self) -> bytes:
-        writer = Writer()
-        self._write_exts(writer)
-        return writer.tobytes()
+        return self.extensions.serialize()
 
 
 @dataclass
@@ -296,13 +299,13 @@ class NewSessionTicket(HandshakeMessage):
 
 
 @dataclass
-class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
+class NewSessionTicketTLS13(HandshakeMessage):
     handshake_type: ClassVar[int] = HandshakeType.NEWSESSION_TICKET
     ticket_lifetime: int
     ticket_age_add: int
     ticket_nonce: bytes
     ticket: bytes
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions
 
     @classmethod
     def from_bytes(cls, data: bytes) -> NewSessionTicketTLS13:
@@ -311,7 +314,7 @@ class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
         ticket_age_add = parser.read_int(4)
         ticket_nonce = parser.read_prefixed_bytes(1)
         ticket = parser.read_prefixed_bytes(2)
-        extensions = cls._parse_exts(parser)
+        extensions = Extensions.parse(parser)
 
         if parser.remaining():
             raise ParseError("trailing data in new session ticket")
@@ -330,7 +333,8 @@ class NewSessionTicketTLS13(HandshakeMessage, ExtensionsMessage):
         writer.write_int(self.ticket_age_add, 4)
         writer.write_prefixed_bytes(self.ticket_nonce, 1)
         writer.write_prefixed_bytes(self.ticket, 2)
-        self._write_exts(writer)
+        self.extensions.write(writer)
+
         return writer.tobytes()
 
 
@@ -353,19 +357,19 @@ class KeyUpdate(HandshakeMessage):
 
 # --- Certificate ---
 @dataclass(frozen=True)
-class CertificateEntry(ExtensionsMessage):
+class CertificateEntry:
     certificate: bytes
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions
 
     @classmethod
     def parse(cls, parser: Parser[bytes]) -> CertificateEntry:
         certificate = parser.read_prefixed_bytes(3)
-        extensions = cls._parse_exts(parser)
+        extensions = Extensions.parse(parser)
         return CertificateEntry(certificate, extensions)
 
     def write(self, writer: Writer) -> None:
         writer.write_prefixed_bytes(self.certificate, 3)
-        self._write_exts(writer)
+        self.extensions.write(writer)
 
 
 @dataclass
@@ -605,16 +609,16 @@ class CertificateRequestTLS12(HandshakeMessage):
 
 
 @dataclass
-class CertificateRequestTLS13(HandshakeMessage, ExtensionsMessage):
+class CertificateRequestTLS13(HandshakeMessage):
     handshake_type: ClassVar[int] = HandshakeType.CERTIFICATE_REQUEST
     context: bytes
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions
 
     @classmethod
     def from_bytes(cls, data: bytes) -> CertificateRequestTLS13:
         parser = Parser(data)
         context = parser.read_prefixed_bytes(1)
-        extensions = cls._parse_exts(parser)
+        extensions = Extensions.parse(parser)
 
         if parser.remaining():
             raise ParseError("trailing data in certificate request")
@@ -624,7 +628,7 @@ class CertificateRequestTLS13(HandshakeMessage, ExtensionsMessage):
     def serialize(self) -> bytes:
         writer = Writer()
         writer.write_prefixed_bytes(self.context, 1)
-        self._write_exts(writer)
+        self.extensions.write(writer)
         return writer.tobytes()
 
 

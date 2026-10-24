@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional, TypeVar, cast
 
@@ -81,7 +81,7 @@ from .constants import (
     TLSVersion,
 )
 from .enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from .extensions import Extension, StatusRequestCertificateExtension
+from .extensions import Extensions, StatusRequestCertificateExtension
 from .key import (
     BasePublicKey,
     DSAPublicKey,
@@ -791,12 +791,6 @@ class TLSHandshake:
         return None
 
     @staticmethod
-    def _serialize_extensions(
-        extensions: Iterable[Extension],
-    ) -> list[tuple[int, bytes]]:
-        return [(e.extension_type, e.serialize()) for e in extensions]
-
-    @staticmethod
     def _create_certificate(
         credential: TLSCredential | None = None,
     ) -> Certificate:
@@ -820,7 +814,10 @@ class TLSHandshake:
     ) -> CompressedCertificate | CertificateTLS13:
         if credential is not None:
             cert_entries = [
-                CertificateEntry(certificate.public_bytes(Encoding.DER))
+                CertificateEntry(
+                    certificate=certificate.public_bytes(Encoding.DER),
+                    extensions=Extensions(),
+                )
                 for certificate in (
                     credential.certificate,
                     *credential.certificate_chain,
@@ -1085,8 +1082,8 @@ class TLSHandshake:
         session.verified_peer_cert = certs[0]
         session.verified_peer_chain = tuple(certs[1:])
 
-    @staticmethod
     def _process_certificate(
+        self,
         message: Handshake,
         session: TLSSession,
         allow_anon: bool,
@@ -1161,9 +1158,10 @@ class TLSHandshake:
         except ValueError as exc:
             raise AlertBadCertificate(str(exc)) from exc
 
-        cert_status = cert_entry.get_extension(
-            StatusRequestCertificateExtension
-        )
+        # Process extensions of first cert_entires
+        extensions = cert_entry.extensions
+
+        cert_status = extensions.get(StatusRequestCertificateExtension)
         if cert_status is not None:
             ocsp_response = cert_status.response
         else:

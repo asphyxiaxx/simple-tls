@@ -20,8 +20,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Container, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Container, Iterable, Iterator, Sequence
+from dataclasses import dataclass
 from typing import ClassVar, TypeVar
 
 from simple_tls.codec import ParseError, Parser, Writer
@@ -52,35 +52,43 @@ class Extension:
         raise NotImplementedError()
 
 
-class ExtensionsMessage:
-    extensions: list[tuple[int, bytes]]
+class Extensions:
+    def __init__(
+        self, extensions: Iterable[tuple[int, bytes]] | None = None
+    ) -> None:
+        if extensions is not None:
+            self._extensions = list(extensions)
+        else:
+            self._extensions = []
 
-    def find_extension(self, extension_type: int) -> tuple[int, bytes | None]:
-        i = 0
-        for i, (ext_type, ext_data) in enumerate(self.extensions):
-            if ext_type == extension_type:
-                return i, ext_data
-        return i, None
+    @property
+    def extensions(self) -> list[tuple[int, bytes]]:
+        return self._extensions
 
-    def get_extension(self, extclass: type[_E]) -> _E | None:
-        if not issubclass(extclass, Extension):
-            raise TypeError("extclass must be type of Extension")
-
-        for ext_type, ext_data in self.extensions:
-            if ext_type == extclass.extension_type:
-                return extclass.from_bytes(ext_data)
-
-        return None
-
-    def get_extension_types(self) -> list[int]:
-        return [e[0] for e in self.extensions]
-
-    def has_allowed_extensions(self, allowed: Container[int]) -> bool:
-        """Check if all extensions present are allowed for this message."""
-        return all(ext_type in allowed for ext_type, _ in self.extensions)
+    def get_types(self) -> list[int]:
+        return [e[0] for e in self._extensions]
 
     @classmethod
-    def _parse_exts(cls, parser: Parser[bytes]) -> list[tuple[int, bytes]]:
+    def from_extensions(cls, extensions: Iterable[Extension]) -> Extensions:
+        return cls((e.extension_type, e.serialize()) for e in extensions)
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> Extensions:
+        parser = Parser(data)
+        extensions = cls.parse(parser)
+
+        if parser.remaining():
+            raise ParseError("trailing data in extensions")
+
+        return extensions
+
+    def serialize(self) -> bytes:
+        writer = Writer()
+        self.write(writer)
+        return writer.tobytes()
+
+    @classmethod
+    def parse(cls, parser: Parser[bytes]) -> Extensions:
         extensions: list[tuple[int, bytes]] = []
         seen: set[int] = set()
 
@@ -107,27 +115,89 @@ class ExtensionsMessage:
         if len(extensions) != len(seen):
             raise ParseError("duplicated extension found")
 
-        return extensions
+        return cls(extensions)
 
-    def _write_exts(self, writer: Writer) -> None:
+    def write(self, writer: Writer) -> None:
         ext_writer = Writer()
-        for ext_type, ext_data in self.extensions:
+        for ext_type, ext_data in self._extensions:
             ext_writer.write_int(ext_type, 2)
             ext_writer.write_prefixed_bytes(ext_data, 2)
 
         writer.write_prefixed_bytes(ext_writer, 2)
 
+    def find(self, extension_type: int) -> tuple[int, bytes | None]:
+        for i, (ext_type, ext_data) in enumerate(self._extensions):
+            if ext_type == extension_type:
+                return i, ext_data
+        return -1, None
 
-class OptionalExtensionsMessage(ExtensionsMessage):
-    @classmethod
-    def _parse_exts(cls, parser: Parser[bytes]) -> list[tuple[int, bytes]]:
-        if parser.remaining():
-            return super()._parse_exts(parser)
-        return []
+    def replace(self, extension: Extension) -> None:
+        """Replace an existing extension by type, or append if not found."""
+        for i, (ext_type, _) in enumerate(self._extensions):
+            if ext_type == extension.extension_type:
+                self._extensions[i] = (
+                    extension.extension_type,
+                    extension.serialize(),
+                )
+                return
 
-    def _write_exts(self, writer: Writer) -> None:
-        if self.extensions:
-            super()._write_exts(writer)
+        raise ValueError("extension not found")
+
+    def get(self, extclass: type[_E]) -> _E | None:
+        if not issubclass(extclass, Extension):
+            raise TypeError("extclass must be type of Extension")
+
+        for ext_type, ext_data in self._extensions:
+            if ext_type == extclass.extension_type:
+                return extclass.from_bytes(ext_data)
+        return None
+
+    def insert(self, index: int, extension: Extension) -> None:
+        self._extensions.insert(
+            index, (extension.extension_type, extension.serialize())
+        )
+
+    def append(self, extension: Extension) -> None:
+        self._extensions.append(
+            (extension.extension_type, extension.serialize())
+        )
+
+    def has_allowed(self, allowed: Container[int]) -> bool:
+        """Check if all extensions present are allowed for this message."""
+        return all(ext_type in allowed for ext_type, _ in self._extensions)
+
+    @staticmethod
+    def _type_name(extension_type: int) -> str:
+        try:
+            ext_type = ExtensionType(extension_type)
+            name = ext_type.name
+            value = ext_type.value
+        except ValueError:
+            name = "UNKNOWN"
+            value = extension_type
+        return f"<ExtensionType.{name}: {value}>"
+
+    def __repr__(self) -> str:
+        exts_repr = ", ".join(
+            (f"Extension(type={self._type_name(t)}, data_length={len(data)})")
+            for t, data in self._extensions
+        )
+        return f"{self.__class__.__name__}([{exts_repr}])"
+
+    def __getitem__(self, index: int) -> tuple[int, bytes]:
+        return self._extensions[index]
+
+    def __setitem__(self, index: int, value: tuple[int, bytes]) -> None:
+        ext_type, ext_data = value
+        if not isinstance(ext_type, int) or not isinstance(ext_data, bytes):
+            raise TypeError("Extension item must be a tuple of (int, bytes)")
+        self._extensions[index] = value
+
+    def __iter__(self) -> Iterator[tuple[int, bytes]]:
+        return iter(self._extensions)
+
+    def __len__(self) -> int:
+        return len(self._extensions)
 
 
 class EmptyExtension(Extension):
@@ -857,14 +927,14 @@ class SCTServerExtension(PrefixedBytesExtension):
 
 
 @dataclass(frozen=True)
-class ECHConfigContents(ExtensionsMessage):
+class ECHConfigContents:
     public_key: bytes
     public_name: bytes
     cipher_suites: Sequence[tuple[int, int]]
     kem_id: int
     maximum_name_length: int
     config_id: int
-    extensions: list[tuple[int, bytes]] = field(default_factory=list)
+    extensions: Extensions
 
     @classmethod
     def parse(cls, parser: Parser[bytes]) -> ECHConfigContents:
@@ -881,10 +951,14 @@ class ECHConfigContents(ExtensionsMessage):
 
         maximum_name_length = parser.read_int(1)
         public_name = parser.read_prefixed_bytes(1)
-        extensions = cls._parse_exts(parser)
+        extensions = Extensions.parse(parser)
 
-        if not (public_key and cipher_suites and public_name):
-            raise ParseError("empty payload")
+        if not public_key:
+            raise ParseError("empty public key data")
+        if not cipher_suites:
+            raise ParseError("empty cipher suite list")
+        if not public_name:
+            raise ParseError("empty public name")
 
         return ECHConfigContents(
             public_key=public_key,
@@ -908,7 +982,7 @@ class ECHConfigContents(ExtensionsMessage):
         writer.write_prefixed_bytes(c_writer, 2)
         writer.write_int(self.maximum_name_length, 1)
         writer.write_prefixed_bytes(self.public_name, 1)
-        self._write_exts(writer)
+        self.extensions.write(writer)
 
 
 @dataclass(frozen=True)
