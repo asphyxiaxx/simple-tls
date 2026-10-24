@@ -123,7 +123,7 @@ from .extensions import (
     StatusRequestClientExtension,
     SupportedGroupsClientExtension,
     SupportedVersionsClientExtension,
-    SupportedVersionServerExtension,
+    SupportedVersionsServerExtension,
 )
 from .handshake import Handshake, TLSHandshake
 from .key import (
@@ -494,10 +494,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         extensions = server_hello.extensions
 
-        supported_versions_ext = extensions.get(
-            SupportedVersionServerExtension
-        )
-        if supported_versions_ext is not None:
+        supported_vers_ext = extensions.get(SupportedVersionsServerExtension)
+        if supported_vers_ext is not None:
             if not self._maximum_version > TLSVersion.TLSv1_2:
                 raise AlertIllegalParameter(
                     "received unexpected supported version extension"
@@ -506,11 +504,11 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received invalid protocol version"
                 )
-            if not supported_versions_ext.data > TLSVersion.TLSv1_2:
+            if not supported_vers_ext.data > TLSVersion.TLSv1_2:
                 raise AlertIllegalParameter(
                     "received unknown protocol version"
                 )
-            server_version = supported_versions_ext.data
+            server_version = supported_vers_ext.data
 
         if server_version < self._minimum_version:
             raise AlertProtocolVersion(

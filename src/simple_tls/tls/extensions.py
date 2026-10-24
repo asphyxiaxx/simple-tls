@@ -374,7 +374,7 @@ class SupportedVersionsClientExtension(PrefixedIntListExtension):
 
 
 @dataclass
-class SupportedVersionServerExtension(IntExtension):
+class SupportedVersionsServerExtension(IntExtension):
     extension_type: ClassVar[int] = ExtensionType.SUPPORTED_VERSIONS
     _item_size: ClassVar[int] = 2
 

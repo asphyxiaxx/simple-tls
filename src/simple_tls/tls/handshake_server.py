@@ -102,7 +102,7 @@ from .extensions import (
     SNIClientExtension,
     SupportedGroupsClientExtension,
     SupportedVersionsClientExtension,
-    SupportedVersionServerExtension,
+    SupportedVersionsServerExtension,
 )
 from .handshake import Handshake, TLSHandshake
 from .key import RSAPrivateKey, load_certificate_public_key
@@ -318,13 +318,13 @@ class TLSHandshakeServer(TLSHandshake):
         extensions = client_hello.extensions
 
         # Supported versions
-        supported_ver_ext = extensions.get(SupportedVersionsClientExtension)
-        if supported_ver_ext is not None:
+        supported_vers_ext = extensions.get(SupportedVersionsClientExtension)
+        if supported_vers_ext is not None:
             if self._client_version != TLSVersion.TLSv1_2:
                 raise AlertIllegalParameter(
                     "received incorrect protocol version"
                 )
-            offered_version = supported_ver_ext.data
+            offered_version = supported_vers_ext.data
         else:
             offered_version = [self._client_version]
 
@@ -1223,7 +1223,7 @@ class TLSHandshakeServer(TLSHandshake):
         extensions = Extensions()
 
         # Supported version extension
-        extensions.append(SupportedVersionServerExtension(version))
+        extensions.append(SupportedVersionsServerExtension(version))
 
         if self._cookie is not None:
             extensions.append(CookieExtension(self._cookie))
@@ -1275,11 +1275,11 @@ class TLSHandshakeServer(TLSHandshake):
         # Process extensions
         extensions = client_hello.extensions
 
-        supported_ver_ext = extensions.get(SupportedVersionsClientExtension)
+        supported_vers_ext = extensions.get(SupportedVersionsClientExtension)
         if (
             client_hello.version != self._client_version
-            or supported_ver_ext is None
-            or self.protocol_version() not in supported_ver_ext.data
+            or supported_vers_ext is None
+            or self.protocol_version() not in supported_vers_ext.data
         ):
             raise AlertProtocolVersion("inconsistent client hello")
 
@@ -1365,7 +1365,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Server supported version extension
         version = self.protocol_version()
-        extensions.append(SupportedVersionServerExtension(version))
+        extensions.append(SupportedVersionsServerExtension(version))
 
         if self._psk_index is not None:
             extensions.append(PSKServerExtension(self._psk_index))
