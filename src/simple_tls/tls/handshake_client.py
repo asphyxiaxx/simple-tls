@@ -1323,7 +1323,7 @@ class TLSHandshakeClient(TLSHandshake):
         kex_ext = extensions.get(KeyShareServerExtension)
         if kex_ext is not None:
             if (
-                self._psk_kex_modes is not None
+                self._session_reused
                 and PSKKeyExchangeMode.PSK_DHE_KE not in self._psk_kex_modes
             ):
                 raise AlertIllegalParameter(
@@ -1347,12 +1347,11 @@ class TLSHandshakeClient(TLSHandshake):
                 ) from exc
         else:
             if (
-                self._psk_kex_modes is not None
-                and PSKKeyExchangeMode.PSK_KE not in self._psk_kex_modes
+                not self._session_reused
+                or PSKKeyExchangeMode.PSK_KE not in self._psk_kex_modes
             ):
-                raise AlertIllegalParameter(
-                    "received invalid PSK key exchange mode"
-                )
+                raise AlertMissingExtension("missing key share extension")
+
             shared_secret = None
 
         key_schedule.extract(shared_secret)
@@ -2085,7 +2084,7 @@ class TLSHandshakeClient(TLSHandshake):
                 extensions.append(ExtendedMasterSecretExtension())
 
             # EC Point Formats
-            if self._ec_point_formats is not None:
+            if self._ec_point_formats:
                 extensions.append(
                     ECPointFormatsExtension(self._ec_point_formats)
                 )
@@ -2110,9 +2109,17 @@ class TLSHandshakeClient(TLSHandshake):
             )
 
             # Supported PSK Key Exchange Mode
-            if self._psk_kex_modes is not None:
+            if self._psk_kex_modes:
                 extensions.append(
                     PSKKeyExchangeModesExtension(self._psk_kex_modes)
+                )
+
+            # Certificate compression algorithm
+            if self._certificate_compressions:
+                extensions.append(
+                    CompressedCertificateExtension(
+                        self._certificate_compressions
+                    )
                 )
 
             # ALPS
@@ -2363,8 +2370,7 @@ class TLSHandshakeClient(TLSHandshake):
         comp_cert_ext = extensions.get(CompressedCertificateExtension)
         if comp_cert_ext:
             compression = negotiate(
-                self._certificate_compressions,
-                comp_cert_ext.data,
+                self._certificate_compressions, comp_cert_ext.data
             )
         else:
             compression = None
