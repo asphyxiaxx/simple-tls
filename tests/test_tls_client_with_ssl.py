@@ -241,8 +241,8 @@ def test_tls12_rsa_handshake(cipher_suite, rsa_server):
 )
 def test_tls12_ecdsa_handshake(cipher_suite, ec_server):
     config = tls.TLSConfiguration(
-        minimum_version=tls.TLSVersion.TLSv1_3,
-        maximum_version=tls.TLSVersion.TLSv1_3,
+        minimum_version=tls.TLSVersion.TLSv1_2,
+        maximum_version=tls.TLSVersion.TLSv1_2,
         cipher_suites=[cipher_suite],
     )
     conn = tls.TLSConnection(config)

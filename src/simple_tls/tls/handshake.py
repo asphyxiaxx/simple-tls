@@ -55,6 +55,7 @@ from .alerts import (
 from .cipher import get_key_iv_lens
 from .configuration import TLSConfiguration, TLSCredential
 from .constants import (
+    CERTIFICATE_COMPRESSIONS,
     DSA_SIGNATURE_ALGORITHMS,
     ECC_GROUPS,
     ECDSA_SIGNATURE_ALGORITHMS,
@@ -63,15 +64,19 @@ from .constants import (
     RSA_PKCS1_SIGNATURE_ALGORITHMS,
     RSA_PSS_PSS_SIGNATURE_ALGORITHMS,
     RSA_PSS_RSAE_SIGNATURE_ALGORITHMS,
+    SIGNATURE_ALGORITHMS,
+    SUPPORTED_GROUPS,
     TLS13_CLIENT_CONTEXT_STRING,
     TLS13_SERVER_CONTEXT_STRING,
     UNSPECIFIED,
     Authentication,
     CipherSuite,
     ClientCertificateType,
+    ECPointFormat,
     HandshakeType,
     KeyUpdateMessageType,
     NamedGroup,
+    PSKKeyExchangeMode,
     SignatureScheme,
     TLSVersion,
 )
@@ -111,6 +116,7 @@ from .utils import (
     KeySchedule,
     SANValidator,
     Transcript,
+    filter,
     get_algorithm,
     prf,
     version_from_wire,
@@ -174,20 +180,125 @@ class TLSHandshake:
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
 
-        # Dispatch function
-        self._handle_dispatch: dict[int, Callable[[], Status]] = {}
-
         # Configurations
         self._configuration: TLSConfiguration = configuration
         self._protocol: Protocol = configuration.protocol
-        self._credential: TLSCredential | None = configuration.credential
-        self._verify_mode: VerifyMode = configuration.verify_mode
+
+        # Protocol versions
         self._minimum_version: int = version_from_wire(
             self._protocol, configuration.minimum_version
         )
         self._maximum_version: int = version_from_wire(
             self._protocol, configuration.maximum_version
         )
+        if self._minimum_version > self._maximum_version:
+            raise ValueError(
+                "minimum_version cannot be larger then maximum_version"
+            )
+
+        # Identity
+        self._credential: TLSCredential | None = configuration.credential
+        self._verify_mode: VerifyMode = configuration.verify_mode
+
+        # Cipher suites
+        self._cipher_suites: tuple[CipherSuite, ...] = tuple(
+            cipher_suite
+            for cipher_suite in configuration.cipher_suites
+            if (
+                cipher_suite.minimum_version <= self._maximum_version
+                and cipher_suite.maximum_version >= self._minimum_version
+            )
+        )
+        if not self._cipher_suites:
+            raise ValueError("None of the cipher_suites are supported")
+
+        # Supported groups
+        if configuration.supported_groups is not None:
+            supported_groups = filter(
+                configuration.supported_groups,
+                SUPPORTED_GROUPS,
+                ValueError("None of the supported_groups are supported"),
+            )
+        else:
+            supported_groups = SUPPORTED_GROUPS
+
+        self._supported_groups: tuple[int, ...] = supported_groups
+
+        # ECC groups
+        self._ecc_groups: tuple[int, ...] = tuple(
+            g for g in self._supported_groups if g in ECC_GROUPS
+        )
+
+        # Signature algorithms
+        if configuration.signature_algorithms is not None:
+            signature_algorithms = filter(
+                configuration.signature_algorithms,
+                SIGNATURE_ALGORITHMS,
+                ValueError("None of the signature_algorithms are supported"),
+            )
+        else:
+            signature_algorithms = SIGNATURE_ALGORITHMS
+
+        self._signature_algorithms: tuple[int, ...] = signature_algorithms
+
+        # Signing signature algorithms
+        if configuration.signing_signature_algorithms is not None:
+            signing_signature_algorithms = filter(
+                configuration.signing_signature_algorithms,
+                SIGNATURE_ALGORITHMS,
+                ValueError(
+                    "None of the signing_signature_algorithms are supported"
+                ),
+            )
+        else:
+            signing_signature_algorithms = SIGNATURE_ALGORITHMS
+
+        self._signing_signature_algorithms: tuple[int, ...] = (
+            signing_signature_algorithms
+        )
+
+        # Certificate compressions algorithms
+        if configuration.certificate_compressions is not None:
+            certificate_compressions = filter(
+                configuration.certificate_compressions,
+                CERTIFICATE_COMPRESSIONS,
+            )
+        else:
+            certificate_compressions = ()
+
+        self._certificate_compressions: tuple[int, ...] = (
+            certificate_compressions
+        )
+
+        # EC point formats
+        self._ec_point_formats: tuple[int, ...] = (ECPointFormat.UNCOMPRESSED,)
+
+        # PSK key exchange modes
+        self._psk_kex_modes: tuple[int, ...] = (PSKKeyExchangeMode.PSK_DHE_KE,)
+
+        # NPN Protocols
+        self._npn_protocols: tuple[bytes, ...] = (
+            tuple(configuration.npn_protocols)
+            if configuration.npn_protocols is not None
+            else ()
+        )
+
+        # ALPN protocols
+        self._alpn_protocols: tuple[bytes, ...] = (
+            tuple(configuration.alpn_protocols)
+            if configuration.alpn_protocols is not None
+            else ()
+        )
+
+        # Application Settings
+        self._alps: dict[bytes, bytes] = {}
+        if configuration.alps is not None:
+            for protocol, settings in configuration.alps.items():
+                if protocol in self._alpn_protocols:
+                    self._alps[protocol] = settings
+
+        # Dispatch function
+        self._handle_dispatch: dict[int, Callable[[], Status]] = {}
 
         # Temporary State
         self._state: int = 0
@@ -228,11 +339,6 @@ class TLSHandshake:
         self._dec_secret: dict[Epoch, bytes] = {}
         self._transcript: Transcript = Transcript()
         self._key_schedule: KeySchedule | None = None
-
-        if self._minimum_version > self._maximum_version:
-            raise ValueError(
-                "minimum_version cannot be larger then maximum_version"
-            )
 
     @property
     def done(self) -> bool:
@@ -691,95 +797,6 @@ class TLSHandshake:
         return [(e.extension_type, e.serialize()) for e in extensions]
 
     @staticmethod
-    def _process_certificate(
-        message: Handshake,
-        session: TLSSession,
-        allow_anon: bool = False,
-    ) -> Certificate:
-        certificate = message.parse_as(Certificate)
-
-        cert_chain = certificate.certificates
-        if not cert_chain:
-            if not allow_anon:
-                raise AlertCertificateRequired("certificate is not received")
-            return certificate
-
-        try:
-            peer_cert = x509.load_der_x509_certificate(cert_chain[0])
-            peer_chain = tuple(
-                x509.load_der_x509_certificate(cert) for cert in cert_chain[1:]
-            )
-        except ValueError as exc:
-            raise AlertBadCertificate(str(exc)) from exc
-
-        session.peer_cert = peer_cert
-        session.peer_chain = peer_chain
-
-        return certificate
-
-    @staticmethod
-    def _process_certificate_tls13(
-        message: Handshake,
-        session: TLSSession,
-        supported_compressions: Iterable[int] | None = None,
-        allow_anon: bool = False,
-    ) -> CompressedCertificate | CertificateTLS13:
-        c_certificate: CompressedCertificate | None = None
-
-        if (
-            message.handshake_type == HandshakeType.COMPRESSED_CERTIFICATE
-            and supported_compressions is not None
-        ):
-            c_certificate = message.parse_as(CompressedCertificate)
-
-            compression = c_certificate.compression
-            if compression not in supported_compressions:
-                raise AlertIllegalParameter(
-                    "received invalid compression algorithm"
-                )
-
-            try:
-                certificate = c_certificate.to_certificate()
-            except ValueError as exc:
-                raise AlertBadCertificate(str(exc)) from exc
-            except UnsupportedCompression:
-                raise AlertInternalError(
-                    "unsupported compression algorithm is selected"
-                ) from None
-        else:
-            certificate = message.parse_as(CertificateTLS13)
-
-        cert_entries = certificate.certificate_entries
-        if not cert_entries:
-            if not allow_anon:
-                raise AlertCertificateRequired("certificate is not received")
-            return certificate
-
-        cert_entry = cert_entries[0]
-        try:
-            peer_cert = x509.load_der_x509_certificate(cert_entry.certificate)
-            peer_chain = tuple(
-                x509.load_der_x509_certificate(cert_entry.certificate)
-                for cert_entry in cert_entries[1:]
-            )
-        except ValueError as exc:
-            raise AlertBadCertificate(str(exc)) from exc
-
-        cert_status = cert_entry.get_extension(
-            StatusRequestCertificateExtension
-        )
-        if cert_status is not None:
-            ocsp_response = cert_status.response
-        else:
-            ocsp_response = None
-
-        session.peer_cert = peer_cert
-        session.peer_chain = peer_chain
-        session.ocsp_response = ocsp_response
-
-        return c_certificate or certificate
-
-    @staticmethod
     def _create_certificate(
         credential: TLSCredential | None = None,
     ) -> Certificate:
@@ -1007,25 +1024,17 @@ class TLSHandshake:
         public_key: BasePublicKey,
         public_key_oid: x509.ObjectIdentifier,
         signature_algorihtm: int,
-        supported_sigalgs: Sequence[int] | None,
+        supported_sigalgs: Sequence[int],
     ) -> None:
         assert version >= TLSVersion.TLSv1_2
 
-        default_verify_alg, valid_sigalgs = cls._sigalgs_for_pubkey(
+        _, valid_sigalgs = cls._sigalgs_for_pubkey(
             version=version,
             public_key=public_key,
             public_key_oid=public_key_oid,
             supported_sigalgs=supported_sigalgs,
         )
-        signature_algorithm_ok = True
-        if supported_sigalgs is not None:
-            if signature_algorihtm not in valid_sigalgs:
-                signature_algorithm_ok = False
-        else:
-            if signature_algorihtm != default_verify_alg:
-                signature_algorithm_ok = False
-
-        if not signature_algorithm_ok:
+        if signature_algorihtm not in valid_sigalgs:
             raise AlertIllegalParameter("received wrong signature algorithm")
 
     def _verify_x509(
@@ -1041,15 +1050,8 @@ class TLSHandshake:
         if configuration.castore is None:
             raise AlertUnknownCA("castore is not provided")
 
-        if configuration.ee_policy is not None:
-            ee_policy = configuration.ee_policy
-        else:
-            ee_policy = ExtensionPolicy.defaults_ee()
-
-        if configuration.ca_policy is not None:
-            ca_policy = configuration.ca_policy
-        else:
-            ca_policy = ExtensionPolicy.defaults_ca()
+        ee_policy = ExtensionPolicy.defaults_ee()
+        ca_policy = ExtensionPolicy.defaults_ca()
 
         if self.is_server:
             purpose = ExtendedKeyUsageOID.CLIENT_AUTH
@@ -1083,11 +1085,101 @@ class TLSHandshake:
         session.verified_peer_cert = certs[0]
         session.verified_peer_chain = tuple(certs[1:])
 
+    @staticmethod
+    def _process_certificate(
+        message: Handshake,
+        session: TLSSession,
+        allow_anon: bool,
+    ) -> Certificate:
+        certificate = message.parse_as(Certificate)
+
+        cert_chain = certificate.certificates
+        if not cert_chain:
+            if not allow_anon:
+                raise AlertCertificateRequired("certificate is not received")
+            return certificate
+
+        try:
+            peer_cert = x509.load_der_x509_certificate(cert_chain[0])
+            peer_chain = tuple(
+                x509.load_der_x509_certificate(cert) for cert in cert_chain[1:]
+            )
+        except ValueError as exc:
+            raise AlertBadCertificate(str(exc)) from exc
+
+        session.peer_cert = peer_cert
+        session.peer_chain = peer_chain
+
+        return certificate
+
+    def _process_certificate_tls13(
+        self,
+        message: Handshake,
+        session: TLSSession,
+        allow_anon: bool,
+        compression_supported: bool,
+    ) -> CompressedCertificate | CertificateTLS13:
+        c_certificate: CompressedCertificate | None = None
+
+        if message.handshake_type == HandshakeType.COMPRESSED_CERTIFICATE:
+            if not compression_supported:
+                raise AlertUnexpectedMessage(
+                    "received unexpected compressed certificate"
+                )
+
+            c_certificate = message.parse_as(CompressedCertificate)
+
+            if c_certificate.compression not in self._certificate_compressions:
+                raise AlertIllegalParameter(
+                    "received invalid compression algorithm"
+                )
+
+            try:
+                certificate = c_certificate.to_certificate()
+            except ValueError as exc:
+                raise AlertBadCertificate(str(exc)) from exc
+            except UnsupportedCompression:
+                raise AlertInternalError(
+                    "unsupported compression algorithm is selected"
+                ) from None
+        else:
+            certificate = message.parse_as(CertificateTLS13)
+
+        cert_entries = certificate.certificate_entries
+        if not cert_entries:
+            if not allow_anon:
+                raise AlertCertificateRequired("certificate is not received")
+            return certificate
+
+        cert_entry = cert_entries[0]
+        try:
+            peer_cert = x509.load_der_x509_certificate(cert_entry.certificate)
+            peer_chain = tuple(
+                x509.load_der_x509_certificate(cert_entry.certificate)
+                for cert_entry in cert_entries[1:]
+            )
+        except ValueError as exc:
+            raise AlertBadCertificate(str(exc)) from exc
+
+        cert_status = cert_entry.get_extension(
+            StatusRequestCertificateExtension
+        )
+        if cert_status is not None:
+            ocsp_response = cert_status.response
+        else:
+            ocsp_response = None
+
+        session.peer_cert = peer_cert
+        session.peer_chain = peer_chain
+        session.ocsp_response = ocsp_response
+
+        return c_certificate or certificate
+
     def _process_certificate_verify(
         self,
         session: TLSSession,
         cert_verify: CertificateVerify | CertificateVerifyTLS12,
-        supported_sigalgs: Sequence[int] | None,
+        supported_sigalgs: Sequence[int],
     ) -> None:
         if not cert_verify.signature:
             raise AlertIllegalParameter(

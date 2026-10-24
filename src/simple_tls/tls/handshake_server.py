@@ -49,14 +49,10 @@ from .alerts import (
 )
 from .configuration import TLSConfiguration, TLSCredential
 from .constants import (
-    CERTIFICATE_COMPRESSIONS,
     DSA_SIGNATURE_ALGORITHMS,
-    ECC_GROUPS,
     ECDSA_SIGNATURE_ALGORITHMS,
     EDDSA_SIGNATURE_ALGORITHMS,
     RSA_SIGNATURE_ALGORITHMS,
-    SIGNATURE_ALGORITHMS,
-    SUPPORTED_GROUPS,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
     TLS13_HRR_SENTINEL,
@@ -137,7 +133,7 @@ from .messages import (
     ServerKeyExchange,
 )
 from .session import TicketContext, TLSSession
-from .utils import KeySchedule, filter, negotiate
+from .utils import KeySchedule, negotiate
 
 ClientHelloCallback = Callable[["ClientHelloInfo", "HandshakeContext"], None]
 
@@ -181,36 +177,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         self._client_hello_callback = client_hello_callback
 
-        # Cipher Suites
-        self._cipher_suites: tuple[CipherSuite, ...] = tuple(
-            configuration.cipher_suites
-        )
-
-        # Supported groups
-        self._supported_groups: tuple[int, ...] = filter(
-            configuration.supported_groups,
-            SUPPORTED_GROUPS,
-            SUPPORTED_GROUPS,
-        )
-
-        # Signature algorithms
-        self._signature_algorithms: tuple[int, ...] = filter(
-            configuration.signature_algorithms,
-            SIGNATURE_ALGORITHMS,
-            SIGNATURE_ALGORITHMS,
-        )
-
-        # Certificate Compression Algorithm
-        self._certificate_compressions: tuple[int, ...] | None = filter(
-            configuration.certificate_compressions, CERTIFICATE_COMPRESSIONS
-        )
-
-        # EC point formats
-        self._ec_point_formats: tuple[int, ...] = (ECPointFormat.UNCOMPRESSED,)
-
-        # PSK Key Exchange Mode
-        self._psk_kex_modes: tuple[int, ...] = (PSKKeyExchangeMode.PSK_DHE_KE,)
-
         # Encrypt Then Mac
         self._enable_etm: bool = configuration.encrypt_then_mac
 
@@ -225,27 +191,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Ticket max early data
         self._ticket_max_early_data: int = configuration.max_early_data_size
-
-        # ALPN protocols
-        self._alpn_protocols: tuple[bytes, ...] | None = (
-            tuple(configuration.alpn_protocols)
-            if configuration.alpn_protocols
-            else None
-        )
-
-        # NPN Protocols
-        self._npn_protocols: tuple[bytes, ...] | None = (
-            tuple(configuration.npn_protocols)
-            if configuration.npn_protocols
-            else None
-        )
-
-        # Application Settings
-        self._alps: dict[bytes, bytes] = {}
-        if self._alpn_protocols is not None and configuration.alps is not None:
-            for protocol, settings in configuration.alps.items():
-                if protocol in self._alpn_protocols:
-                    self._alps[protocol] = settings
 
         # Cookie for HRR
         self._cookie: bytes | None = None
@@ -275,7 +220,7 @@ class TLSHandshakeServer(TLSHandshake):
         """gorup id (TLSv1)"""
         self._group_id_hrr: int | None = None
         """gorup id for key share (TLSv1.3)"""
-        self._signature_algorithm: int | None = None
+        self._signing_signature_algorithm: int | None = None
         """signature algorithm to be used with signing"""
         self._post_handshake_auth: bool = False
         """True when PHA negotiated"""
@@ -486,8 +431,9 @@ class TLSHandshakeServer(TLSHandshake):
         peer_supported_groups = self._peer_supported_groups
 
         if self._credential is not None:
-            x509_leaf = self._credential.certificate
-            algorithm_oid = x509_leaf.public_key_algorithm_oid
+            x509_cert = self._credential.certificate
+            algorithm_oid = x509_cert.public_key_algorithm_oid
+
             if algorithm_oid in (
                 PublicKeyAlgorithmOID.RSASSA_PSS,
                 PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
@@ -523,10 +469,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Allow ECDHE key exchange if the server has supported groups
         # configured
-        group_id = negotiate(
-            (g for g in self._supported_groups if g in ECC_GROUPS),
-            peer_supported_groups,
-        )
+        group_id = negotiate(self._ecc_groups, peer_supported_groups)
         if group_id is not None:
             self._group_id = group_id
             supported_kea.add(KeyExchange.ECDHE)
@@ -548,24 +491,24 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.auth != Authentication.ANON:
             assert self._credential is not None
 
-            x509_leaf = self._credential.certificate
+            x509_cert = self._credential.certificate
             try:
-                public_key = load_certificate_public_key(x509_leaf)
+                public_key = load_certificate_public_key(x509_cert)
             except ValueError as exc:
                 raise AlertInternalError(str(exc)) from exc
 
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
                 public_key=public_key,
-                public_key_oid=x509_leaf.public_key_algorithm_oid,
-                supported_sigalgs=self._signature_algorithms,
+                public_key_oid=x509_cert.public_key_algorithm_oid,
+                supported_sigalgs=self._signing_signature_algorithms,
             )
 
             if (
                 version == TLSVersion.TLSv1_2
                 and self._peer_signature_algorithms is not None
             ):
-                self._signature_algorithm = negotiate(
+                self._signing_signature_algorithm = negotiate(
                     supported_sigalgs,
                     self._peer_signature_algorithms,
                     AlertHandshakeFailure("no supported signature algorithm"),
@@ -573,7 +516,7 @@ class TLSHandshakeServer(TLSHandshake):
             else:
                 if default_sigalg is None:
                     raise AlertHandshakeFailure("certificate is unsupported")
-                self._signature_algorithm = default_sigalg
+                self._signing_signature_algorithm = default_sigalg
 
         if (
             version == TLSVersion.TLSv1_2
@@ -663,7 +606,6 @@ class TLSHandshakeServer(TLSHandshake):
             extensions.append(ECPointFormatsExtension(self._ec_point_formats))
 
         if self._npn_expected:
-            assert self._npn_protocols is not None
             extensions.append(NPNServerExtension(self._npn_protocols))
 
         if self._ticket_expected:
@@ -739,15 +681,17 @@ class TLSHandshakeServer(TLSHandshake):
 
         if cipher_suite.auth != Authentication.ANON:
             assert self._credential is not None
-            assert self._signature_algorithm is not None
+            assert self._signing_signature_algorithm is not None
 
             private_key = self._credential.private_key
             ske_data = writer.tobytes()
             data = self._client_random + self._server_random + ske_data
-            signature = private_key.sign(data, self._signature_algorithm)
+            signature = private_key.sign(
+                data, self._signing_signature_algorithm
+            )
 
             if version == TLSVersion.TLSv1_2:
-                writer.write_int(self._signature_algorithm, 2)
+                writer.write_int(self._signing_signature_algorithm, 2)
             writer.write_prefixed_bytes(signature, 2)
 
         ske = ServerKeyExchange(writer.tobytes())
@@ -760,30 +704,40 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_server_hello_done(self) -> Status:
         if self._certificate_requested:
             cert_request: CertificateRequestTLS12 | CertificateRequest
-            cert_types: list[int] = []
             cert_authorities: tuple[bytes, ...] = ()
-            supported_sigalgs = set(self._signature_algorithms)
-
-            if supported_sigalgs.intersection(RSA_SIGNATURE_ALGORITHMS):
-                cert_types.append(ClientCertificateType.RSA_SIGN)
-            if supported_sigalgs.intersection(DSA_SIGNATURE_ALGORITHMS):
-                cert_types.append(ClientCertificateType.DSS_SIGN)
-            if supported_sigalgs.intersection(
-                ECDSA_SIGNATURE_ALGORITHMS + EDDSA_SIGNATURE_ALGORITHMS
-            ):
-                cert_types.append(ClientCertificateType.ECDSA_SIGN)
-
-            if not cert_types:
-                raise AlertInternalError("no supported signature algorithms")
 
             if self.protocol_version() == TLSVersion.TLSv1_2:
+                cert_types: list[int] = []
+                supported_sigalgs = set(self._signature_algorithms)
+                if supported_sigalgs.intersection(RSA_SIGNATURE_ALGORITHMS):
+                    cert_types.append(ClientCertificateType.RSA_SIGN)
+                if supported_sigalgs.intersection(DSA_SIGNATURE_ALGORITHMS):
+                    cert_types.append(ClientCertificateType.DSS_SIGN)
+                if supported_sigalgs.intersection(
+                    ECDSA_SIGNATURE_ALGORITHMS + EDDSA_SIGNATURE_ALGORITHMS
+                ):
+                    cert_types.append(ClientCertificateType.ECDSA_SIGN)
+
+                if not cert_types:
+                    raise AlertInternalError(
+                        "no supported signing signature algorithms"
+                    )
+
                 cert_request = CertificateRequestTLS12(
                     certificate_types=cert_types,
                     certificate_authorities=cert_authorities,
                     signature_algorithms=self._signature_algorithms,
                 )
             else:
-                cert_request = CertificateRequest(cert_types, cert_authorities)
+                cert_types = [
+                    ClientCertificateType.RSA_SIGN,
+                    ClientCertificateType.DSS_SIGN,
+                    ClientCertificateType.ECDSA_SIGN,
+                ]
+                cert_request = CertificateRequest(
+                    certificate_types=cert_types,
+                    certificate_authorities=cert_authorities,
+                )
 
             self.message_cb(Direction.WRITE, cert_request)
             self._add_message(cert_request)
@@ -805,6 +759,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_MESSAGE
 
         assert self._session is not None
+
         certificate = self._process_certificate(
             message=message,
             session=self._session,
@@ -858,7 +813,6 @@ class TLSHandshakeServer(TLSHandshake):
                 or bytes_to_int(premaster_secret[0:2]) != version
             ):
                 premaster_secret = get_random_bytes(48)
-
         else:
             assert self._key_exchange is not None
 
@@ -953,7 +907,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         next_proto = message.parse_as(NextProtocol)
 
-        assert self._npn_protocols is not None
         if next_proto.next_protocol not in self._npn_protocols:
             raise AlertIllegalParameter("peer selected unexpected next_proto")
 
@@ -1124,19 +1077,19 @@ class TLSHandshakeServer(TLSHandshake):
                     "missing signature algorithms extension"
                 )
 
-            x509_leaf = self._credential.certificate
+            x509_cert = self._credential.certificate
             try:
-                public_key = load_certificate_public_key(x509_leaf)
+                public_key = load_certificate_public_key(x509_cert)
             except ValueError as exc:
                 raise AlertInternalError(str(exc)) from exc
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
                 public_key=public_key,
-                public_key_oid=x509_leaf.public_key_algorithm_oid,
-                supported_sigalgs=self._signature_algorithms,
+                public_key_oid=x509_cert.public_key_algorithm_oid,
+                supported_sigalgs=self._signing_signature_algorithms,
             )
-            self._signature_algorithm = negotiate(
+            self._signing_signature_algorithm = negotiate(
                 supported_sigalgs,
                 self._peer_signature_algorithms,
                 AlertHandshakeFailure("no supported signature algorithm"),
@@ -1508,7 +1461,7 @@ class TLSHandshakeServer(TLSHandshake):
                 SignatureAlgorithmsExtension(self._signature_algorithms)
             )
 
-            if self._certificate_compressions is not None:
+            if self._certificate_compressions:
                 cert_extensions.append(
                     CompressedCertificateExtension(
                         self._certificate_compressions
@@ -1525,7 +1478,7 @@ class TLSHandshakeServer(TLSHandshake):
             self._certificate_requested = True
 
         assert self._credential is not None
-        assert self._signature_algorithm is not None
+        assert self._signing_signature_algorithm is not None
 
         certificate = self._create_certificate_tls13(
             credential=self._credential,
@@ -1538,9 +1491,9 @@ class TLSHandshakeServer(TLSHandshake):
         data = self._key_schedule.certificate_verify_data(
             TLS13_SERVER_CONTEXT_STRING, self._transcript
         )
-        signature = private_key.sign(data, self._signature_algorithm)
+        signature = private_key.sign(data, self._signing_signature_algorithm)
         cert_verify = CertificateVerifyTLS12(
-            signature, self._signature_algorithm
+            signature, self._signing_signature_algorithm
         )
         self.message_cb(Direction.WRITE, cert_verify)
         self._add_message(cert_verify)
@@ -1657,10 +1610,10 @@ class TLSHandshakeServer(TLSHandshake):
         certificate = self._process_certificate_tls13(
             message=message,
             session=self._session,
-            supported_compressions=self._certificate_compressions,
             allow_anon=(
                 self._configuration.verify_mode != VerifyMode.CERT_REQUIRED
             ),
+            compression_supported=True,
         )
         if (
             self._session.peer_cert is not None
@@ -1686,6 +1639,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_MESSAGE
 
         cert_verify = message.parse_as(CertificateVerifyTLS12)
+
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
@@ -1866,7 +1820,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._extensions_recv = set(ext_message.get_extension_types())
 
         alpn_ext = ext_message.get_extension(ALPNClientExtension)
-        if self._alpn_protocols is not None and alpn_ext is not None:
+        if self._alpn_protocols and alpn_ext is not None:
             self._alpn_protocol = negotiate(
                 self._alpn_protocols,
                 alpn_ext.protocols,
@@ -1942,9 +1896,9 @@ class TLSHandshakeServer(TLSHandshake):
             # NPN extension
             npn_ext = ext_message.get_extension(NPNClientExtension)
             if (
-                self._alpn_protocol is None
-                and npn_ext is not None
-                and self._npn_protocols is not None
+                npn_ext is not None
+                and self._alpn_protocol is None
+                and self._npn_protocols
             ):
                 self._npn_expected = True
 

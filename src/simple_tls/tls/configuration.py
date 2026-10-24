@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from cryptography import x509
 
 from simple_tls.crypto.utils import str_to_bytes
-from simple_tls.crypto.verification import ExtensionPolicy, Store
+from simple_tls.crypto.verification import Store
 
 from .constants import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
 from .enums import Protocol, VerifyMode
@@ -135,7 +135,21 @@ class TLSConfiguration:
         SignatureScheme.RSA_PSS_RSAE_SHA512,
         SignatureScheme.RSA_PKCS1_SHA512,
     )
-    """Supported signature and hash algorithms in order of preference."""
+    """Supported signature and hash algorithms advertised to the peer for
+    verifying handshake signatures, listed in order of preference"""
+
+    signing_signature_algorithms: Sequence[int] | None = (
+        SignatureScheme.ECDSA_SECP256R1_SHA256,
+        SignatureScheme.RSA_PSS_RSAE_SHA256,
+        SignatureScheme.RSA_PKCS1_SHA256,
+        SignatureScheme.ECDSA_SECP384R1_SHA384,
+        SignatureScheme.RSA_PSS_RSAE_SHA384,
+        SignatureScheme.RSA_PKCS1_SHA384,
+        SignatureScheme.RSA_PSS_RSAE_SHA512,
+        SignatureScheme.RSA_PKCS1_SHA512,
+    )
+    """Supported signature and hash algorithms used for local signing
+    operations, listed in order of preference."""
 
     certificate_compressions: Sequence[int] | None = None
     """Supported algorithms for certificate compression
@@ -220,14 +234,6 @@ class TLSConfiguration:
     check_hostname: bool = False
     """Whether to verify that the peer certificate matches `server_hostname`.
     """
-
-    ee_policy: ExtensionPolicy | None = None
-    """Validation policy applied to End-Entity (leaf) certificate extensions.
-    """
-
-    ca_policy: ExtensionPolicy | None = None
-    """Validation policy applied to intermediate and root CA certificate
-    extensions."""
 
     ticket_aead: TicketAEAD | None = None
     """"""

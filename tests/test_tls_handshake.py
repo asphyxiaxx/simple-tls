@@ -192,7 +192,7 @@ def test_handshake_with_dsa(version):
         CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
         CipherSuite.TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
     ]
-    signature_algorithms = []
+    signature_algorithms = [SignatureScheme.DSA_SHA256]
 
     client = create_client(
         minimum_version=version,
@@ -207,7 +207,7 @@ def test_handshake_with_dsa(version):
         minimum_version=version,
         maximum_version=version,
         cipher_suites=cipher_suites,
-        signature_algorithms=signature_algorithms,
+        signing_signature_algorithms=signature_algorithms,
     )
 
     run_handshake(client, server)
@@ -232,7 +232,7 @@ def test_handshake_with_ec_secp256r1(version):
         CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
     ]
     supported_groups = [NamedGroup.SECP256R1]
-    signature_algorithms = []
+    signature_algorithms = None
 
     client = create_client(
         minimum_version=version,
@@ -437,7 +437,7 @@ def test_tls13_handshake_with_rsa_pkcs1(signature_algorithm):
 
     assert client.version == TLSVersion.TLSv1_3
     assert server.version == TLSVersion.TLSv1_3
-    assert server._signature_algorithm == signature_algorithm
+    assert server._signing_signature_algorithm == signature_algorithm
 
 
 def test_tls13_handshake_with_ec_secp256r1():

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Container, Iterable, Sequence
+from collections.abc import Container, Iterable
 from datetime import datetime, timezone
 from os import PathLike
 from typing import Any, ClassVar, TypeAlias, TypeVar, cast, overload
@@ -99,34 +99,15 @@ def is_ipaddress(server_hostname: bytes) -> bool:
         return False
 
 
-@overload
 def filter(
-    items: Iterable[_T] | None,
+    items: Iterable[_T],
     valid_items: Container[_T],
-    default_items: Sequence[_T],
-) -> tuple[_T, ...]: ...
-
-
-@overload
-def filter(
-    items: Iterable[_T] | None,
-    valid_items: Container[_T],
-    default_items: None = None,
-) -> tuple[_T, ...] | None: ...
-
-
-def filter(
-    items: Iterable[_T] | None,
-    valid_items: Container[_T],
-    default_items: Sequence[_T] | None = None,
-) -> tuple[_T, ...] | None:
-    if items is not None:
-        filtered = tuple(i for i in items if i in valid_items)
-        if filtered:
-            return filtered
-    if default_items is None:
-        return None
-    return tuple(default_items)
+    exception: Exception | None = None,
+) -> tuple[_T, ...]:
+    filtered = tuple(i for i in items if i in valid_items)
+    if not filtered and exception is not None:
+        raise exception
+    return filtered
 
 
 def version_from_wire(protocol: Protocol, version: int) -> int:
