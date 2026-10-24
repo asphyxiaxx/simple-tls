@@ -391,9 +391,9 @@ class ALPSClientExtension(Extension):
 
     def serialize(self) -> bytes:
         if not self.protocols:
-            raise ParseError("empty protocol list")
+            raise ValueError("empty protocol list")
         if not all(bool(p) for p in self.protocols):
-            raise ParseError("empty protocol in protocol list")
+            raise ValueError("empty protocol in protocol list")
 
         p_writer = Writer()
         for protocol in self.protocols:
@@ -506,9 +506,9 @@ class NPNServerExtension(Extension):
 
     def serialize(self) -> bytes:
         if not self.protocols:
-            raise ParseError("empty protocol list")
+            raise ValueError("empty protocol list")
         if not all(bool(p) for p in self.protocols):
-            raise ParseError("empty protocol in protocol list")
+            raise ValueError("empty protocol in protocol list")
 
         writer = Writer()
         for protocol in self.protocols:
@@ -543,9 +543,9 @@ class ALPNClientExtension(Extension):
 
     def serialize(self) -> bytes:
         if not self.protocols:
-            raise ParseError("empty protocol list")
+            raise ValueError("empty protocol list")
         if not all(bool(p) for p in self.protocols):
-            raise ParseError("empty protocol in protocol list")
+            raise ValueError("empty protocol in protocol list")
 
         p_writer = Writer()
         for protocol in self.protocols:
