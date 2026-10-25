@@ -572,7 +572,7 @@ class TLSHandshakeServer(TLSHandshake):
             session.session_id = self._session_id
             session.cipher_suite = cipher_suite
             self._certificate_requested = (
-                self._configuration.verify_mode != VerifyMode.CERT_NONE
+                self._verify_mode != VerifyMode.CERT_NONE
                 and cipher_suite.auth != Authentication.ANON
             )
 
@@ -759,9 +759,7 @@ class TLSHandshakeServer(TLSHandshake):
         certificate = self._process_certificate(
             message=message,
             session=self._session,
-            allow_anon=(
-                self._configuration.verify_mode != VerifyMode.CERT_REQUIRED
-            ),
+            allow_anon=(self._verify_mode != VerifyMode.CERT_REQUIRED),
         )
         self.message_cb(Direction.READ, certificate)
         self._next_message()
@@ -922,6 +920,7 @@ class TLSHandshakeServer(TLSHandshake):
         finished = message.parse_as(Finished)
 
         assert self._session is not None
+
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"client finished"
@@ -961,6 +960,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._setup_traffic(Direction.WRITE)
 
         assert self._session is not None
+
         master_secret = self._session.secret
         verify_data = self._derive_finished_verify_data(
             master_secret, b"server finished"
@@ -1173,7 +1173,7 @@ class TLSHandshakeServer(TLSHandshake):
                 )
 
             if (
-                self._configuration.early_data
+                self._enable_early_data
                 # RFC8446 Section 4.2.10
                 # early data MUST be the first PSK listed in the client's
                 # "pre_shared_key" extension
@@ -1219,16 +1219,13 @@ class TLSHandshakeServer(TLSHandshake):
 
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
-
         extensions = Extensions()
 
-        # Supported version extension
         extensions.append(SupportedVersionsServerExtension(version))
 
         if self._cookie is not None:
             extensions.append(CookieExtension(self._cookie))
 
-        # Selected key share group extension
         if self._group_id_hrr is not None:
             extensions.append(KeyShareHRRExtension(self._group_id_hrr))
 
@@ -1363,7 +1360,6 @@ class TLSHandshakeServer(TLSHandshake):
 
         extensions = Extensions()
 
-        # Server supported version extension
         version = self.protocol_version()
         extensions.append(SupportedVersionsServerExtension(version))
 
@@ -1449,7 +1445,7 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.SEND_SERVER_FINISHED_TLS13)
             return Status.OK
 
-        if self._configuration.verify_mode != VerifyMode.CERT_NONE:
+        if self._verify_mode != VerifyMode.CERT_NONE:
             context = b""
             cert_exts = Extensions()
 
@@ -1606,14 +1602,12 @@ class TLSHandshakeServer(TLSHandshake):
         certificate = self._process_certificate_tls13(
             message=message,
             session=self._session,
-            allow_anon=(
-                self._configuration.verify_mode != VerifyMode.CERT_REQUIRED
-            ),
+            allow_anon=(self._verify_mode != VerifyMode.CERT_REQUIRED),
             compression_supported=True,
         )
         if (
             self._session.peer_cert is not None
-            and self._configuration.verify_mode != VerifyMode.CERT_NONE
+            and self._verify_mode != VerifyMode.CERT_NONE
         ):
             self._verify_x509(self._session)
 
@@ -1795,11 +1789,10 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
     def _get_client_hello_without_binders(
-        self,
-        message: Handshake,
-        psk_ext: PSKClientExtension,
+        self, message: Handshake, psk_ext: PSKClientExtension
     ) -> bytes:
         assert message.handshake_type == HandshakeType.CLIENT_HELLO
+
         handshake_data = message.tobytes()
         binders = psk_ext.binders
         total_binders_length = sum(1 + len(binder) for binder in binders)
