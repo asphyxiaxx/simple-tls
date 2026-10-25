@@ -482,6 +482,7 @@ class TLSHandshake:
 
     def do_handshake(self) -> Status:
         ret = Status.OK
+
         while not self.done:
             f = self._handle_dispatch[self.state]
             try:
@@ -490,6 +491,7 @@ class TLSHandshake:
                 raise AlertDecodeError(str(exc)) from exc
             if ret != Status.OK:
                 break
+
         return ret
 
     def trigger_post_handshake(self) -> None:
@@ -549,9 +551,7 @@ class TLSHandshake:
         return self._cache
 
     def _add_message(
-        self,
-        message: HandshakeMessage,
-        update_hash: bool = True,
+        self, message: HandshakeMessage, update_hash: bool = True
     ) -> None:
         handshake_data = self._pack_handshake(message)
         self._outgoing_messages.append(handshake_data)
@@ -563,6 +563,7 @@ class TLSHandshake:
         if update_hash:
             handshake = self._cache
             self._transcript.update_hash(handshake.tobytes())
+
         self._cache = None
 
     def _set_state(self, state: int) -> None:
@@ -576,7 +577,6 @@ class TLSHandshake:
             traffic = self._write_traffic
 
         assert traffic is not None
-
         self.setup_traffic_cb(direction, Epoch.APPLICATION_DATA, traffic)
 
     def _setup_traffic_tls13(self, direction: Direction, epoch: Epoch) -> None:
@@ -589,7 +589,6 @@ class TLSHandshake:
             assert self._session is not None
             session = self._session
             assert session.cipher_suite is not None
-
             traffic = TrafficContext(
                 version=session.protocol_version(),
                 cipher_suite=session.cipher_suite,
@@ -743,9 +742,7 @@ class TLSHandshake:
 
     def _derive_upd_secret_tls13(self, direction: Direction) -> None:
         assert self._key_schedule is not None
-
         epoch = Epoch.APPLICATION_DATA
-
         if direction == Direction.WRITE:
             secret = self._enc_secret[epoch]
             new_secret = self._key_schedule.upd_secret(secret)
@@ -772,7 +769,6 @@ class TLSHandshake:
 
     def _close_early_data(self) -> None:
         assert self._in_early_data
-
         self._in_early_data = False
         self.close_early_data()
 
@@ -831,7 +827,6 @@ class TLSHandshake:
             cert_entries = []
 
         certificate = CertificateTLS13(context, cert_entries)
-
         if cert_entries and compression is not None:
             try:
                 return CompressedCertificate.from_certificate(
