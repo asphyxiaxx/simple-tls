@@ -845,35 +845,27 @@ class TLSHandshake:
         return certificate
 
     @staticmethod
-    def _get_certificate_type(public_key_oid: x509.ObjectIdentifier) -> int:
-        if public_key_oid in (
-            PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
-            PublicKeyAlgorithmOID.RSASSA_PSS,
-        ):
+    def _get_pubkey_cert_type(public_key: BasePublicKey) -> int:
+        if isinstance(public_key, RSAPublicKey):
             return ClientCertificateType.RSA_SIGN
-
-        if public_key_oid in (
-            PublicKeyAlgorithmOID.EC_PUBLIC_KEY,
-            PublicKeyAlgorithmOID.ED25519,
-            PublicKeyAlgorithmOID.ED25519,
-        ):
+        if isinstance(public_key, ECPublicKey):
             return ClientCertificateType.ECDSA_SIGN
-
-        if public_key_oid == PublicKeyAlgorithmOID.DSA:
+        if isinstance(public_key, (Ed25519PublicKey, Ed448PublicKey)):
+            return ClientCertificateType.ECDSA_SIGN
+        if isinstance(public_key, DSAPublicKey):
             return ClientCertificateType.DSS_SIGN
-
-        raise AlertInternalError("given certificate public key is unsupported")
+        raise AlertInternalError("given public key type is unsupported")
 
     @staticmethod
     def _get_pubkey_auth(public_key: BasePublicKey) -> Authentication:
         if isinstance(public_key, RSAPublicKey):
             return Authentication.RSA
-        if isinstance(public_key, DSAPublicKey):
-            return Authentication.DSS
         if isinstance(public_key, ECPublicKey):
             return Authentication.ECDSA
         if isinstance(public_key, (Ed25519PublicKey, Ed448PublicKey)):
             return Authentication.ECDSA
+        if isinstance(public_key, DSAPublicKey):
+            return Authentication.DSS
         raise AlertHandshakeFailure("recevied unsupported public key type")
 
     @staticmethod

@@ -861,19 +861,17 @@ class TLSHandshakeClient(TLSHandshake):
             except ValueError as exc:
                 raise AlertInternalError(str(exc)) from exc
 
-            public_key_oid = x509_cert.public_key_algorithm_oid
+            cert_type = self._get_pubkey_cert_type(public_key)
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
                 public_key=public_key,
-                public_key_oid=public_key_oid,
+                public_key_oid=x509_cert.public_key_algorithm_oid,
                 supported_sigalgs=self._signing_signature_algorithms,
             )
-
             cert_request = cast(
                 CertificateRequest | CertificateRequestTLS12,
                 self._peer_cert_request,
             )
-            cert_type = self._get_certificate_type(public_key_oid)
 
             if cert_type in cert_request.certificate_types:
                 if version == TLSVersion.TLSv1_2:
