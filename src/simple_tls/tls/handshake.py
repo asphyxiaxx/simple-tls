@@ -1134,27 +1134,19 @@ class TLSHandshake:
         cert_verify: CertificateVerify | CertificateVerifyTLS12,
         supported_sigalgs: Sequence[int],
     ) -> None:
+        assert session.peer_cert is not None
+
         if not cert_verify.signature:
             raise AlertIllegalParameter(
                 "received certificate verify message with empty signature"
             )
 
-        assert self._cipher_suite is not None
-        assert session.peer_cert is not None
-
         version = self.protocol_version()
-        cipher_suite = self._cipher_suite
         peer_cert = session.peer_cert
-
         try:
             peer_public_key = load_certificate_public_key(peer_cert)
         except ValueError as exc:
             raise AlertHandshakeFailure(str(exc)) from exc
-
-        if version <= TLSVersion.TLSv1_2:
-            auth = self._get_pubkey_auth(peer_public_key)
-            if auth != cipher_suite.auth:
-                raise AlertIllegalParameter("received invalid public key type")
 
         peer_public_key_oid = peer_cert.public_key_algorithm_oid
         if version >= TLSVersion.TLSv1_2:
@@ -1176,13 +1168,14 @@ class TLSHandshake:
 
         if version >= TLSVersion.TLSv1_3:
             assert self._key_schedule is not None
-            context_string = (
-                TLS13_CLIENT_CONTEXT_STRING
-                if self.is_server
-                else TLS13_SERVER_CONTEXT_STRING
-            )
+
+            if self.is_server:
+                context = TLS13_CLIENT_CONTEXT_STRING
+            else:
+                context = TLS13_SERVER_CONTEXT_STRING
+
             data = self._key_schedule.certificate_verify_data(
-                context_string, self._transcript
+                context, self._transcript
             )
         else:
             data = self._transcript.get()
