@@ -760,7 +760,9 @@ class TLSHandshakeClient(TLSHandshake):
             except ValueError as exc:
                 raise AlertHandshakeFailure(str(exc)) from exc
 
-            self._check_pubkey(version, peer_public_key, cipher_suite)
+            auth = self._get_pubkey_auth(peer_public_key)
+            if auth != cipher_suite.auth:
+                raise AlertIllegalParameter("received invalid public key type")
 
             ske_data = parser.data_since_bookmark()
             peer_public_key_oid = peer_cert.public_key_algorithm_oid
@@ -915,10 +917,9 @@ class TLSHandshakeClient(TLSHandshake):
                 peer_public_key = load_certificate_public_key(peer_cert)
             except ValueError as exc:
                 raise AlertHandshakeFailure(str(exc)) from exc
+            if not isinstance(peer_public_key, RSAPublicKey):
+                raise AlertIllegalParameter("received invalid public key type")
 
-            assert isinstance(peer_public_key, RSAPublicKey)
-
-            self._check_pubkey(version, peer_public_key, cipher_suite)
             premaster_secret = int_to_bytes(version, 2) + get_random_bytes(46)
             enc_premaster_secret = peer_public_key.encrypt(premaster_secret)
             writer.write_prefixed_bytes(enc_premaster_secret, 2)

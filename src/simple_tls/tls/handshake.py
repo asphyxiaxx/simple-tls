@@ -574,7 +574,9 @@ class TLSHandshake:
             traffic = self._read_traffic
         else:
             traffic = self._write_traffic
+
         assert traffic is not None
+
         self.setup_traffic_cb(direction, Epoch.APPLICATION_DATA, traffic)
 
     def _setup_traffic_tls13(self, direction: Direction, epoch: Epoch) -> None:
@@ -587,6 +589,7 @@ class TLSHandshake:
             assert self._session is not None
             session = self._session
             assert session.cipher_suite is not None
+
             traffic = TrafficContext(
                 version=session.protocol_version(),
                 cipher_suite=session.cipher_suite,
@@ -740,6 +743,7 @@ class TLSHandshake:
 
     def _derive_upd_secret_tls13(self, direction: Direction) -> None:
         assert self._key_schedule is not None
+
         epoch = Epoch.APPLICATION_DATA
 
         if direction == Direction.WRITE:
@@ -861,57 +865,16 @@ class TLSHandshake:
         raise AlertInternalError("given certificate public key is unsupported")
 
     @staticmethod
-    def _check_pubkey(
-        version: int,
-        public_key: BasePublicKey,
-        cipher_suite: CipherSuite | None = None,
-    ) -> None:
-        if version >= TLSVersion.TLSv1_3:
-            cipher_suite = None
-
+    def _get_pubkey_auth(public_key: BasePublicKey) -> Authentication:
         if isinstance(public_key, RSAPublicKey):
-            if (
-                cipher_suite is not None
-                and cipher_suite.auth != Authentication.RSA
-            ):
-                raise AlertIllegalParameter("received invalid public key type")
-
-            if public_key.key_size < 1024:
-                raise AlertHandshakeFailure(
-                    f"peer public key too small '{public_key.key_size}'"
-                )
-
-        elif isinstance(public_key, DSAPublicKey):
-            if (
-                cipher_suite is not None
-                and cipher_suite.auth != Authentication.DSS
-            ):
-                raise AlertIllegalParameter("received invalid public key type")
-
-            if public_key.key_size < 1024:
-                raise AlertHandshakeFailure(
-                    f"peer public key too small '{public_key.key_size}'"
-                )
-
-        elif isinstance(public_key, ECPublicKey):
-            if (
-                cipher_suite is not None
-                and cipher_suite.auth != Authentication.ECDSA
-            ):
-                raise AlertIllegalParameter("received invalid public key type")
-
-        elif isinstance(public_key, (Ed25519PublicKey, Ed448PublicKey)):
-            if version <= TLSVersion.TLSv1_1:
-                raise AlertIllegalParameter("received unexpected EdDSA key")
-
-            if (
-                cipher_suite is not None
-                and cipher_suite.auth != Authentication.ECDSA
-            ):
-                raise AlertIllegalParameter("received invalid public key type")
-
-        else:
-            raise AlertHandshakeFailure("recevied unsupported public key type")
+            return Authentication.RSA
+        if isinstance(public_key, DSAPublicKey):
+            return Authentication.DSS
+        if isinstance(public_key, ECPublicKey):
+            return Authentication.ECDSA
+        if isinstance(public_key, (Ed25519PublicKey, Ed448PublicKey)):
+            return Authentication.ECDSA
+        raise AlertHandshakeFailure("recevied unsupported public key type")
 
     @staticmethod
     def _sigalgs_for_pubkey(
@@ -1184,17 +1147,24 @@ class TLSHandshake:
                 "received certificate verify message with empty signature"
             )
 
+        assert self._cipher_suite is not None
         assert session.peer_cert is not None
 
         version = self.protocol_version()
+        cipher_suite = self._cipher_suite
         peer_cert = session.peer_cert
+
         try:
             peer_public_key = load_certificate_public_key(peer_cert)
         except ValueError as exc:
             raise AlertHandshakeFailure(str(exc)) from exc
 
-        peer_public_key_oid = peer_cert.public_key_algorithm_oid
+        if version <= TLSVersion.TLSv1_2:
+            auth = self._get_pubkey_auth(peer_public_key)
+            if auth != cipher_suite.auth:
+                raise AlertIllegalParameter("received invalid public key type")
 
+        peer_public_key_oid = peer_cert.public_key_algorithm_oid
         if version >= TLSVersion.TLSv1_2:
             cert_verify = cast(CertificateVerifyTLS12, cert_verify)
             verify_alg = cert_verify.signature_algorithm
@@ -1211,8 +1181,6 @@ class TLSHandshake:
                 public_key=peer_public_key,
                 public_key_oid=peer_public_key_oid,
             )
-
-        self._check_pubkey(version, peer_public_key)
 
         if version >= TLSVersion.TLSv1_3:
             assert self._key_schedule is not None
