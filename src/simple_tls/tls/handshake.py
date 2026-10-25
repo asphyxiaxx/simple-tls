@@ -710,7 +710,7 @@ class TLSHandshake:
             enc_key=read_key,
             mac_key=read_mac,
             fixed_iv=read_iv,
-            encrypt_then_mac=self._encrypt_then_mac,
+            encrypt_then_mac=encrypt_then_mac,
         )
         self._write_traffic = TrafficContext(
             version=version,
