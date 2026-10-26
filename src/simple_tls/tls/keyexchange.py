@@ -508,64 +508,60 @@ class ECDHKeyExchange(BaseKeyExchange):
 ## ML-KEM key exchange
 
 
-_EC_KEY_LEN: dict[int, int] = {
-    NamedGroup.X25519MLKEM768: 32,
-    NamedGroup.SECP256R1MLKEM768: 65,
-    NamedGroup.SECP384R1MLKEM1024: 97,
-}
-
-_PQC_KEY_LEN: dict[int, int] = {
-    NamedGroup.X25519MLKEM768: 1184,
-    NamedGroup.SECP256R1MLKEM768: 1184,
-    NamedGroup.SECP384R1MLKEM1024: 1568,
-}
-
-_PQC_CIPHERTEXT_LEN: dict[int, int] = {
-    NamedGroup.X25519MLKEM768: 1088,
-    NamedGroup.SECP256R1MLKEM768: 1088,
-    NamedGroup.SECP384R1MLKEM1024: 1568,
-}
-
-
 class KEMKeyExchange(BaseKeyExchange):
     def __init__(self, group: int) -> None:
         if group == NamedGroup.X25519MLKEM768:
             curve = NamedGroup.X25519
-            level = 768
+            pqc_first = True
+            kem_level = 768
+            ec_key_len = 32
+            pqc_key_len = 1184
+            pqc_ciphertext_len = 1088
         elif group == NamedGroup.SECP256R1MLKEM768:
             curve = NamedGroup.SECP256R1
-            level = 768
+            pqc_first = False
+            kem_level = 768
+            ec_key_len = 65
+            pqc_key_len = 1184
+            pqc_ciphertext_len = 1088
         elif group == NamedGroup.SECP384R1MLKEM1024:
             curve = NamedGroup.SECP384R1
-            level = 1024
+            pqc_first = False
+            kem_level = 1024
+            ec_key_len = 97
+            pqc_key_len = 1568
+            pqc_ciphertext_len = 1568
         else:
             raise ValueError(f"unsupported KEM group '{group}'")
 
-        self._group = group
-        self._ec_kex = ECDHKeyExchange(curve)
+        self._kem_level = kem_level
+        self._pqc_first = pqc_first
+        self._ec_key_len = ec_key_len
+        self._pqc_key_len = pqc_key_len
+        self._pqc_ciphertext_len = pqc_ciphertext_len
 
+        self._ec_kex = ECDHKeyExchange(curve)
         seed = get_random_bytes(64)
-        self._level = level
-        self._public_key, self._private_key = mlkem.keygen(level, seed)
+        self._public_key, self._private_key = mlkem.keygen(kem_level, seed)
 
     def generate_share(self) -> bytes:
         pqc_pk = self._public_key
         ec_pk = self._ec_kex.generate_share()
 
-        if self._group == NamedGroup.X25519MLKEM768:
+        if self._pqc_first:
             key_share = pqc_pk + ec_pk
         else:
             key_share = ec_pk + pqc_pk
         return key_share
 
     def exchange(self, peer_public: bytes) -> bytes:
-        exp_pqc_ct_len = _PQC_CIPHERTEXT_LEN[self._group]
+        exp_pqc_ct_len = self._pqc_ciphertext_len
         peer_pqc_ct, peer_ec_pk = self._split_pk(peer_public, exp_pqc_ct_len)
 
         ec_ss = self._ec_kex.exchange(peer_ec_pk)
-        pqc_ss = mlkem.decaps(self._level, peer_pqc_ct, self._private_key)
+        pqc_ss = mlkem.decaps(self._kem_level, peer_pqc_ct, self._private_key)
 
-        if self._group == NamedGroup.X25519MLKEM768:
+        if self._pqc_first:
             shared_secret = pqc_ss + ec_ss
         else:
             shared_secret = ec_ss + pqc_ss
@@ -573,14 +569,14 @@ class KEMKeyExchange(BaseKeyExchange):
         return shared_secret
 
     def generate_and_exchange(self, peer_public: bytes) -> tuple[bytes, bytes]:
-        exp_pqc_pk_len = _PQC_KEY_LEN[self._group]
+        exp_pqc_pk_len = self._pqc_key_len
         peer_pqc_pk, peer_ec_pk = self._split_pk(peer_public, exp_pqc_pk_len)
 
         seed = get_random_bytes(32)
         ec_pk, ec_ss = self._ec_kex.generate_and_exchange(peer_ec_pk)
-        pqc_ct, pqc_ss = mlkem.encaps(self._level, peer_pqc_pk, seed)
+        pqc_ct, pqc_ss = mlkem.encaps(self._kem_level, peer_pqc_pk, seed)
 
-        if self._group == NamedGroup.X25519MLKEM768:
+        if self._pqc_first:
             key_share = pqc_ct + ec_pk
             shared_secret = pqc_ss + ec_ss
         else:
@@ -590,16 +586,15 @@ class KEMKeyExchange(BaseKeyExchange):
         return key_share, shared_secret
 
     def _split_pk(self, pk: bytes, pqc_data_len: int) -> tuple[bytes, bytes]:
-        ec_key_len = _EC_KEY_LEN[self._group]
-
+        ec_key_len = self._ec_key_len
         if len(pk) != ec_key_len + pqc_data_len:
             raise ValueError("invalid public key length for given group")
 
-        if self._group == NamedGroup.X25519MLKEM768:
+        if self._pqc_first:
             pqc_data = pk[:pqc_data_len]
             ec_pk = pk[-ec_key_len:]
         else:
-            pqc_data = pk[-pqc_data_len:]
             ec_pk = pk[:ec_key_len]
+            pqc_data = pk[-pqc_data_len:]
 
         return pqc_data, ec_pk
