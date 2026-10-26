@@ -232,6 +232,7 @@ class TLSConnection:
                 if buffer is None:
                     return data.tobytes()
                 if len(buffer) < data_len:
+                    self._pending_app_data.extend(data)
                     raise ValueError("buffer too small")
                 buffer[:data_len] = data
                 return data_len
