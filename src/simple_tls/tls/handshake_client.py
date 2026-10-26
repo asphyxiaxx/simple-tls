@@ -170,8 +170,8 @@ from .utils import (
 NewSessionCallback = Callable[[TLSSession], None]
 
 
-@dataclass(frozen=True, slots=True)
-class ECHConfigContent:
+@dataclass(frozen=True)
+class ECHConfigContext:
     kdf_id: int
     aead_id: int
     kem_id: int
@@ -243,7 +243,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._state = ClientState.START_CONNECT
         self._extensions_sent: set[int] = set()
         self._session_ticket: bytes | None = None
-        self._selected_ech_config: ECHConfigContent | None = None
+        self._selected_ech_config: ECHConfigContext | None = None
         self._ech_client_outer: ECHClientExtension | None = None
         self._ticket_expected: bool = False
         self._pre_shared_keys: list[
@@ -696,11 +696,11 @@ class TLSHandshakeClient(TLSHandshake):
         if message is None:
             return Status.READ_MESSAGE
 
+        ske = message.parse_as(ServerKeyExchange)
+
         assert self._session is not None
         version = self.protocol_version()
         session = self._session
-
-        ske = message.parse_as(ServerKeyExchange)
 
         parser = Parser(ske.data)
         parser.set_bookmark()
@@ -898,6 +898,7 @@ class TLSHandshakeClient(TLSHandshake):
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         session = self._session
+
         writer = Writer()
 
         if cipher_suite.kea == KeyExchange.RSA:
@@ -2427,7 +2428,7 @@ class TLSHandshakeClient(TLSHandshake):
         return True
 
     @staticmethod
-    def _select_ech_config(ech_configs: bytes) -> ECHConfigContent | None:
+    def _select_ech_config(ech_configs: bytes) -> ECHConfigContext | None:
         parser = Parser(ech_configs)
 
         length = parser.read_int(2)
@@ -2442,7 +2443,6 @@ class TLSHandshakeClient(TLSHandshake):
             for cipher_suite in ech_config.contents.cipher_suites:
                 kem_id = ech_config.contents.kem_id
                 kdf_id, aead_id = cipher_suite
-
                 try:
                     suite = hpke.create_suite(kem_id, kdf_id, aead_id)
                     peer_public_key = suite.kem.deserialize_public_key(
@@ -2452,13 +2452,12 @@ class TLSHandshakeClient(TLSHandshake):
                     continue
 
                 enc, ctx = suite.setup_send(peer_public_key, info=info)
-
                 config_id = ech_config.contents.config_id
                 public_name = ech_config.contents.public_name
                 maximum_name_length = ech_config.contents.maximum_name_length
                 extensions = ech_config.contents.extensions
 
-                return ECHConfigContent(
+                return ECHConfigContext(
                     kdf_id=kdf_id,
                     aead_id=aead_id,
                     kem_id=kem_id,
