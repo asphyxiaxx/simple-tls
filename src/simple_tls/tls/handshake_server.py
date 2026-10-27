@@ -301,13 +301,8 @@ class TLSHandshakeServer(TLSHandshake):
 
         client_hello = message.parse_as(ClientHello)
 
-        # Server random
         self._server_random = get_random_bytes(32)
-
-        # Update client random
         self._client_random = client_hello.random
-
-        # Version
         self._client_version = client_hello.version
 
         if not TLSVersion.TLSv1 <= self._client_version <= TLSVersion.TLSv1_2:
@@ -419,7 +414,6 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_MESSAGE
 
         assert self._peer_cipher_suites is not None
-
         version = self.protocol_version()
         supported_cipher_suites = self._cipher_suites
         peer_cipher_suites = self._peer_cipher_suites
@@ -512,21 +506,12 @@ class TLSHandshakeServer(TLSHandshake):
                     raise AlertHandshakeFailure("certificate is unsupported")
                 self._signing_signature_algorithm = default_sigalg
 
-        if (
-            version == TLSVersion.TLSv1_2
-            and self._maximum_version >= TLSVersion.TLSv1_3
-        ):
-            self._server_random = (
-                self._server_random[:24] + TLS12_DOWNGRADE_SENTINEL
-            )
-
-        if (
-            version <= TLSVersion.TLSv1_1
-            and self._maximum_version >= TLSVersion.TLSv1_2
-        ):
-            self._server_random = (
-                self._server_random[:24] + TLS11_DOWNGRADE_SENTINEL
-            )
+        if version < self._maximum_version:
+            if version == TLSVersion.TLSv1_2:
+                sentinel = TLS12_DOWNGRADE_SENTINEL
+            else:
+                sentinel = TLS11_DOWNGRADE_SENTINEL
+            self._server_random = self._server_random[:24] + sentinel
 
         client_hello = message.parse_as(ClientHello)
 
@@ -660,14 +645,12 @@ class TLSHandshakeServer(TLSHandshake):
             writer.write_int(ECCurveType.NAMED_CURVE, 1)
             writer.write_int(self._group_id, 2)
             writer.write_prefixed_bytes(key_share, 1)
-
         elif cipher_suite.kea == KeyExchange.DHE:
             assert self._dh_parameters is not None
             self._key_exchange = FFDHKeyExchange(self._dh_parameters)
             writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.p), 2)
             writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.g), 2)
             writer.write_prefixed_bytes(int_to_bytes(self._key_exchange.y), 2)
-
         else:
             raise AlertInternalError("unsupported cipher suite selected")
 
@@ -680,7 +663,6 @@ class TLSHandshakeServer(TLSHandshake):
             signature = private_key.sign(
                 data, self._signing_signature_algorithm
             )
-
             if version == TLSVersion.TLSv1_2:
                 writer.write_int(self._signing_signature_algorithm, 2)
             writer.write_prefixed_bytes(signature, 2)
@@ -1185,7 +1167,6 @@ class TLSHandshakeServer(TLSHandshake):
                     label=b"c e traffic",
                     transcript=self._transcript,
                 )
-
             else:
                 self._early_data_accepted = False
                 self._skip_early_data = True
@@ -1204,6 +1185,7 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._cipher_suite is not None
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
+        
         extensions = Extensions()
 
         extensions.append(SupportedVersionsServerExtension(version))
@@ -1327,7 +1309,6 @@ class TLSHandshakeServer(TLSHandshake):
 
                 self._psk_index = i
                 break
-
             else:
                 raise AlertDecryptError("missing expected psk identity")
 
