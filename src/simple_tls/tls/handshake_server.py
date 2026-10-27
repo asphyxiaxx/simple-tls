@@ -1185,7 +1185,7 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._cipher_suite is not None
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
-        
+
         extensions = Extensions()
 
         extensions.append(SupportedVersionsServerExtension(version))
