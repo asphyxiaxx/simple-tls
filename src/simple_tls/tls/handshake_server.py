@@ -1270,7 +1270,7 @@ class TLSHandshakeServer(TLSHandshake):
 
             key_share_entry = key_share_ext.key_shares[0]
             if key_share_entry.group != self._group_id_hrr:
-                raise AlertIllegalParameter("invalid key share group")
+                raise AlertIllegalParameter("received invalid key share group")
 
             self._group_id = self._group_id_hrr
             self._peer_key = key_share_entry.key_exchange
@@ -1281,9 +1281,8 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertMissingExtension("missing cookie extension")
             if cookie_ext.data != self._cookie:
                 raise AlertIllegalParameter("malformed cookie extension")
-        else:
-            if cookie_ext is not None:
-                raise AlertIllegalParameter("unexpected cookie extension")
+        elif cookie_ext is not None:
+            raise AlertIllegalParameter("received unexpected cookie extension")
 
         psk_ext = extensions.get(PSKClientExtension)
         if self._psk_index is not None:
@@ -1341,7 +1340,9 @@ class TLSHandshakeServer(TLSHandshake):
             try:
                 key_share, shared_secret = kex.generate_and_exchange(key)
             except ValueError as exc:
-                raise AlertIllegalParameter("invalid key share") from exc
+                raise AlertIllegalParameter(
+                    "failed to generate key share and exchange key"
+                ) from exc
 
             key_share_entry = KeyShareEntry(self._group_id, key_share)
             extensions.append(KeyShareServerExtension(key_share_entry))
