@@ -246,7 +246,6 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Grease
         self._enable_grease: bool = configuration.grease
-        self._enable_grease_ech: bool = configuration.grease_ech
 
         # Temporary State
         self._state = ClientState.START_CONNECT
@@ -355,7 +354,7 @@ class TLSHandshakeClient(TLSHandshake):
     def _do_start_connect(self) -> Status:
         self._session_reused = False
 
-        configuration = self.configuration
+        configuration = self._configuration
         self._client_random = get_random_bytes(32)
         self._client_version = min(self._maximum_version, TLSVersion.TLSv1_2)
 
@@ -381,7 +380,7 @@ class TLSHandshakeClient(TLSHandshake):
                     self._inner_transcript = Transcript()
                     self._inner_client_random = get_random_bytes(32)
 
-            if self._selected_ech_config is None and self._enable_grease_ech:
+            if self._selected_ech_config is None and configuration.grease_ech:
                 self._ech_client_outer = ECHClientExtension(
                     ech_client_hello_type=ECHClientHelloType.OUTER,
                     hpke_kdf_id=HpkeKdfId.HKDF_SHA256,
@@ -2280,7 +2279,7 @@ class TLSHandshakeClient(TLSHandshake):
                 if ri_ext.data:
                     raise AlertIllegalParameter("invalid renegotation data")
                 self._secure_renegotiation = True
-            elif not self.configuration.legacy_server_connect:
+            elif not self._configuration.legacy_server_connect:
                 raise AlertInsufficientSecurity(
                     "peer does not support secure renegotiation"
                 )

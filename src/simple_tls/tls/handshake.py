@@ -1006,7 +1006,7 @@ class TLSHandshake:
         assert session.peer_cert is not None
         assert session.peer_chain is not None
 
-        configuration = self.configuration
+        configuration = self._configuration
 
         if configuration.castore is None:
             raise AlertUnknownCA("castore is not provided")
