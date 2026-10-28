@@ -711,10 +711,7 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter("received invalid curve type")
 
             group_id = parser.read_int(2)
-            if (
-                self._supported_groups is not None
-                and group_id not in self._supported_groups
-            ):
+            if group_id not in self._ecc_groups:
                 raise AlertIllegalParameter("received invalid curve group")
 
             point = parser.read_prefixed_bytes(1)
@@ -1157,7 +1154,6 @@ class TLSHandshakeClient(TLSHandshake):
 
         key_share_ext = extensions.get(KeyShareHRRExtension)
         if key_share_ext is not None:
-            assert self._supported_groups is not None
             selected_group = key_share_ext.data
             if (
                 selected_group not in self._supported_groups
