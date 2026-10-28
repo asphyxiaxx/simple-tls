@@ -2249,6 +2249,11 @@ class TLSHandshakeClient(TLSHandshake):
             # Encrypted client hello extension
             ech_ext = extensions.get(ECHServerExtension)
             if ech_ext is not None:
+                if self._ech_status == ECHStatus.ACCEPTED:
+                    raise AlertIllegalParameter(
+                        "received unexpected ECH extension"
+                    )
+
                 self._peer_ech_retry_configs = ech_ext.serialize()
 
             # Early data extension
