@@ -116,7 +116,6 @@ from .utils import (
     KeySchedule,
     SANValidator,
     Transcript,
-    filter,
     get_algorithm,
     prf,
     version_from_wire,
@@ -210,31 +209,36 @@ class TLSHandshake:
             )
         )
         if not self._cipher_suites:
-            raise ValueError("None of the cipher_suites are supported")
+            raise ValueError("no suitable cipher_suites provided")
 
         # Supported groups
         if configuration.supported_groups is not None:
-            supported_groups = filter(
-                configuration.supported_groups,
-                SUPPORTED_GROUPS,
-                ValueError("None of the supported_groups are supported"),
+            supported_groups = tuple(
+                group
+                for group in configuration.supported_groups
+                if group in SUPPORTED_GROUPS
             )
         else:
             supported_groups = SUPPORTED_GROUPS
 
         self._supported_groups: tuple[int, ...] = supported_groups
+        if (
+            self._maximum_version >= TLSVersion.TLSv1_3
+            and not self._supported_groups
+        ):
+            raise ValueError("no suitable supported_groups provided")
 
-        # ECC groups
+        # ECC groups for TLSv1.2 and below
         self._ecc_groups: tuple[int, ...] = tuple(
             g for g in self._supported_groups if g in ECC_GROUPS
         )
 
         # Signature algorithms
         if configuration.signature_algorithms is not None:
-            signature_algorithms = filter(
-                configuration.signature_algorithms,
-                SIGNATURE_ALGORITHMS,
-                ValueError("None of the signature_algorithms are supported"),
+            signature_algorithms = tuple(
+                sigalg
+                for sigalg in configuration.signature_algorithms
+                if sigalg in SIGNATURE_ALGORITHMS
             )
         else:
             signature_algorithms = SIGNATURE_ALGORITHMS
@@ -243,12 +247,10 @@ class TLSHandshake:
 
         # Signing signature algorithms
         if configuration.signing_signature_algorithms is not None:
-            signing_signature_algorithms = filter(
-                configuration.signing_signature_algorithms,
-                SIGNATURE_ALGORITHMS,
-                ValueError(
-                    "None of the signing_signature_algorithms are supported"
-                ),
+            signing_signature_algorithms = tuple(
+                sigalg
+                for sigalg in configuration.signing_signature_algorithms
+                if sigalg in SIGNATURE_ALGORITHMS
             )
         else:
             signing_signature_algorithms = SIGNATURE_ALGORITHMS
@@ -257,11 +259,23 @@ class TLSHandshake:
             signing_signature_algorithms
         )
 
+        if self._maximum_version >= TLSVersion.TLSv1_2:
+            if not self._signature_algorithms:
+                raise ValueError("no suitable signature_algorithsm provided")
+            if (
+                self._verify_mode != VerifyMode.CERT_NONE
+                and not self._signing_signature_algorithms
+            ):
+                raise ValueError(
+                    "no suitable signing_signature_algorithms provided"
+                )
+
         # Certificate compressions algorithms
         if configuration.certificate_compressions is not None:
-            certificate_compressions = filter(
-                configuration.certificate_compressions,
-                CERTIFICATE_COMPRESSIONS,
+            certificate_compressions = tuple(
+                compression
+                for compression in configuration.certificate_compressions
+                if compression in CERTIFICATE_COMPRESSIONS
             )
         else:
             certificate_compressions = ()

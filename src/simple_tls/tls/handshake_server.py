@@ -676,10 +676,11 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_send_server_hello_done(self) -> Status:
         if self._certificate_requested:
+            version = self.protocol_version()
             cert_request: CertificateRequestTLS12 | CertificateRequest
             cert_authorities: tuple[bytes, ...] = ()
 
-            if self.protocol_version() == TLSVersion.TLSv1_2:
+            if version == TLSVersion.TLSv1_2:
                 cert_types: list[int] = []
                 supported_sigalgs = set(self._signature_algorithms)
                 if supported_sigalgs.intersection(RSA_SIGNATURE_ALGORITHMS):

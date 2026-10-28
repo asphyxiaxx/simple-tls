@@ -191,14 +191,24 @@ class TLSHandshakeClient(TLSHandshake):
         configuration: TLSConfiguration,
         new_session_callback: NewSessionCallback | None = None,
     ) -> None:
+        # Initialization
+        super().__init__(configuration)
+
         server_hostname = configuration.server_hostname
         if server_hostname is not None:
             check_server_hostname(server_hostname)
         elif configuration.check_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
-        # Initialization
-        super().__init__(configuration)
+        if not self._ecc_groups:
+            self._cipher_suites = tuple(
+                g for g in self._cipher_suites if g.kea != KeyExchange.ECDHE
+            )
+            if not self._cipher_suites:
+                raise ValueError(
+                    "all provided cipher suites require ECDHE, "
+                    "but no ECC supported_groups were provided"
+                )
 
         self._offered_session = configuration.session
         self._hostname = server_hostname
@@ -275,7 +285,6 @@ class TLSHandshakeClient(TLSHandshake):
             | None
         ) = None
         self._peer_ech_retry_configs: bytes | None = None
-        self._peer_quic_transport_parameters: bytes | None = None
 
         # Negotiated variable
         self._signing_signature_algorithm: int | None = None
@@ -720,7 +729,6 @@ class TLSHandshakeClient(TLSHandshake):
 
             self._key_exchange = ECDHKeyExchange(group_id)
             self._peer_key = point
-
         elif cipher_suite.kea == KeyExchange.DHE:
             dh_p_length = parser.read_int(2)
             dh_p = parser.read_int(dh_p_length)
@@ -741,7 +749,6 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter(str(exc)) from exc
 
             self._peer_key = dh_ys_bytes
-
         else:
             raise AlertInternalError("unsupported cipher suite selected")
 
@@ -1859,6 +1866,7 @@ class TLSHandshakeClient(TLSHandshake):
                 padding_len = maximum_name_length - server_name_len
         else:
             padding_len = 9 + maximum_name_length
+
         encoded_hello_inner_data = encoded_hello_inner.serialize()
         padding_len += 31 - (
             (len(encoded_hello_inner_data) + padding_len - 1) % 32

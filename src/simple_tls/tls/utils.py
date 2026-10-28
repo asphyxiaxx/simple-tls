@@ -99,15 +99,8 @@ def is_ipaddress(server_hostname: bytes) -> bool:
         return False
 
 
-def filter(
-    items: Iterable[_T],
-    valid_items: Container[_T],
-    exception: Exception | None = None,
-) -> tuple[_T, ...]:
-    filtered = tuple(i for i in items if i in valid_items)
-    if not filtered and exception is not None:
-        raise exception
-    return filtered
+def filter(items: Iterable[_T], valid_items: Container[_T]) -> tuple[_T, ...]:
+    return tuple(i for i in items if i in valid_items)
 
 
 def version_from_wire(protocol: Protocol, version: int) -> int:
