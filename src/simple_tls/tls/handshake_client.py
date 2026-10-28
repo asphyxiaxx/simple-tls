@@ -200,15 +200,14 @@ class TLSHandshakeClient(TLSHandshake):
         elif configuration.check_hostname:
             raise ValueError("check_hostname requires server_hostname")
 
-        if not self._ecc_groups:
-            self._cipher_suites = tuple(
-                g for g in self._cipher_suites if g.kea != KeyExchange.ECDHE
+        # Check if any of the user's requested cipher suites require ECDHE
+        if not self._ecc_groups and any(
+            g.kea == KeyExchange.ECDHE for g in self._cipher_suites
+        ):
+            raise ValueError(
+                "ECDHE cipher suites were provided, but no ECC "
+                "supported_groups were specified."
             )
-            if not self._cipher_suites:
-                raise ValueError(
-                    "all provided cipher suites require ECDHE, "
-                    "but no ECC supported_groups were provided"
-                )
 
         self._offered_session = configuration.session
         self._hostname = server_hostname
