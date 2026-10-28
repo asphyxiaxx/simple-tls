@@ -76,7 +76,6 @@ class ConnectionState:
     cipher: TLSCipher | None = None
     record_splitting: bool = False
     hide_content_type: bool = False
-    max_seal_overhead: int = 0
     sequence_number: int = 0
 
 
@@ -444,22 +443,14 @@ class TLSConnection:
                 encrypt_then_mac=context.encrypt_then_mac,
             )
             state = ConnectionState(epoch, cipher)
-
-            max_seal_overhead = HEADER_LENGTH
-            max_seal_overhead += cipher.max_overhead()
-
             if (
                 context.version < TLSVersion.TLSv1_1
                 and cipher.is_block_cipher()
             ):
                 state.record_splitting = True
-                max_seal_overhead *= 2
 
             if context.version >= TLSVersion.TLSv1_3:
                 state.hide_content_type = True
-                max_seal_overhead += 1
-
-            state.max_seal_overhead = max_seal_overhead
         else:
             state = ConnectionState(epoch)
 
