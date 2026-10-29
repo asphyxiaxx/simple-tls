@@ -35,10 +35,14 @@ from simple_tls.codec import Writer
 from simple_tls.crypto.kdf import hkdf_expand, hkdf_extract
 from simple_tls.crypto.utils import bytes_to_str, strxor
 from simple_tls.crypto.verification import Verifier
-
-from .alerts import AlertBadCertificate
-from .constants import TLS_VERSIONS, UNSPECIFIED, HandshakeType, HashAlgorithm
-from .enums import Protocol
+from simple_tls.tls.alerts import AlertBadCertificate
+from simple_tls.tls.constants import (
+    TLS_VERSIONS,
+    UNSPECIFIED,
+    HandshakeType,
+    HashAlgorithm,
+)
+from simple_tls.tls.enums import Protocol
 
 Buffer: TypeAlias = bytes | bytearray | memoryview
 WritableBuffer: TypeAlias = bytearray | memoryview
@@ -126,7 +130,7 @@ def get_algorithm(hash_algorithm: int) -> hashes.HashAlgorithm:
 
 def get_hash(hash_algorithm: int, message: Buffer = b"") -> hashes.Hash:
     if hash_algorithm == UNSPECIFIED:
-        hashobj = cast(hashes.Hash, _MD5SHA1Hash())
+        hashobj = cast(hashes.Hash, MD5SHA1Hash())
     else:
         algorithm = get_algorithm(hash_algorithm)
         hashobj = hashes.Hash(algorithm)
@@ -171,6 +175,36 @@ def hkdf_expand_label(
     hkdf_label.write_prefixed_bytes(data, 1)
     info = hkdf_label.tobytes()
     return hkdf_expand(secret, info, length, algorithm)
+
+
+class MD5SHA1(hashes.HashAlgorithm):
+    name = "md5-sha1"
+    digest_size = 36
+    block_size = 64
+
+
+class MD5SHA1Hash:
+    def __init__(self) -> None:
+        self.__md5 = hashes.Hash(hashes.MD5())
+        self.__sha1 = hashes.Hash(hashes.SHA1())
+        self.__algorithm = MD5SHA1()
+
+    @property
+    def algorithm(self) -> hashes.HashAlgorithm:
+        return self.__algorithm
+
+    def update(self, data: bytes) -> None:
+        self.__md5.update(data)
+        self.__sha1.update(data)
+
+    def finalize(self) -> bytes:
+        return self.__md5.finalize() + self.__sha1.finalize()
+
+    def copy(self) -> MD5SHA1Hash:
+        new = MD5SHA1Hash()
+        new.__md5 = self.__md5.copy()
+        new.__sha1 = self.__sha1.copy()
+        return new
 
 
 class Transcript:
@@ -433,36 +467,6 @@ class EKUValidator(Validator):
 
 
 # Internal
-
-
-class _MD5SHA1(hashes.HashAlgorithm):
-    name = "md5-sha1"
-    digest_size = 36
-    block_size = 64
-
-
-class _MD5SHA1Hash:
-    def __init__(self) -> None:
-        self.__md5 = hashes.Hash(hashes.MD5())
-        self.__sha1 = hashes.Hash(hashes.SHA1())
-        self.__algorithm = _MD5SHA1()
-
-    @property
-    def algorithm(self) -> hashes.HashAlgorithm:
-        return self.__algorithm
-
-    def update(self, data: bytes) -> None:
-        self.__md5.update(data)
-        self.__sha1.update(data)
-
-    def finalize(self) -> bytes:
-        return self.__md5.finalize() + self.__sha1.finalize()
-
-    def copy(self) -> _MD5SHA1Hash:
-        new = _MD5SHA1Hash()
-        new.__md5 = self.__md5.copy()
-        new.__sha1 = self.__sha1.copy()
-        return new
 
 
 def _prf_hash(

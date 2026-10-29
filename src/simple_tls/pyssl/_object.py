@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ssl as _ssl
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 from cryptography.hazmat.primitives import serialization
@@ -19,6 +20,7 @@ from ._utils import (
     WritableBuffer,
     get_cipher_tuple,
     get_version_name,
+    load_ech_config_list,
     parse_certificate,
 )
 
@@ -31,7 +33,9 @@ class SSLObject(_ssl.SSLObject):
     _sslobj: SSLConnection
     _session: SSLSession | None
     _sni_callback: SrvnmeCbType | None
+    _server_side: bool
     _server_hostname: str | None
+    _peer_ech_configs: list[tls.ECHConfig] | None
 
     @classmethod
     def _create(
@@ -42,12 +46,15 @@ class SSLObject(_ssl.SSLObject):
         server_hostname: str | bytes | None = None,
         session: SSLSession | None = None,
         context: SSLContext | None = None,
+        peer_ech_configs: Sequence[bytes] | bytes | None = None,
     ) -> SSLObject:
         if context is None:
             raise ValueError("context not provided")
 
         self = cls.__new__(cls)
+        self._server_side = server_side
         self._server_hostname = bytes_to_str(server_hostname)
+        self._peer_ech_configs = load_ech_config_list(peer_ech_configs)
         self._sni_callback = context._sni_callback
 
         if context.protocol == _ssl.PROTOCOL_TLS_SERVER and not server_side:
@@ -61,36 +68,29 @@ class SSLObject(_ssl.SSLObject):
                 "context"
             )
 
+        config_kwargs = context._config_data()
         if not server_side:
-            client_hello_callback = None
+            config = tls.TLSConfiguration(
+                is_server=server_side,
+                server_hostname=str_to_bytes(self.server_hostname),
+                peer_ech_configs=self._peer_ech_configs,
+                session=session.session if session is not None else None,
+                **config_kwargs,
+            )
             new_session_callback = self._new_session_handler
-            if session is not None:
-                tls_session = session.session
-            else:
-                tls_session = None
+            client_hello_callback = None
         else:
+            config = tls.TLSConfiguration(
+                is_server=server_side, **config_kwargs
+            )
+            new_session_callback = None
             client_hello_callback = self._do_sni_callback
-            new_session_callback = None
-            tls_session = None
 
-        if context.options & Options.OP_NO_TICKET:
-            new_session_callback = None
-
-        config = tls.TLSConfiguration(
-            is_server=server_side,
-            server_hostname=str_to_bytes(server_hostname),
-            session=tls_session,
-            **context._config_data(),
-        )
-        sslobj = SSLConnection(
+        self._sslobj = self._sslobj = SSLConnection(
             configuration=config,
-            inbio=incoming,
-            outbio=outgoing,
             new_session_callback=new_session_callback,
             client_hello_callback=client_hello_callback,
         )
-
-        self._sslobj = sslobj
         self._context = context
         return self
 
@@ -117,7 +117,7 @@ class SSLObject(_ssl.SSLObject):
     @property
     def server_side(self) -> bool:
         """Whether this is a server-side socket."""
-        return self._sslobj.is_server
+        return self._server_side
 
     @property
     def server_hostname(self) -> str | None:
@@ -155,8 +155,11 @@ class SSLObject(_ssl.SSLObject):
     def ech_accepted(self) -> bool:
         return self._sslobj.ech_accepted()
 
-    def get_peer_ech_retry_configs(self) -> bytes | None:
-        return self._sslobj.get_peer_ech_retry_configs()
+    def get_peer_ech_retry_configs(self) -> list[bytes] | None:
+        retry_configs = self._sslobj.get_peer_ech_retry_configs()
+        if retry_configs is not None:
+            return [c.serialize() for c in retry_configs]
+        return None
 
     @overload
     def getpeercert(
@@ -299,7 +302,8 @@ class SSLObject(_ssl.SSLObject):
         raise NotImplementedError("Post handshake auth is not supported")
 
     def _new_session_handler(self, session: tls.TLSSession) -> None:
-        self._session = SSLSession(session)
+        if not (self.context.options & Options.OP_NO_TICKET):
+            self._session = SSLSession(session)
 
     def _do_sni_callback(
         self, info: tls.ClientHelloInfo, context: tls.HandshakeContext

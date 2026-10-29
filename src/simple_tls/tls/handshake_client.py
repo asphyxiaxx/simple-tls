@@ -21,11 +21,11 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from simple_tls.codec import ParseError, Parser, Writer
+from simple_tls.codec import Parser, Writer
 from simple_tls.crypto import hpke
 from simple_tls.crypto.constant_time import compare_digest
 from simple_tls.crypto.utils import (
@@ -35,8 +35,7 @@ from simple_tls.crypto.utils import (
     get_random_int,
     int_to_bytes,
 )
-
-from .alerts import (
+from simple_tls.tls.alerts import (
     AlertDecodeError,
     AlertDecryptError,
     AlertECHRequired,
@@ -49,8 +48,8 @@ from .alerts import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from .configuration import TLSConfiguration
-from .constants import (
+from simple_tls.tls.config import TLSConfiguration
+from simple_tls.tls.constants import (
     GREASES,
     TLS11_DOWNGRADE_SENTINEL,
     TLS12_DOWNGRADE_SENTINEL,
@@ -71,7 +70,7 @@ from .constants import (
     Symmetric,
     TLSVersion,
 )
-from .enums import (
+from simple_tls.tls.enums import (
     ClientHelloType,
     ClientState,
     Direction,
@@ -80,7 +79,7 @@ from .enums import (
     Status,
     VerifyMode,
 )
-from .extensions import (
+from simple_tls.tls.extensions import (
     COMPRESSIBLE_EXTENSIONS,
     EXTENSION_TYPES,
     ALPNClientExtension,
@@ -125,20 +124,20 @@ from .extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionsServerExtension,
 )
-from .handshake import Handshake, TLSHandshake
-from .key import (
+from simple_tls.tls.handshake import Handshake, TLSHandshake
+from simple_tls.tls.key import (
     BasePrivateKey,
     InvalidSignature,
     RSAPublicKey,
     load_certificate_public_key,
 )
-from .keyexchange import (
+from simple_tls.tls.keyexchange import (
     BaseKeyExchange,
     DHParameters,
     ECDHKeyExchange,
     FFDHKeyExchange,
 )
-from .messages import (
+from simple_tls.tls.messages import (
     CertificateRequest,
     CertificateRequestTLS12,
     CertificateRequestTLS13,
@@ -158,8 +157,8 @@ from .messages import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from .session import TLSSession
-from .utils import (
+from simple_tls.tls.session import TLSSession
+from simple_tls.tls.utils import (
     KeySchedule,
     Transcript,
     check_server_hostname,
@@ -188,6 +187,7 @@ class TLSHandshakeClient(TLSHandshake):
 
     def __init__(
         self,
+        *,
         configuration: TLSConfiguration,
         new_session_callback: NewSessionCallback | None = None,
     ) -> None:
@@ -282,7 +282,7 @@ class TLSHandshakeClient(TLSHandshake):
             | CertificateRequestTLS13
             | None
         ) = None
-        self._peer_ech_retry_configs: bytes | None = None
+        self._peer_ech_retry_configs: tuple[ECHConfig, ...] | None = None
 
         # Negotiated variable
         self._signing_signature_algorithm: int | None = None
@@ -337,7 +337,7 @@ class TLSHandshakeClient(TLSHandshake):
         return self._state == ClientState.DONE
 
     @property
-    def peer_ech_retry_configs(self) -> bytes | None:
+    def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
         return self._peer_ech_retry_configs
 
     def trigger_post_handshake(self) -> None:
@@ -354,7 +354,7 @@ class TLSHandshakeClient(TLSHandshake):
     def _do_start_connect(self) -> Status:
         self._session_reused = False
 
-        configuration = self._configuration
+        configuration = self.configuration
         self._client_random = get_random_bytes(32)
         self._client_version = min(self._maximum_version, TLSVersion.TLSv1_2)
 
@@ -370,11 +370,8 @@ class TLSHandshakeClient(TLSHandshake):
                     self._key_exchanges[group] = kex
 
             # ECH
-            if configuration.ech_configs is not None:
-                try:
-                    c = self._select_ech_config(configuration.ech_configs)
-                except ParseError:
-                    c = None
+            if configuration.peer_ech_configs is not None:
+                c = self._select_ech_config(configuration.peer_ech_configs)
                 if c is not None:
                     self._selected_ech_config = c
                     self._inner_transcript = Transcript()
@@ -474,7 +471,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._in_early_data = True
         self._can_early_write = True
 
-        if self._configuration.middlebox_compat:
+        if self.configuration.middlebox_compat:
             self._set_state(ClientState.ENTER_EARLY_DATA_COMPAT)
             return Status.WRITE_CHANGE_CIPHER_SPEC
 
@@ -1081,7 +1078,7 @@ class TLSHandshakeClient(TLSHandshake):
     def _do_compat_ccs_tls13(self) -> Status:
         self._set_state(ClientState.READ_HRR_TLS13)
         if (
-            self._configuration.middlebox_compat
+            self.configuration.middlebox_compat
             and not self._early_data_offered
         ):
             return Status.WRITE_CHANGE_CIPHER_SPEC
@@ -1479,7 +1476,6 @@ class TLSHandshakeClient(TLSHandshake):
             if self._ech_status == ECHStatus.REJECTED:
                 assert self._selected_ech_config is not None
                 hostname = self._selected_ech_config.public_name
-
             self._verify_x509(self._session, hostname)
 
         self.message_cb(Direction.READ, certificate)
@@ -2254,7 +2250,7 @@ class TLSHandshakeClient(TLSHandshake):
                         "received unexpected ECH extension"
                     )
 
-                self._peer_ech_retry_configs = ech_ext.serialize()
+                self._peer_ech_retry_configs = tuple(ech_ext.retry_configs)
 
             # Early data extension
             early_data_ext = extensions.get(EarlyDataServerExtension)
@@ -2284,7 +2280,7 @@ class TLSHandshakeClient(TLSHandshake):
                 if ri_ext.data:
                     raise AlertIllegalParameter("invalid renegotation data")
                 self._secure_renegotiation = True
-            elif not self._configuration.legacy_server_connect:
+            elif not self.configuration.legacy_server_connect:
                 raise AlertInsufficientSecurity(
                     "peer does not support secure renegotiation"
                 )
@@ -2435,34 +2431,31 @@ class TLSHandshakeClient(TLSHandshake):
         return True
 
     @staticmethod
-    def _select_ech_config(ech_configs: bytes) -> ECHConfigContext | None:
-        parser = Parser(ech_configs)
-
-        length = parser.read_int(2)
-        end = parser.tell() + length
-
-        while parser.tell() < end:
-            ech_config = ECHConfig.parse(parser)
+    def _select_ech_config(
+        ech_configs: Sequence[ECHConfig],
+    ) -> ECHConfigContext | None:
+        for ech_config in ech_configs:
             if not ech_config.supported():
                 continue
 
             info = b"tls ech" + b"\x00" + ech_config.serialize()
-            for cipher_suite in ech_config.contents.cipher_suites:
-                kem_id = ech_config.contents.kem_id
+
+            for cipher_suite in ech_config.cipher_suites:
+                kem_id = ech_config.kem_id
                 kdf_id, aead_id = cipher_suite
                 try:
                     suite = hpke.create_suite(kem_id, kdf_id, aead_id)
                     peer_public_key = suite.kem.deserialize_public_key(
-                        ech_config.contents.public_key
+                        ech_config.public_key
                     )
                 except ValueError:
                     continue
 
                 enc, ctx = suite.setup_send(peer_public_key, info=info)
-                config_id = ech_config.contents.config_id
-                public_name = ech_config.contents.public_name
-                maximum_name_length = ech_config.contents.maximum_name_length
-                extensions = ech_config.contents.extensions
+                config_id = ech_config.config_id
+                public_name = ech_config.public_name
+                maximum_name_length = ech_config.maximum_name_length
+                extensions = ech_config.extensions
 
                 return ECHConfigContext(
                     kdf_id=kdf_id,

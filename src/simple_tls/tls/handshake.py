@@ -39,8 +39,7 @@ from simple_tls.crypto.verification import (
     VerificationError,
     Verifier,
 )
-
-from .alerts import (
+from simple_tls.tls.alerts import (
     AlertBadCertificate,
     AlertCertificateExpired,
     AlertCertificateRequired,
@@ -52,9 +51,9 @@ from .alerts import (
     AlertUnexpectedMessage,
     AlertUnknownCA,
 )
-from .cipher import get_key_iv_lens
-from .configuration import TLSConfiguration, TLSCredential
-from .constants import (
+from simple_tls.tls.cipher import get_key_iv_lens
+from simple_tls.tls.config import Credential, TLSConfiguration
+from simple_tls.tls.constants import (
     CERTIFICATE_COMPRESSIONS,
     DSA_SIGNATURE_ALGORITHMS,
     ECC_GROUPS,
@@ -80,9 +79,20 @@ from .constants import (
     SignatureScheme,
     TLSVersion,
 )
-from .enums import Direction, ECHStatus, Epoch, Protocol, Status, VerifyMode
-from .extensions import Extensions, StatusRequestCertificateExtension
-from .key import (
+from simple_tls.tls.enums import (
+    Direction,
+    ECHStatus,
+    Epoch,
+    Protocol,
+    Status,
+    VerifyMode,
+)
+from simple_tls.tls.extensions import (
+    ECHConfig,
+    Extensions,
+    StatusRequestCertExtension,
+)
+from simple_tls.tls.key import (
     BasePublicKey,
     DSAPublicKey,
     ECPublicKey,
@@ -92,14 +102,14 @@ from .key import (
     RSAPublicKey,
     load_certificate_public_key,
 )
-from .keyexchange import (
+from simple_tls.tls.keyexchange import (
     BaseKeyExchange,
     ECDHKeyExchange,
     FFDHKeyExchange,
     KEMKeyExchange,
     get_dh_parameters,
 )
-from .messages import (
+from simple_tls.tls.messages import (
     Certificate,
     CertificateEntry,
     CertificateTLS13,
@@ -109,8 +119,8 @@ from .messages import (
     HandshakeMessage,
     KeyUpdate,
 )
-from .session import TLSSession
-from .utils import (
+from simple_tls.tls.session import TLSSession
+from simple_tls.tls.utils import (
     Buffer,
     EKUValidator,
     KeySchedule,
@@ -179,11 +189,9 @@ class TLSHandshake:
         self.message_cb: MessageCallback = lambda rw, m: None
         self.setup_traffic_cb: SetupTrafficCallback = lambda d, e, c: None
 
-        # Configurations
+        # Protocol & version
         self._configuration: TLSConfiguration = configuration
         self._protocol: Protocol = configuration.protocol
-
-        # Protocol versions
         self._minimum_version: int = version_from_wire(
             self._protocol, configuration.minimum_version
         )
@@ -196,7 +204,7 @@ class TLSHandshake:
             )
 
         # Identity
-        self._credential: TLSCredential | None = configuration.credential
+        self._credential: Credential | None = configuration.credential
         self._verify_mode: VerifyMode = configuration.verify_mode
 
         # Cipher suites
@@ -445,18 +453,11 @@ class TLSHandshake:
         return self._alpn_protocol
 
     @property
+    def ech_status(self) -> ECHStatus:
+        return self._ech_status
+
+    @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:
-        return None
-
-    @property
-    def peer_certificate(self) -> x509.Certificate | None:
-        session = self._session
-        if session is not None:
-            return session.peer_cert
-        return None
-
-    @property
-    def peer_ech_retry_configs(self) -> bytes | None:
         return None
 
     @property
@@ -466,8 +467,15 @@ class TLSHandshake:
         return None
 
     @property
-    def ech_status(self) -> ECHStatus:
-        return self._ech_status
+    def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
+        return None
+
+    @property
+    def peer_certificate(self) -> x509.Certificate | None:
+        session = self._session
+        if session is not None:
+            return session.peer_cert
+        return None
 
     def get_peer_cert_chain(self) -> list[x509.Certificate]:
         session = self._session
@@ -803,7 +811,7 @@ class TLSHandshake:
 
     @staticmethod
     def _create_certificate(
-        credential: TLSCredential | None = None,
+        credential: Credential | None = None,
     ) -> Certificate:
         if credential is not None:
             certificates = [
@@ -819,7 +827,7 @@ class TLSHandshake:
 
     @staticmethod
     def _create_certificate_tls13(
-        credential: TLSCredential | None = None,
+        credential: Credential | None = None,
         context: bytes = b"",
         compression: int | None = None,
     ) -> CompressedCertificate | CertificateTLS13:
@@ -996,9 +1004,7 @@ class TLSHandshake:
             raise AlertIllegalParameter("received wrong signature algorithm")
 
     def _verify_x509(
-        self,
-        session: TLSSession,
-        hostname: bytes | None = None,
+        self, session: TLSSession, hostname: bytes | None = None
     ) -> None:
         assert session.peer_cert is not None
         assert session.peer_chain is not None
@@ -1011,9 +1017,7 @@ class TLSHandshake:
         ee_policy = ExtensionPolicy.defaults_ee()
         ca_policy = ExtensionPolicy.defaults_ca()
 
-        if self.is_server:
-            purpose = ExtendedKeyUsageOID.CLIENT_AUTH
-        else:
+        if not self.is_server:
             purpose = ExtendedKeyUsageOID.SERVER_AUTH
 
             if configuration.check_hostname and hostname:
@@ -1021,6 +1025,8 @@ class TLSHandshake:
                 ee_policy = ee_policy.require_present(
                     san_validator.oid, san_validator
                 )
+        else:
+            purpose = ExtendedKeyUsageOID.CLIENT_AUTH
 
         eku_validator = EKUValidator(purpose)
         ee_policy = ee_policy.require_present(eku_validator.oid, eku_validator)
@@ -1122,7 +1128,7 @@ class TLSHandshake:
         # Process extensions of first cert_entires
         extensions = cert_entry.extensions
 
-        cert_status = extensions.get(StatusRequestCertificateExtension)
+        cert_status = extensions.get(StatusRequestCertExtension)
         if cert_status is not None:
             ocsp_response = cert_status.response
         else:

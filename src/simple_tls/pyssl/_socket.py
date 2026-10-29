@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import errno
 import ssl as _ssl
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
@@ -27,6 +27,7 @@ from ._utils import (
     WritableBuffer,
     get_cipher_tuple,
     get_version_name,
+    load_ech_config_list,
     parse_certificate,
 )
 
@@ -44,6 +45,7 @@ class SSLSocket(_ssl.SSLSocket):
     _closed: bool
     _pending_write: bytearray
     _sni_callback: SrvnmeCbType | None
+    _peer_ech_configs: list[tls.ECHConfig] | None
     server_side: bool
     server_hostname: str | None
     do_handshake_on_connect: bool
@@ -59,6 +61,7 @@ class SSLSocket(_ssl.SSLSocket):
         server_hostname: str | bytes | None = None,
         context: SSLContext | None = None,
         session: SSLSession | None = None,
+        peer_ech_configs: Sequence[bytes] | bytes | None = None,
     ) -> SSLSocket:
         if context is None:
             raise ValueError("context not provided")
@@ -83,6 +86,7 @@ class SSLSocket(_ssl.SSLSocket):
         self._sslobj = None
         self._pending_write = bytearray()
         self._sni_callback = context._sni_callback
+        self._peer_ech_configs = load_ech_config_list(peer_ech_configs)
         self.server_side = server_side
         self.server_hostname = bytes_to_str(server_hostname)
         self.do_handshake_on_connect = do_handshake_on_connect
@@ -99,27 +103,23 @@ class SSLSocket(_ssl.SSLSocket):
                 "context"
             )
 
+        config_kwargs = context._config_data()
         if not server_side:
-            client_hello_callback = None
+            config = tls.TLSConfiguration(
+                is_server=server_side,
+                server_hostname=str_to_bytes(self.server_hostname),
+                peer_ech_configs=self._peer_ech_configs,
+                session=session.session if session is not None else None,
+                **config_kwargs,
+            )
             new_session_callback = self._new_session_handler
-            if session is not None:
-                tls_session = session.session
-            else:
-                tls_session = None
+            client_hello_callback = None
         else:
+            config = tls.TLSConfiguration(
+                is_server=server_side, **config_kwargs
+            )
+            new_session_callback = None
             client_hello_callback = self._do_sni_callback
-            new_session_callback = None
-            tls_session = None
-
-        if context.options & Options.OP_NO_TICKET:
-            new_session_callback = None
-
-        config = tls.TLSConfiguration(
-            is_server=server_side,
-            server_hostname=str_to_bytes(server_hostname),
-            session=tls_session,
-            **context._config_data(),
-        )
 
         try:
             # See if we are connected
@@ -152,18 +152,16 @@ class SSLSocket(_ssl.SSLSocket):
                     reason = (
                         "Closed before TLS handshake with data in recv buffer."
                     )
-                    notconn_pre_handshake_data_error = SSLError(
-                        e.errno, reason
-                    )
+                    # notconn_pre_handshake_data_error
+                    err = SSLError(e.errno, reason)
                     # Add the SSLError attributes that _ssl.c always adds.
-                    notconn_pre_handshake_data_error.reason = reason
-                    notconn_pre_handshake_data_error.library = ""
+                    err.reason = reason
+                    err.library = ""
                     try:
-                        raise notconn_pre_handshake_data_error
+                        raise err
                     finally:
                         # Explicitly break the reference cycle.
-                        notconn_pre_handshake_data_error = None  # type: ignore
-
+                        err = None  # type: ignore
             else:
                 connected = True
 
@@ -177,7 +175,6 @@ class SSLSocket(_ssl.SSLSocket):
                     new_session_callback=new_session_callback,
                     client_hello_callback=client_hello_callback,
                 )
-
                 if do_handshake_on_connect:
                     timeout = self.gettimeout()
                     if timeout == 0.0:
@@ -187,7 +184,6 @@ class SSLSocket(_ssl.SSLSocket):
                             "for non-blocking sockets"
                         )
                     self.do_handshake()
-
         except:
             try:
                 self.close()
@@ -268,14 +264,16 @@ class SSLSocket(_ssl.SSLSocket):
         return self._drive_tls(self._sslobj.write, data)
 
     def ech_accepted(self) -> bool:
-        if self._sslobj is None:
-            return False
-        return self._sslobj.ech_accepted()
+        if self._sslobj is not None:
+            return self._sslobj.ech_accepted()
+        return False
 
-    def get_peer_ech_retry_configs(self) -> bytes | None:
-        if self._sslobj is None:
-            return None
-        return self._sslobj.get_peer_ech_retry_configs()
+    def get_peer_ech_retry_configs(self) -> list[bytes] | None:
+        if self._sslobj is not None:
+            retry_configs = self._sslobj.get_peer_ech_retry_configs()
+            if retry_configs is not None:
+                return [c.serialize() for c in retry_configs]
+        return None
 
     @overload
     def getpeercert(
@@ -492,27 +490,16 @@ class SSLSocket(_ssl.SSLSocket):
         if self._connected or self._sslobj is not None:
             raise ValueError("attempt to connect already-connected SSLSocket!")
 
-        server_hostname = str_to_bytes(self.server_hostname)
-
-        if self._session is not None:
-            tls_session = self._session.session
-        else:
-            tls_session = None
-
-        if self.context.options & Options.OP_NO_TICKET:
-            new_session_handler = None
-        else:
-            new_session_handler = self._new_session_handler
-
         config = tls.TLSConfiguration(
-            is_server=self.server_side,
-            server_hostname=server_hostname,
-            session=tls_session,
-            **self.context._config_data(),
+            is_server=False,
+            server_hostname=str_to_bytes(self.server_hostname),
+            peer_ech_configs=self._peer_ech_configs,
+            session=self.session.session if self.session is not None else None,
+            **self._context._config_data(),
         )
         self._sslobj = SSLConnection(
             configuration=config,
-            new_session_callback=new_session_handler,
+            new_session_callback=self._new_session_handler,
         )
 
         try:
@@ -572,7 +559,8 @@ class SSLSocket(_ssl.SSLSocket):
         return None
 
     def _new_session_handler(self, session: tls.TLSSession) -> None:
-        self._session = SSLSession(session)
+        if not (self.context.options & Options.OP_NO_TICKET):
+            self._session = SSLSession(session)
 
     def _do_sni_callback(
         self, info: tls.ClientHelloInfo, context: tls.HandshakeContext
@@ -659,6 +647,7 @@ class SSLSocket(_ssl.SSLSocket):
         Read raw TLS ciphertext from socket and feed it into SSL BIO.
         """
         sslobj = cast(SSLConnection, self._sslobj)
+
         try:
             data = socket.recv(self, 65535)
         except BlockingIOError:
@@ -666,5 +655,4 @@ class SSLSocket(_ssl.SSLSocket):
 
         if not data:
             raise SSLEOFError("connection closed")
-
         sslobj.bio_write(data)

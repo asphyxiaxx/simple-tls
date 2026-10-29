@@ -28,10 +28,9 @@ from datetime import datetime, timedelta, timezone
 from cryptography import x509
 
 from simple_tls.codec import Parser, Writer
-
-from .constants import UNSPECIFIED, CipherSuite
-from .enums import Protocol
-from .utils import Buffer, utcnow
+from simple_tls.tls.constants import UNSPECIFIED, CipherSuite
+from simple_tls.tls.enums import Protocol
+from simple_tls.tls.utils import Buffer, utcnow
 
 DEFAULT_TIMEOUT = 1 * 24 * 60 * 60
 

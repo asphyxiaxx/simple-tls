@@ -26,8 +26,7 @@ from typing import ClassVar, TypeVar
 
 from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.crypto.utils import int_to_bytes
-
-from .constants import (
+from simple_tls.tls.constants import (
     CertificateStatusType,
     ECHClientHelloType,
     ExtensionType,
@@ -703,12 +702,12 @@ class StatusRequestServerExtension(EmptyExtension):
 
 
 @dataclass
-class StatusRequestCertificateExtension(Extension):
+class StatusRequestCertExtension(Extension):
     extension_type: ClassVar[int] = ExtensionType.STATUS_REQUEST
     response: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> StatusRequestCertificateExtension:
+    def from_bytes(cls, data: bytes) -> StatusRequestCertExtension:
         parser = Parser(data)
         status_type = parser.read_int(1)
         if status_type != CertificateStatusType.OCSP:
@@ -721,7 +720,7 @@ class StatusRequestCertificateExtension(Extension):
                 "trailing data in status request certificate extension"
             )
 
-        return StatusRequestCertificateExtension(response)
+        return StatusRequestCertExtension(response)
 
     def serialize(self) -> bytes:
         writer = Writer()
@@ -927,7 +926,7 @@ class SCTServerExtension(PrefixedBytesExtension):
 
 
 @dataclass(frozen=True)
-class ECHConfigContents:
+class ECHConfig:
     public_key: bytes
     public_name: bytes
     cipher_suites: Sequence[tuple[int, int]]
@@ -936,22 +935,35 @@ class ECHConfigContents:
     config_id: int
     extensions: Extensions
 
+    def supported(self, all_extensions_mandatory: bool = False) -> bool:
+        if not self.extensions:
+            return True
+
+        for ext_type, _ in self.extensions:
+            if ext_type & 0x8000 or all_extensions_mandatory:
+                return False
+        return True
+
     @classmethod
-    def parse(cls, parser: Parser[bytes]) -> ECHConfigContents:
-        config_id = parser.read_int(1)
-        kem_id = parser.read_int(2)
-        public_key = parser.read_prefixed_bytes(2)
-        cipher_suites: list[tuple[int, int]] = []
+    def parse(cls, parser: Parser[bytes]) -> ECHConfig:
+        version = parser.read_int(2)
+        if version != 65037:
+            raise ParseError("Unsupported ECHConfig version")
 
-        with parser.assert_length(2) as end:
-            while parser.tell() < end:
-                kdf_id = parser.read_int(2)
-                aead_id = parser.read_int(2)
-                cipher_suites.append((kdf_id, aead_id))
+        with parser.assert_length(2):
+            config_id = parser.read_int(1)
+            kem_id = parser.read_int(2)
+            public_key = parser.read_prefixed_bytes(2)
+            cipher_suites: list[tuple[int, int]] = []
+            with parser.assert_length(2) as end:
+                while parser.tell() < end:
+                    kdf_id = parser.read_int(2)
+                    aead_id = parser.read_int(2)
+                    cipher_suites.append((kdf_id, aead_id))
 
-        maximum_name_length = parser.read_int(1)
-        public_name = parser.read_prefixed_bytes(1)
-        extensions = Extensions.parse(parser)
+            maximum_name_length = parser.read_int(1)
+            public_name = parser.read_prefixed_bytes(1)
+            extensions = Extensions.parse(parser)
 
         if not public_key:
             raise ParseError("empty public key data")
@@ -960,7 +972,7 @@ class ECHConfigContents:
         if not public_name:
             raise ParseError("empty public name")
 
-        return ECHConfigContents(
+        return ECHConfig(
             public_key=public_key,
             public_name=public_name,
             cipher_suites=cipher_suites,
@@ -971,50 +983,19 @@ class ECHConfigContents:
         )
 
     def write(self, writer: Writer) -> None:
-        c_writer = Writer()
+        cipher_writer = Writer()
         for kdf_id, aead_id in self.cipher_suites:
-            c_writer.write_int(kdf_id, 2)
-            c_writer.write_int(aead_id, 2)
+            cipher_writer.write_int(kdf_id, 2)
+            cipher_writer.write_int(aead_id, 2)
 
-        writer.write_int(self.config_id, 1)
-        writer.write_int(self.kem_id, 2)
-        writer.write_prefixed_bytes(self.public_key, 2)
-        writer.write_prefixed_bytes(c_writer, 2)
-        writer.write_int(self.maximum_name_length, 1)
-        writer.write_prefixed_bytes(self.public_name, 1)
-        self.extensions.write(writer)
-
-
-@dataclass(frozen=True)
-class ECHConfig:
-    contents: ECHConfigContents
-
-    def supported(self, all_extensions_mandatory: bool = False) -> bool:
-        if not self.contents.extensions:
-            return True
-
-        has_unknown_mandatory_extension = False
-        for ext_type, _ in self.contents.extensions:
-            if ext_type & 0x8000 or all_extensions_mandatory:
-                has_unknown_mandatory_extension = True
-                break
-
-        return not has_unknown_mandatory_extension
-
-    @classmethod
-    def parse(cls, parser: Parser[bytes]) -> ECHConfig:
-        version = parser.read_int(2)
-        if version != 65037:
-            raise ParseError("Unsupported ECHConfig version")
-
-        with parser.assert_length(2):
-            contents = ECHConfigContents.parse(parser)
-
-        return ECHConfig(contents)
-
-    def write(self, writer: Writer) -> None:
         contents_writer = Writer()
-        self.contents.write(contents_writer)
+        contents_writer.write_int(self.config_id, 1)
+        contents_writer.write_int(self.kem_id, 2)
+        contents_writer.write_prefixed_bytes(self.public_key, 2)
+        contents_writer.write_prefixed_bytes(cipher_writer, 2)
+        contents_writer.write_int(self.maximum_name_length, 1)
+        contents_writer.write_prefixed_bytes(self.public_name, 1)
+        self.extensions.write(contents_writer)
 
         writer.write_int(65037, 2)  # version fixed
         writer.write_prefixed_bytes(contents_writer, 2)

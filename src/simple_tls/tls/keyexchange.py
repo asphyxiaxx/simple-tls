@@ -31,8 +31,7 @@ from simple_tls.crypto.utils import (
     get_random_bytes,
     int_to_bytes,
 )
-
-from .constants import ECC_GROUPS, NamedGroup
+from simple_tls.tls.constants import ECC_GROUPS, NamedGroup
 
 
 class BaseKeyExchange:

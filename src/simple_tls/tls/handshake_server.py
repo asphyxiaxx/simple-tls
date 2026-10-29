@@ -23,8 +23,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from cryptography.x509.oid import PublicKeyAlgorithmOID
-
 from simple_tls.codec import Parser, Writer
 from simple_tls.crypto.constant_time import compare_digest
 from simple_tls.crypto.utils import (
@@ -32,8 +30,7 @@ from simple_tls.crypto.utils import (
     get_random_bytes,
     int_to_bytes,
 )
-
-from .alerts import (
+from simple_tls.tls.alerts import (
     Alert,
     AlertDecodeError,
     AlertDecryptError,
@@ -47,8 +44,8 @@ from .alerts import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from .configuration import TLSConfiguration, TLSCredential
-from .constants import (
+from simple_tls.tls.config import Credential, TLSConfiguration
+from simple_tls.tls.constants import (
     DSA_SIGNATURE_ALGORITHMS,
     ECDSA_SIGNATURE_ALGORITHMS,
     EDDSA_SIGNATURE_ALGORITHMS,
@@ -72,8 +69,14 @@ from .constants import (
     Symmetric,
     TLSVersion,
 )
-from .enums import Direction, Epoch, ServerState, Status, VerifyMode
-from .extensions import (
+from simple_tls.tls.enums import (
+    Direction,
+    Epoch,
+    ServerState,
+    Status,
+    VerifyMode,
+)
+from simple_tls.tls.extensions import (
     ALPNClientExtension,
     ALPNServerExtension,
     ALPSClientExtension,
@@ -104,15 +107,15 @@ from .extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionsServerExtension,
 )
-from .handshake import Handshake, TLSHandshake
-from .key import RSAPrivateKey, load_certificate_public_key
-from .keyexchange import (
+from simple_tls.tls.handshake import Handshake, TLSHandshake
+from simple_tls.tls.key import RSAPrivateKey, load_certificate_public_key
+from simple_tls.tls.keyexchange import (
     BaseKeyExchange,
     DHParameters,
     ECDHKeyExchange,
     FFDHKeyExchange,
 )
-from .messages import (
+from simple_tls.tls.messages import (
     CertificateRequest,
     CertificateRequestTLS12,
     CertificateRequestTLS13,
@@ -131,8 +134,8 @@ from .messages import (
     ServerHelloDone,
     ServerKeyExchange,
 )
-from .session import TicketContext, TLSSession
-from .utils import KeySchedule, negotiate
+from simple_tls.tls.session import TicketContext, TLSSession
+from simple_tls.tls.utils import KeySchedule, negotiate
 
 ClientHelloCallback = Callable[["ClientHelloInfo", "HandshakeContext"], None]
 
@@ -153,7 +156,7 @@ class ClientHelloInfo:
 class HandshakeContext:
     """Mutable interface for configuring handshake settings per SNI."""
 
-    credential: TLSCredential | None
+    credential: Credential | None
     """Set the certificate and private key for this connection."""
 
     verify_mode: VerifyMode
@@ -168,6 +171,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def __init__(
         self,
+        *,
         configuration: TLSConfiguration,
         client_hello_callback: ClientHelloCallback | None = None,
     ) -> None:
@@ -421,27 +425,14 @@ class TLSHandshakeServer(TLSHandshake):
 
         if self._credential is not None:
             x509_cert = self._credential.certificate
-            algorithm_oid = x509_cert.public_key_algorithm_oid
-
-            if algorithm_oid in (
-                PublicKeyAlgorithmOID.RSASSA_PSS,
-                PublicKeyAlgorithmOID.RSAES_PKCS1_v1_5,
-            ):
-                auth = Authentication.RSA
-            elif algorithm_oid == PublicKeyAlgorithmOID.DSA:
-                auth = Authentication.DSS
-            elif algorithm_oid == PublicKeyAlgorithmOID.EC_PUBLIC_KEY:
-                auth = Authentication.ECDSA
-            elif version == TLSVersion.TLSv1_2 and algorithm_oid in (
-                PublicKeyAlgorithmOID.ED25519,
-                PublicKeyAlgorithmOID.ED448,
-            ):
-                auth = Authentication.ECDSA
-            else:
-                raise AlertHandshakeFailure(
-                    "certificate has unsupported public key algorithm"
-                )
+            try:
+                public_key = load_certificate_public_key(x509_cert)
+            except ValueError as exc:
+                raise AlertInternalError(str(exc)) from exc
+            auth = self._get_pubkey_auth(public_key)
         else:
+            x509_cert = None
+            public_key = None
             auth = Authentication.ANON
 
         supported_kea: set[KeyExchange] = set()
@@ -478,20 +469,14 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertHandshakeFailure("no supported cipher suite")
 
         if cipher_suite.auth != Authentication.ANON:
-            assert self._credential is not None
-            x509_cert = self._credential.certificate
-            try:
-                public_key = load_certificate_public_key(x509_cert)
-            except ValueError as exc:
-                raise AlertInternalError(str(exc)) from exc
-
+            assert x509_cert is not None
+            assert public_key is not None
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
                 public_key=public_key,
                 public_key_oid=x509_cert.public_key_algorithm_oid,
                 supported_sigalgs=self._signing_signature_algorithms,
             )
-
             if (
                 version == TLSVersion.TLSv1_2
                 and self._peer_signature_algorithms is not None
@@ -549,7 +534,7 @@ class TLSHandshakeServer(TLSHandshake):
             self._session_reused = False
             self._ticket_expected = (
                 ticket_ext is not None
-                and self._configuration.ticket_aead is not None
+                and self.configuration.ticket_aead is not None
             )
             self._session_id = get_random_bytes(32)
             session = self._get_new_session()
@@ -1220,7 +1205,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_hrr_compat_ccs_tls13(self) -> Status:
         self._set_state(ServerState.READ_SECOND_CLIENT_HELLO_TLS13)
-        if self._configuration.middlebox_compat:
+        if self.configuration.middlebox_compat:
             return Status.WRITE_CHANGE_CIPHER_SPEC
         return Status.OK
 
@@ -1380,7 +1365,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_server_hello_compat_ccs_tls13(self) -> Status:
         self._set_state(ServerState.SEND_ENCRYPTED_EXTENSIONS_TLS13)
         if (
-            self._configuration.middlebox_compat
+            self.configuration.middlebox_compat
             and not self._hello_retry_request_used
         ):
             return Status.WRITE_CHANGE_CIPHER_SPEC
@@ -1629,7 +1614,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_new_session_ticket_tls13(self) -> Status:
-        if self._configuration.ticket_aead is None:
+        if self.configuration.ticket_aead is None:
             self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
             return Status.OK
 
@@ -1844,7 +1829,7 @@ class TLSHandshakeServer(TLSHandshake):
                 self._npn_expected = True
 
     def _decrypt_session(self, ticket: bytes) -> TLSSession | None:
-        ticket_aead = self._configuration.ticket_aead
+        ticket_aead = self.configuration.ticket_aead
         if ticket_aead is None or not ticket:
             return None
 
@@ -1876,7 +1861,7 @@ class TLSHandshakeServer(TLSHandshake):
         return None
 
     def _encrypt_session(self, session: TLSSession) -> bytes | None:
-        ticket_aead = self._configuration.ticket_aead
+        ticket_aead = self.configuration.ticket_aead
         if ticket_aead is None:
             return None
 

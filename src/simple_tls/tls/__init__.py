@@ -20,9 +20,13 @@
 
 from __future__ import annotations
 
-from .configuration import TLSConfiguration, TLSCredential
-from .connection import TLSConnection
-from .constants import (
+from simple_tls.tls.config import (
+    Credential,
+    TLSConfiguration,
+    load_ech_configs,
+)
+from simple_tls.tls.connection import TLSConnection
+from simple_tls.tls.constants import (
     AlertDescription,
     Authentication,
     CertificateCompressionAlgorithm,
@@ -34,8 +38,8 @@ from .constants import (
     Symmetric,
     TLSVersion,
 )
-from .enums import Direction, Protocol, VerifyMode
-from .exceptions import (
+from simple_tls.tls.enums import Direction, Protocol, VerifyMode
+from simple_tls.tls.exceptions import (
     TLSAlert,
     TLSEOFError,
     TLSError,
@@ -43,10 +47,11 @@ from .exceptions import (
     TLSRemoteAlert,
     TLSWantReadError,
 )
-from .handshake_server import ClientHelloInfo, HandshakeContext
-from .key import BasePrivateKey, load_pem_private_key
-from .keyexchange import DHParameters, load_pem_parameters
-from .session import TicketAEAD, TicketContext, TLSSession
+from simple_tls.tls.extensions import ECHConfig
+from simple_tls.tls.handshake_server import ClientHelloInfo, HandshakeContext
+from simple_tls.tls.key import BasePrivateKey, load_pem_private_key
+from simple_tls.tls.keyexchange import DHParameters, load_pem_parameters
+from simple_tls.tls.session import TicketAEAD, TicketContext, TLSSession
 
 __all__ = [
     "AlertDescription",
@@ -55,8 +60,10 @@ __all__ = [
     "CertificateCompressionAlgorithm",
     "CipherSuite",
     "ClientHelloInfo",
+    "Credential",
     "DHParameters",
     "Direction",
+    "ECHConfig",
     "HandshakeContext",
     "HashAlgorithm",
     "KeyExchange",
@@ -67,7 +74,6 @@ __all__ = [
     "TLSAlert",
     "TLSConfiguration",
     "TLSConnection",
-    "TLSCredential",
     "TLSEOFError",
     "TLSError",
     "TLSLocalAlert",
@@ -78,6 +84,7 @@ __all__ = [
     "TicketAEAD",
     "TicketContext",
     "VerifyMode",
+    "load_ech_configs",
     "load_pem_parameters",
     "load_pem_private_key",
 ]

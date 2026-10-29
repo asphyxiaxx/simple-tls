@@ -54,10 +54,12 @@ class SSLContext(_ssl.SSLContext):
 
     def __init__(self, protocol: int = PROTOCOL_TLS_CLIENT) -> None:
         if protocol == PROTOCOL_TLS_CLIENT:
+            server_side = False
             verify_mode = VerifyMode.CERT_REQUIRED
             check_hostname = True
             ticket_aead = None
         elif protocol == PROTOCOL_TLS_SERVER:
+            server_side = True
             verify_mode = VerifyMode.CERT_NONE
             check_hostname = False
             ticket_aead = TicketAEAD()
@@ -66,13 +68,10 @@ class SSLContext(_ssl.SSLContext):
         else:
             raise ValueError(f"unsupported protocol {protocol}")
 
-        self._config: dict[str, Any] = {}
-        self._protocol = protocol
+        self._protocol: int = protocol
+        self._server_side: bool = server_side
         self._minimum_version: TLSVersion = _ssl.TLSVersion.MINIMUM_SUPPORTED
         self._maximum_version: TLSVersion = _ssl.TLSVersion.MAXIMUM_SUPPORTED
-        self._cipher_suites: Sequence[tls.CipherSuite] = (
-            tls.TLSConfiguration.cipher_suites
-        )
         self._options: Options = (
             Options.OP_ENABLE_MIDDLEBOX_COMPAT
             | Options.OP_SINGLE_DH_USE
@@ -88,17 +87,28 @@ class SSLContext(_ssl.SSLContext):
         self._verify_mode: _ssl.VerifyMode = verify_mode
         self._check_hostname: bool = check_hostname
         self._post_handshake_auth: bool = False
+        self._credential: tls.Credential | None = None
+        self._dh_parameters: tls.DHParameters | None = None
+        self._cipher_suites: Sequence[tls.CipherSuite] = (
+            tls.TLSConfiguration.cipher_suites
+        )
+        self._supported_groups: Sequence[int] | None = (
+            tls.TLSConfiguration.supported_groups
+        )
+        self._npn_protocols: list[bytes] | None = None
+        self._alpn_protocols: list[bytes] | None = None
         self._ticket_aead: TicketAEAD | None = ticket_aead
         self._sni_callback: SrvnmeCbType | None = None
 
-    def wrap_socket(
+    def wrap_socket(  # type: ignore[override]
         self,
         sock: socket,
         server_side: bool = False,
         do_handshake_on_connect: bool = True,
         suppress_ragged_eofs: bool = True,
         server_hostname: str | bytes | None = None,
-        session: SSLSession | None = None,  # type: ignore
+        session: SSLSession | None = None,
+        peer_ech_configs: Sequence[bytes] | bytes | None = None,
     ) -> SSLSocket:
         return self.sslsocket_class._create(
             sock=sock,
@@ -108,15 +118,17 @@ class SSLContext(_ssl.SSLContext):
             server_hostname=server_hostname,
             context=self,
             session=session,
+            peer_ech_configs=peer_ech_configs,
         )
 
-    def wrap_bio(
+    def wrap_bio(  # type: ignore[override]
         self,
         incoming: _ssl.MemoryBIO,
         outgoing: _ssl.MemoryBIO,
         server_side: bool = False,
         server_hostname: str | bytes | None = None,
-        session: SSLSession | None = None,  # type: ignore
+        session: SSLSession | None = None,
+        peer_ech_configs: Sequence[bytes] | bytes | None = None,
     ) -> SSLObject:
         return self.sslobject_class._create(
             incoming,
@@ -125,6 +137,7 @@ class SSLContext(_ssl.SSLContext):
             server_hostname=server_hostname,
             session=session,
             context=self,
+            peer_ech_configs=peer_ech_configs,
         )
 
     def get_ciphers(self) -> list[_ssl._Cipher]:
@@ -148,7 +161,7 @@ class SSLContext(_ssl.SSLContext):
             if len(b) == 0 or len(b) > 255:
                 raise ValueError("NPN protocols must be 1 to 255 in length")
             out.append(b)
-        self._config["npn_protocols"] = out
+        self._npn_protocols = out
 
     def set_alpn_protocols(self, alpn_protocols: Iterable[str]) -> None:
         out: list[bytes] = []
@@ -157,7 +170,7 @@ class SSLContext(_ssl.SSLContext):
             if len(b) == 0 or len(b) > 255:
                 raise ValueError("NPN protocols must be 1 to 255 in length")
             out.append(b)
-        self._config["alpn_protocols"] = out
+        self._alpn_protocols = out
 
     def set_servername_callback(self, callback: SrvnmeCbType | None) -> None:  # type: ignore
         if callback is None:
@@ -206,16 +219,12 @@ class SSLContext(_ssl.SSLContext):
 
         if not groups:
             raise ValueError(f"Unknown elliptic curve name '{curve}'")
-
-        self._config["supported_groups"] = groups
+        self._supported_groups = groups
 
     def load_dh_params(self, path: StrOrBytesPath) -> None:
         with open(path, "rb") as fp:
             dh_parameters = tls.load_pem_parameters(fp.read())
-        self._config["dh_parameters"] = dh_parameters
-
-    def set_ech_configs(self, ech_configs: ReadableBuffer | None) -> None:
-        self._config["ech_configs"] = ech_configs
+        self._dh_parameters = dh_parameters
 
     def _load_windows_store_certs(
         self, storename: str, purpose: Purpose
@@ -286,12 +295,11 @@ class SSLContext(_ssl.SSLContext):
         if callable(password):
             password = password()
 
-        credential = tls.TLSCredential.from_certfile(
+        self._credential = tls.Credential.from_certfile(
             certfile=certfile,
             keyfile=keyfile,
             password=str_to_bytes(password),
         )
-        self._config["credential"] = credential
 
     def load_verify_locations(
         self,
@@ -418,7 +426,15 @@ class SSLContext(_ssl.SSLContext):
             return None
 
     def _config_data(self) -> dict[str, Any]:
-        config = self._config.copy()
+        config: dict[str, Any] = {
+            "cipher_suites": self._cipher_suites,
+            "supported_groups": self._supported_groups,
+            "npn_protocols": self._npn_protocols,
+            "alpn_protocols": self._alpn_protocols,
+            "castore": self._castore_builder.build(),
+            "check_hostname": self._check_hostname,
+            "post_handshake_auth": self._post_handshake_auth,
+        }
 
         minimum_version = self._get_version(self._minimum_version)
         if minimum_version is not None:
@@ -437,12 +453,9 @@ class SSLContext(_ssl.SSLContext):
         else:
             raise ValueError(f"Unsupported verify_mode '{self._verify_mode}'")
 
-        if not (self.options & Options.OP_NO_TICKET):
-            config["ticket_aead"] = self._ticket_aead
-
-        config["cipher_suites"] = self._cipher_suites
-        config["castore"] = self._castore_builder.build()
-        config["check_hostname"] = self._check_hostname
-        config["post_handshake_auth"] = self._post_handshake_auth
+        if self._server_side:
+            config["dh_parameters"] = self._dh_parameters
+            if not (self.options & Options.OP_NO_TICKET):
+                config["ticket_aead"] = self._ticket_aead
 
         return config

@@ -25,19 +25,42 @@ from dataclasses import dataclass
 
 from cryptography import x509
 
+from simple_tls.codec import ParseError, Parser
 from simple_tls.crypto.utils import str_to_bytes
 from simple_tls.crypto.verification import Store
+from simple_tls.tls.constants import (
+    CipherSuite,
+    NamedGroup,
+    SignatureScheme,
+    TLSVersion,
+)
+from simple_tls.tls.enums import Protocol, VerifyMode
+from simple_tls.tls.extensions import ECHConfig
+from simple_tls.tls.key import BasePrivateKey, load_pem_private_key
+from simple_tls.tls.keyexchange import DHParameters
+from simple_tls.tls.session import TicketAEAD, TLSSession
+from simple_tls.tls.utils import Buffer, StrOrBytesPath
 
-from .constants import CipherSuite, NamedGroup, SignatureScheme, TLSVersion
-from .enums import Protocol, VerifyMode
-from .key import BasePrivateKey, load_pem_private_key
-from .keyexchange import DHParameters
-from .session import TicketAEAD, TLSSession
-from .utils import Buffer, StrOrBytesPath
+
+def load_ech_configs(data: bytes) -> list[ECHConfig]:
+    """
+    Parses raw wire-format bytes (e.g., from DNS HTTPS records)
+    into structured ECHConfig objects.
+    """
+
+    configs: list[ECHConfig] = []
+    parser = Parser(data)
+    try:
+        with parser.assert_length(2) as end:
+            while parser.tell() < end:
+                configs.append(ECHConfig.parse(parser))
+    except ParseError:
+        pass
+    return configs
 
 
 @dataclass(frozen=True)
-class TLSCredential:
+class Credential:
     """Represents a TLS identity consisting of a private key and its associated
     certificate chain."""
 
@@ -51,7 +74,7 @@ class TLSCredential:
         certfile: StrOrBytesPath,
         keyfile: StrOrBytesPath | None = None,
         password: Buffer | None = None,
-    ) -> TLSCredential:
+    ) -> Credential:
         """Loads TLS credential from PEM certificate and private key files."""
 
         with open(certfile, "rb") as fp:
@@ -75,24 +98,39 @@ class TLSCredential:
             with open(keyfile, "rb") as fp:
                 key = load_pem_private_key(fp.read(), password)
 
-        return TLSCredential(key, certificate, certificate_chain)
+        return Credential(key, certificate, certificate_chain)
 
 
 @dataclass(frozen=True)
 class TLSConfiguration:
-    """Configuration for TLS connection parameters and capabilities."""
-
     is_server: bool = False
     """"""
 
     protocol: Protocol = Protocol.TLS
     """"""
 
-    minimum_version: TLSVersion = TLSVersion.TLSv1_2
+    minimum_version: int = TLSVersion.TLSv1_2
     """Minimum supported TLS version."""
 
-    maximum_version: TLSVersion = TLSVersion.TLSv1_3
+    maximum_version: int = TLSVersion.TLSv1_3
     """Maximum supported TLS version."""
+
+    middlebox_compat: bool = True
+    """Enable TLS 1.3 middlebox compatibility mode."""
+
+    verify_mode: VerifyMode = VerifyMode.CERT_NONE
+    """Peer certificate verification policy mode."""
+
+    check_hostname: bool = False
+    """Whether to verify that the peer certificate matches `server_hostname`.
+    """
+
+    castore: Store | None = None
+    """Trusted Root Certificate Authority (CA) store used for peer
+    verification."""
+
+    credential: Credential | None = None
+    """Local TLS certificate identity presented to the peer."""
 
     cipher_suites: Sequence[CipherSuite] = (
         CipherSuite.TLS_AES_128_GCM_SHA256,
@@ -112,9 +150,6 @@ class TLSConfiguration:
         CipherSuite.TLS_RSA_WITH_AES_256_CBC_SHA,
     )
     """List of supported cipher suites in order of preference."""
-
-    dh_parameters: DHParameters | None = None
-    """Custom Diffie-Hellman parameters for DHE cipher suites."""
 
     supported_groups: Sequence[int] | None = (
         NamedGroup.X25519MLKEM768,
@@ -155,14 +190,35 @@ class TLSConfiguration:
     """Supported algorithms for certificate compression
     (e.g., zlib, brotli, zstd)."""
 
-    ech_configs: bytes | None = None
-    """Encrypted ClientHello (ECH) configuration bytes."""
+    npn_protocols: Sequence[bytes] | None = None
+    """Next Protocol Negotiation (NPN) protocol list (legacy)."""
+
+    alpn_protocols: Sequence[bytes] | None = None
+    """Application-Layer Protocol Negotiation (ALPN) protocol list in
+    preference order."""
+
+    alps: Mapping[bytes, bytes] | None = None
+    """Application-Layer Protocol Settings (ALPS) mapped by ALPN protocol name.
+    """
+
+    peer_ech_configs: Sequence[ECHConfig] | None = None
+    """Peer encrypted ClientHello (ECH) configuration."""
 
     encrypt_then_mac: bool = False
     """Enable Encrypt-then-MAC extension for block ciphers (RFC 7366)."""
 
     extended_master_secret: bool = True
     """Enable Extended Master Secret extension (RFC 7627)."""
+
+    early_data: bool = False
+    """Enable 0-RTT Early Data support in TLS 1.3."""
+
+    max_early_data_size: int = 0xFFFF
+    """Maximum permitted size in bytes for TLS 1.3 early data."""
+
+    post_handshake_auth: bool = False
+    """Advertise support for post-handshake client authentication in
+    TLS 1.3."""
 
     client_hello_padding: bool = True
     """Pad ClientHello messages to avoid known middlebox bugs."""
@@ -185,34 +241,9 @@ class TLSConfiguration:
     """Request Signed Certificate Timestamps (SCTs) for Certificate
     Transparency."""
 
-    early_data: bool = False
-    """Enable 0-RTT Early Data support in TLS 1.3."""
-
-    max_early_data_size: int = 0xFFFF
-    """Maximum permitted size in bytes for TLS 1.3 early data."""
-
-    post_handshake_auth: bool = False
-    """Advertise support for post-handshake client authentication in
-    TLS 1.3."""
-
-    middlebox_compat: bool = True
-    """Enable TLS 1.3 middlebox compatibility mode
-    (legacy session IDs and dummy ChangeCipherSpec)."""
-
     legacy_server_connect: bool = False
     """Allow connections to legacy servers that do not support secure
     renegotiation."""
-
-    npn_protocols: Sequence[bytes] | None = None
-    """Next Protocol Negotiation (NPN) protocol list (legacy)."""
-
-    alpn_protocols: Sequence[bytes] | None = None
-    """Application-Layer Protocol Negotiation (ALPN) protocol list in
-    preference order."""
-
-    alps: Mapping[bytes, bytes] | None = None
-    """Application-Layer Protocol Settings (ALPS) mapped by ALPN protocol name.
-    """
 
     session: TLSSession | None = None
     """Session object to attempt session resumption during the handshake."""
@@ -221,19 +252,8 @@ class TLSConfiguration:
     """Target hostname used for Server Name Indication (SNI) and certificate
     verification."""
 
-    credential: TLSCredential | None = None
-    """Local TLS certificate identity presented to the peer."""
-
-    castore: Store | None = None
-    """Trusted Root Certificate Authority (CA) store used for peer
-    verification."""
-
-    verify_mode: VerifyMode = VerifyMode.CERT_NONE
-    """Peer certificate verification policy mode."""
-
-    check_hostname: bool = False
-    """Whether to verify that the peer certificate matches `server_hostname`.
-    """
+    dh_parameters: DHParameters | None = None
+    """Custom Diffie-Hellman parameters for DHE cipher suites."""
 
     ticket_aead: TicketAEAD | None = None
     """"""

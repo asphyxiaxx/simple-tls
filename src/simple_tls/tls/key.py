@@ -40,7 +40,7 @@ from cryptography.hazmat.primitives.asymmetric.types import (
     PublicKeyTypes,
 )
 
-from .constants import (
+from simple_tls.tls.constants import (
     DSA_SIGNATURE_ALGORITHMS,
     ECDSA_SIGNATURE_ALGORITHMS,
     UNSPECIFIED,
@@ -48,7 +48,7 @@ from .constants import (
     NamedGroup,
     SignatureScheme,
 )
-from .utils import _MD5SHA1, _MD5SHA1Hash, get_algorithm
+from simple_tls.tls.utils import MD5SHA1, MD5SHA1Hash, get_algorithm
 
 
 class InvalidSignature(Exception):
@@ -83,8 +83,8 @@ class RSAPrivateKey(BasePrivateKey):
             ) from None
 
         if hashalg == UNSPECIFIED:
-            algorithm = cast(hashes.HashAlgorithm, _MD5SHA1())
-            hashobj = cast(hashes.Hash, _MD5SHA1Hash())
+            algorithm = cast(hashes.HashAlgorithm, MD5SHA1())
+            hashobj = cast(hashes.Hash, MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)
@@ -163,8 +163,8 @@ class RSAPublicKey(BasePublicKey):
             ) from None
 
         if hashalg == UNSPECIFIED:
-            algorithm = cast(hashes.HashAlgorithm, _MD5SHA1())
-            hashobj = cast(hashes.Hash, _MD5SHA1Hash())
+            algorithm = cast(hashes.HashAlgorithm, MD5SHA1())
+            hashobj = cast(hashes.Hash, MD5SHA1Hash())
         else:
             algorithm = get_algorithm(hashalg)
             hashobj = hashes.Hash(algorithm)

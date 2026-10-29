@@ -27,13 +27,12 @@ from typing import ClassVar, TypeVar
 from simple_tls.codec import ParseError, Parser, Writer
 from simple_tls.compression import ZLIB, ZSTD, Brotli
 from simple_tls.crypto.utils import int_to_bytes
-
-from .constants import (
+from simple_tls.tls.constants import (
     CertificateCompressionAlgorithm,
     CertificateStatusType,
     HandshakeType,
 )
-from .extensions import Extensions
+from simple_tls.tls.extensions import Extensions
 
 _M = TypeVar("_M", bound="HandshakeMessage")
 

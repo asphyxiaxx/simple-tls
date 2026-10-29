@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ssl as _ssl
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from os import PathLike
 from typing import TYPE_CHECKING, Any, TypeAlias, Union
 
@@ -30,7 +30,6 @@ if sys.version_info < (3, 12):
     from typing_extensions import Buffer
 else:
     from collections.abc import Buffer
-
 
 ReadableBuffer: TypeAlias = Buffer
 WritableBuffer: TypeAlias = Buffer
@@ -254,6 +253,20 @@ def parse_cipher_string(cipher_str: str) -> list[tls.CipherSuite]:
     return cipher_suites
 
 
+def load_ech_config_list(
+    data: Sequence[bytes] | bytes | None,
+) -> list[tls.ECHConfig]:
+    if data is None:
+        return []
+
+    ech_configs = []
+    if isinstance(data, ReadableBuffer):
+        data = [data]
+    for d in data:
+        ech_configs.extend(tls.load_ech_configs(d))
+    return ech_configs
+
+
 def create_default_context(
     purpose: Purpose = Purpose.SERVER_AUTH,
     *,
@@ -287,7 +300,7 @@ def create_default_context(
 
 
 class SSLConnection(tls.TLSConnection):
-    def selected_alpn_protocol(self) -> str | None:  # type: ignore
+    def selected_alpn_protocol(self) -> str | None:
         protocol = self.get_alpn_negotiated()
         if protocol is not None:
             return protocol.decode()

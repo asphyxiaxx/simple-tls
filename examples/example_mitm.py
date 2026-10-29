@@ -8,6 +8,7 @@ from functools import lru_cache
 import certifi
 import dns
 import dns.asyncresolver
+import dns.exception
 import dns.rdatatype
 import dns.rdtypes
 import dns.rdtypes.svcbbase
@@ -24,10 +25,10 @@ from simple_tls.crypto import verification
 
 async def resolve_ech(hostname: str) -> bytes | None:
     resolver = dns.asyncresolver.Resolver()
-    t = dns.rdatatype.HTTPS
+    rdtype = dns.rdatatype.HTTPS
     try:
-        resp = await resolver.resolve(hostname, t, tcp=False)
-    except Exception:
+        resp = await resolver.resolve(hostname, rdtype)
+    except dns.exception.DNSException:
         pass
     else:
         for r in resp:
@@ -38,15 +39,17 @@ async def resolve_ech(hostname: str) -> bytes | None:
 
 
 @lru_cache(maxsize=256)
-def load_cert_chain(certfile: str) -> stls.TLSCredential:
-    return stls.TLSCredential.from_certfile(certfile)
+def load_cert_chain(certfile: str) -> stls.Credential:
+    return stls.Credential.from_certfile(certfile)
 
 
 @lru_cache(maxsize=256)
 def load_castore(
     ca_path: str | None, ca_pemfile: str | None
 ) -> verification.Store:
-    return stls.load_castore(capath=ca_path, cafile=ca_pemfile)
+    builder = verification.StoreBuilder()
+    builder.load_locations(cafile=ca_pemfile, capath=ca_path)
+    return builder.build()
 
 
 class SSLConnection:
@@ -63,13 +66,35 @@ class SSLConnection:
         certfile: str | None,
         legacy_server_connect: bool,
     ) -> None:
-        config: dict[str, typing.Any] = {}
+        self._method = method
+        self._conn: stls.TLSConnection | None = None
+        self._minimum_version: int = stls.TLSVersion.TLSv1_2
+        self._maximum_version: int = stls.TLSVersion.TLSv1_3
+        self._server_hostname: bytes | None = None
+        self._peer_ech_configs: list[stls.ECHConfig] = []
+        self._legacy_server_connect: bool = legacy_server_connect
+        self._credential: stls.Credential | None = None
+        self._castore: verification.Store = load_castore(
+            ca_path=ca_path,
+            ca_pemfile=ca_pemfile,
+        )
+        self._supported_groups = [
+            stls.NamedGroup.X25519MLKEM768,
+            stls.NamedGroup.X25519,
+            stls.NamedGroup.SECP256R1,
+            stls.NamedGroup.SECP384R1,
+            stls.NamedGroup.SECP521R1,
+        ]
+        self._certificate_compressions: list[int] = [
+            stls.CertificateCompressionAlgorithm.BROTLI,
+        ]
+        self._alpn_protocols: list[bytes] | None = None
+        self._alps: dict[bytes, bytes] = {}
 
         if min_version != net_tls.Version.UNBOUNDED:
-            config["minimum_version"] = min_version.value
-
+            self._minimum_version = min_version.value
         if max_version != net_tls.Version.UNBOUNDED:
-            config["maximum_version"] = max_version.value
+            self._maximum_version = max_version.value
 
         if verify.value == SSL.VERIFY_PEER:
             self._verify_mode = stls.VerifyMode.CERT_REQUIRED
@@ -77,28 +102,13 @@ class SSLConnection:
             self._verify_mode = stls.VerifyMode.CERT_NONE
 
         if certfile:
-            config["credential"] = load_cert_chain(certfile)
+            self._credential = load_cert_chain(certfile)
 
         if ecdh_curve is not None:
             try:
-                group = stls.NamedGroup[ecdh_curve]
+                self._supported_groups = [stls.NamedGroup[ecdh_curve]]
             except KeyError:
                 pass
-            else:
-                config["supported_groups"] = [group]
-
-        config["legacy_server_connect"] = legacy_server_connect
-        config["castore"] = load_castore(
-            ca_path=ca_path, ca_pemfile=ca_pemfile
-        )
-
-        self._method = method
-        self._config = config
-        self._conn: stls.TLSConnection | None = None
-        self._server_hostname: bytes | None = None
-
-    def _new_session_handler(self, session: stls.TLSSession) -> None:
-        pass
 
     def set_connect_state(self) -> None:
         if (
@@ -112,30 +122,47 @@ class SSLConnection:
         config = stls.TLSConfiguration(
             is_server=False,
             protocol=stls.Protocol.TLS,
-            check_hostname=check_hostname,
-            server_hostname=self._server_hostname,
+            minimum_version=self._minimum_version,
+            maximum_version=self._maximum_version,
             verify_mode=self._verify_mode,
-            **self._config,
+            check_hostname=check_hostname,
+            castore=self._castore,
+            credential=self._credential,
+            supported_groups=self._supported_groups,
+            certificate_compressions=self._certificate_compressions,
+            alpn_protocols=self._alpn_protocols,
+            alps=self._alps,
+            server_hostname=self._server_hostname,
+            peer_ech_configs=self._peer_ech_configs,
         )
-        self._conn = stls.TLSConnection(config)
+        self._conn = stls.TLSConnection(configuration=config)
 
     def set_accept_state(self) -> None:
         config = stls.TLSConfiguration(
-            is_server=False,
             protocol=stls.Protocol.TLS,
+            minimum_version=self._minimum_version,
+            maximum_version=self._maximum_version,
             verify_mode=self._verify_mode,
-            **self._config,
+            castore=self._castore,
+            credential=self._credential,
+            supported_groups=self._supported_groups,
+            certificate_compressions=self._certificate_compressions,
+            alpn_protocols=self._alpn_protocols,
+            alps=self._alps,
         )
-        self._conn = stls.TLSConnection(config)
+        self._conn = stls.TLSConnection(configuration=config)
 
     def set_alpn_protos(self, protos: typing.Sequence[bytes]) -> None:
-        self._config["alpn_protocols"] = protos
+        self._alpn_protocols = list(protos)
+
+    def add_application_settings(self, proto: bytes, settings: bytes) -> None:
+        self._alps[proto] = settings
 
     def set_tlsext_host_name(self, host_name: bytes) -> None:
         self._server_hostname = host_name
 
-    def set_ech_configs(self, ech_config: bytes | None) -> None:
-        self._config["ech_configs"] = ech_config
+    def load_ech_configs(self, ech_configs: bytes) -> None:
+        self._peer_ech_configs.extend(stls.load_ech_configs(ech_configs))
 
     def bio_read(self, bufsiz: int) -> bytes:
         if self._conn is None:
@@ -199,9 +226,8 @@ class SSLConnection:
         if self._conn is None:
             raise TypeError("connection state not set")
 
-        chain = self._conn.get_peer_cert_chain()
-        if chain:
-            certificate = chain[0]
+        certificate = self._conn.get_peer_certificate()
+        if certificate is not None:
             if as_cryptography:
                 return certificate
             return OpenSSL_X509.from_cryptography(certificate)
@@ -212,11 +238,18 @@ class SSLConnection:
     ) -> list[OpenSSL_X509] | list[x509.Certificate]:
         if self._conn is None:
             raise TypeError("connection state not set")
-
         chain = self._conn.get_peer_cert_chain()
         if as_cryptography:
             return chain
         return [OpenSSL_X509.from_cryptography(c) for c in chain]
+
+    def get_peer_ech_retry_configs(self) -> list[bytes] | None:
+        if self._conn is None:
+            raise TypeError("connection state not set")
+        retry_configs = self._conn.get_peer_ech_retry_configs()
+        if retry_configs is not None:
+            return [c.serialize() for c in retry_configs]
+        return []
 
     def get_alpn_proto_negotiated(self) -> bytes | None:
         if self._conn is None:
@@ -250,26 +283,10 @@ class SSLConnection:
             raise TypeError("connection state not set")
         return self._conn.ech_accepted()
 
-    def get_retry_config(self) -> bytes | None:
-        if self._conn is None:
-            raise TypeError("connection state not set")
-        return self._conn.get_peer_ech_retry_configs(binary_form=True)
-
     def get_app_data(self) -> bytes:
-        """
-        Retrieve application data as set by :meth:`set_app_data`.
-
-        :return: The application data
-        """
         return self._app_data
 
     def set_app_data(self, data: bytes) -> None:
-        """
-        Set application data
-
-        :param data: The application data
-        :return: None
-        """
         self._app_data = data
 
     def shutdown(self) -> None:
@@ -281,7 +298,7 @@ class SSLConnection:
 
 class CustomSSLContext:
     def __init__(self) -> None:
-        self.ech_configs: dict[str, bytes | None] = {}
+        self.ech_configs_map: dict[str, bytes | None] = {}
 
     async def tls_start_server(self, tls_start: tls.TlsData) -> None:
         if tls_start.is_dtls:
@@ -353,12 +370,12 @@ class CustomSSLContext:
                 ipaddress.ip_address(server.sni).packed
             except ValueError:
                 try:
-                    ech_config = self.ech_configs[server.sni]
+                    ech_configs = self.ech_configs_map[server.sni]
                 except KeyError:
-                    ech_config = await resolve_ech(server.sni)
-                    self.ech_configs[server.sni] = ech_config
-
-                ssl_conn.set_ech_configs(ech_config)
+                    ech_configs = await resolve_ech(server.sni)
+                    self.ech_configs_map[server.sni] = ech_configs
+                if ech_configs is not None:
+                    ssl_conn.load_ech_configs(ech_configs)
 
                 host_name = server.sni.encode("idna")
                 ssl_conn.set_tlsext_host_name(host_name)
@@ -382,10 +399,9 @@ class CustomSSLContext:
         sni = tls_data.conn.sni
 
         if sni:
-            ech_configs = ssl_conn.get_retry_config()
-
+            ech_configs = ssl_conn.get_peer_ech_retry_configs()
             if ech_configs is not None:
-                self.ech_configs[sni] = ech_configs
+                self.ech_configs_map[sni] = ech_configs
                 tls_data.context.server.error = None
 
 

@@ -36,10 +36,9 @@ from simple_tls.crypto.constant_time import (
     compare_digest,
 )
 from simple_tls.crypto.utils import get_random_bytes, strxor
-
-from .constants import CipherSuite, Symmetric, TLSVersion
-from .enums import Direction
-from .utils import Buffer, WritableBuffer, get_algorithm
+from simple_tls.tls.constants import CipherSuite, Symmetric, TLSVersion
+from simple_tls.tls.enums import Direction
+from simple_tls.tls.utils import Buffer, WritableBuffer, get_algorithm
 
 try:
     from cryptography.hazmat.decrepit.ciphers.algorithms import (  # type: ignore

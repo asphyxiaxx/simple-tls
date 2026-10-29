@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from .constants import AlertDescription
+from simple_tls.tls.constants import AlertDescription
 
 
 class AlertException(Exception):

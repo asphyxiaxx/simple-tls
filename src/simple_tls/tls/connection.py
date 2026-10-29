@@ -24,14 +24,14 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from ssl import MemoryBIO
-from typing import Any, Literal, NoReturn, cast, overload
+from typing import Any, Literal, NoReturn, overload
 
 from cryptography import x509
 
-from .alerts import AlertException
-from .cipher import InvalidTag, TLSCipher, get_key_iv_lens
-from .configuration import TLSConfiguration
-from .constants import (
+from simple_tls.tls.alerts import AlertException
+from simple_tls.tls.cipher import InvalidTag, TLSCipher, get_key_iv_lens
+from simple_tls.tls.config import TLSConfiguration
+from simple_tls.tls.constants import (
     UNSPECIFIED,
     AlertDescription,
     AlertLevel,
@@ -40,18 +40,25 @@ from .constants import (
     KeyUpdateMessageType,
     TLSVersion,
 )
-from .enums import Direction, ECHStatus, Epoch, Shutdown, Status
-from .exceptions import (
+from simple_tls.tls.enums import Direction, ECHStatus, Epoch, Shutdown, Status
+from simple_tls.tls.exceptions import (
     TLSEOFError,
     TLSLocalAlert,
     TLSRemoteAlert,
     TLSWantReadError,
 )
-from .handshake import TLSHandshake, TrafficContext
-from .handshake_client import NewSessionCallback, TLSHandshakeClient
-from .handshake_server import ClientHelloCallback, TLSHandshakeServer
-from .messages import HandshakeMessage
-from .utils import (
+from simple_tls.tls.extensions import ECHConfig
+from simple_tls.tls.handshake import TLSHandshake, TrafficContext
+from simple_tls.tls.handshake_client import (
+    NewSessionCallback,
+    TLSHandshakeClient,
+)
+from simple_tls.tls.handshake_server import (
+    ClientHelloCallback,
+    TLSHandshakeServer,
+)
+from simple_tls.tls.messages import HandshakeMessage
+from simple_tls.tls.utils import (
     Buffer,
     WritableBuffer,
     get_algorithm,
@@ -82,34 +89,34 @@ class ConnectionState:
 class TLSConnection:
     def __init__(
         self,
+        *,
         configuration: TLSConfiguration,
         inbio: MemoryBIO | None = None,
         outbio: MemoryBIO | None = None,
+        message_callback: MessageCallback | None = None,
         new_session_callback: NewSessionCallback | None = None,
         client_hello_callback: ClientHelloCallback | None = None,
-        message_callback: MessageCallback | None = None,
     ) -> None:
-        self._message_callback = message_callback
-
-        handshake: TLSHandshakeClient | TLSHandshakeServer
-        if configuration.is_server:
-            handshake = TLSHandshakeServer(
-                configuration=configuration,
-                client_hello_callback=client_hello_callback,
-            )
-        else:
+        handshake: TLSHandshake
+        if not configuration.is_server:
             handshake = TLSHandshakeClient(
                 configuration=configuration,
                 new_session_callback=new_session_callback,
             )
-
+        else:
+            handshake = TLSHandshakeServer(
+                configuration=configuration,
+                client_hello_callback=client_hello_callback,
+            )
         handshake.message_cb = self._do_hs_callback
         handshake.setup_traffic_cb = self._setup_traffic
 
-        self._handshake: TLSHandshake = cast(TLSHandshake, handshake)
+        self._handshake: TLSHandshake = handshake
         """handshake object"""
         self._handshake_status: Status = Status.OK
         """current handshake status"""
+        self._message_callback = message_callback
+        """message callback"""
         self._send_record_limit: int = 2**14
         """send record limit"""
         self._recv_record_limit: int = 2**14
@@ -149,14 +156,6 @@ class TLSConnection:
         self._warning_alert_received: int = 0
 
     @property
-    def configuration(self) -> TLSConfiguration:
-        return self._handshake.configuration
-
-    @property
-    def is_server(self) -> bool:
-        return self._handshake.is_server
-
-    @property
     def server_hostname(self) -> bytes | None:
         return self._handshake.hostname
 
@@ -176,22 +175,14 @@ class TLSConnection:
         return data
 
     @overload
-    def read(self, length: int = 1024, buffer: None = ...) -> bytes: ...
+    def read(self, length: int = ..., buffer: None = ...) -> bytes: ...
 
     @overload
-    def read(
-        self, length: int = 1024, buffer: WritableBuffer = ...
-    ) -> int: ...
+    def read(self, length: int = ..., buffer: WritableBuffer = ...) -> int: ...
 
     def read(
         self, length: int = 1024, buffer: WritableBuffer | None = None
     ) -> int | bytes:
-        """
-        Read up to 'len' bytes from the SSL object and return them.
-
-        If 'buffer' is provided, read into this buffer and return the number of
-        bytes read.
-        """
         hs = self._handshake
 
         while not self._pending_app_data:
@@ -209,13 +200,11 @@ class TLSConnection:
                     )
 
                 hs.feed_data(data)
-
                 if not hs.done:
                     assert hs.can_early_read
                     hs.close_early_data()
                 else:
                     hs.trigger_post_handshake()
-
                 continue
 
             if hs.is_server and hs.can_early_read:
@@ -247,9 +236,9 @@ class TLSConnection:
             buffer[:data_len] = app_data
             del self._pending_app_data[:length]
             return data_len
-        else:
-            del self._pending_app_data[:length]
-            return bytes(app_data)
+
+        del self._pending_app_data[:length]
+        return bytes(app_data)
 
     def write(self, data: Buffer) -> int:
         hs = self._handshake
@@ -261,7 +250,7 @@ class TLSConnection:
             raise TLSEOFError("protocol is shutdown")
 
         max_send_fragment = self._send_record_limit
-        is_early_data_write = not self.is_server and hs.can_early_write
+        is_early_data_write = not hs.is_server and hs.can_early_write
 
         if is_early_data_write:
             max_send_fragment = min(
@@ -332,7 +321,7 @@ class TLSConnection:
 
     def version(self) -> TLSVersion | None:
         if self._has_final_version():
-            protocol = self.configuration.protocol
+            protocol = self._handshake.configuration.protocol
             version = self._handshake.protocol_version()
             wire_version = version_to_wire(protocol, version)
             return TLSVersion(wire_version)
@@ -353,11 +342,25 @@ class TLSConnection:
     def ech_accepted(self) -> bool:
         return self._handshake.ech_status == ECHStatus.ACCEPTED
 
-    def get_peer_ech_retry_configs(self) -> bytes | None:
-        return self._handshake.peer_ech_retry_configs
+    def get_peer_ciphers(self) -> list[CipherSuite] | None:
+        if self._handshake.peer_cipher_suites is not None:
+            out: list[CipherSuite] = []
+            for cipher_suite in self._handshake.peer_cipher_suites:
+                try:
+                    out.append(CipherSuite(cipher_suite))
+                except ValueError:
+                    continue
+            return out
+        return None
 
     def get_peer_application_settings(self) -> bytes | None:
         return self._handshake.peer_application_settings
+
+    def get_peer_ech_retry_configs(self) -> list[ECHConfig] | None:
+        ech_retry_configs = self._handshake.peer_ech_retry_configs
+        if ech_retry_configs is not None:
+            return list(ech_retry_configs)
+        return None
 
     def get_peer_certificate(self) -> x509.Certificate | None:
         return self._handshake.peer_certificate
@@ -376,17 +379,6 @@ class TLSConnection:
 
     def get_cipher_negotitated(self) -> CipherSuite | None:
         return self._handshake.cipher_suite
-
-    def get_peer_ciphers(self) -> list[CipherSuite] | None:
-        if self._handshake.peer_cipher_suites is not None:
-            out: list[CipherSuite] = []
-            for cipher_suite in self._handshake.peer_cipher_suites:
-                try:
-                    out.append(CipherSuite(cipher_suite))
-                except ValueError:
-                    continue
-            return out
-        return None
 
     # Callbacks
 

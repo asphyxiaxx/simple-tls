@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .constants import AlertDescription
+from simple_tls.tls.constants import AlertDescription
 
 
 class TLSError(Exception):
