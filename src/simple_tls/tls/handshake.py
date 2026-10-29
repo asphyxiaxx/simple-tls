@@ -261,7 +261,7 @@ class TLSHandshake:
 
         if self._maximum_version >= TLSVersion.TLSv1_2:
             if not self._signature_algorithms:
-                raise ValueError("no suitable signature_algorithsm provided")
+                raise ValueError("no suitable signature_algorithms provided")
             if (
                 self._verify_mode != VerifyMode.CERT_NONE
                 and not self._signing_signature_algorithms
