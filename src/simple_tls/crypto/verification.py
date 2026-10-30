@@ -341,7 +341,7 @@ class Verifier:
 
                 # If issuer is in store and acceptable as trust anchor,
                 # record candidate chain
-                if any(issuer is sc for sc in roots.get(issuer.subject, ())):
+                if any(issuer == sc for sc in roots.get(issuer.subject, ())):
                     if self._is_self_issued(issuer):
                         yield new_chain
                     elif self.allow_partial_chain:
