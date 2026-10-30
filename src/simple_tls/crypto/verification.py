@@ -20,8 +20,9 @@
 
 from __future__ import annotations
 
+import itertools
 import os
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Callable, Generator, Iterable
 from datetime import datetime, timedelta, timezone
 from os import PathLike
@@ -73,14 +74,15 @@ class UntrustedRoot(VerificationError): ...
 
 class StoreBuilder:
     def __init__(self) -> None:
-        # trust map: subject -> list of certs with that subject
-        self._trust_map: dict[x509.Name, list[x509.Certificate]] = {}
+        # trust map: subject -> tuple of certs with that subject
+        self._trust_map: dict[x509.Name, tuple[x509.Certificate, ...]] = {}
 
     def get_certificates(self) -> list[x509.Certificate]:
         return [cert for certs in self._trust_map.values() for cert in certs]
 
     def add_certificate(self, certificate: x509.Certificate) -> None:
-        self._trust_map.setdefault(certificate.subject, []).append(certificate)
+        existing = self._trust_map.get(certificate.subject, ())
+        self._trust_map[certificate.subject] = (*existing, certificate)
 
     def load_locations(
         self,
@@ -108,26 +110,20 @@ class StoreBuilder:
                         pass
 
         for cert in certs:
-            self._trust_map.setdefault(cert.subject, []).append(cert)
+            self.add_certificate(cert)
 
     def build(self) -> Store:
-        """
-        Freezes the staging data into immutable tuples and returns a Store.
-        """
-        trust_map = {
-            subject: list(certificates)
-            for subject, certificates in self._trust_map.items()
-        }
-        return Store(trust_map)
+        return Store(self._trust_map.copy())
 
 
 class Store:
     def __init__(
-        self, trust_map: dict[x509.Name, list[x509.Certificate]]
+        self, trust_map: dict[x509.Name, tuple[x509.Certificate, ...]]
     ) -> None:
         self._trust_map = trust_map
 
-    def get_trust_map(self) -> dict[x509.Name, list[x509.Certificate]]:
+    @property
+    def trust_map(self) -> dict[x509.Name, tuple[x509.Certificate, ...]]:
         return self._trust_map
 
 
@@ -301,15 +297,13 @@ class Verifier:
         self,
         leaf: x509.Certificate,
         intermediates: Iterable[x509.Certificate],
-    ) -> Generator[list[x509.Certificate]]:
+    ) -> Generator[list[x509.Certificate], None, None]:
         """Do BFS to find shortest chains first"""
 
-        roots_by_subject = self.store.get_trust_map()
-
-        # include store certs as possible issuers too
-        candidates_by_subject = roots_by_subject.copy()
+        roots = self.store.trust_map
+        candidates: dict[x509.Name, list[x509.Certificate]] = defaultdict(list)
         for c in intermediates:
-            candidates_by_subject.setdefault(c.subject, []).append(c)
+            candidates[c.subject].append(c)
 
         q: deque[list[x509.Certificate]] = deque()
         q.append([leaf])
@@ -323,10 +317,11 @@ class Verifier:
                 continue
 
             tip = chain[-1]
-            # if tip issuer equals some subject in the store AND we accept
-            # partial or it is self-signed root:
-            possible_issuers = candidates_by_subject.get(tip.issuer, [])
 
+            # Get possible issuers from intermediates and trusted roots
+            possible_issuers = itertools.chain(
+                candidates.get(tip.issuer, ()), roots.get(tip.issuer, ())
+            )
             for issuer in possible_issuers:
                 # avoid immediate loop (same cert)
                 if issuer is tip:
@@ -346,10 +341,7 @@ class Verifier:
 
                 # If issuer is in store and acceptable as trust anchor,
                 # record candidate chain
-                store_certs = roots_by_subject.get(issuer.subject, [])
-                is_trusted_anchor = any(issuer is sc for sc in store_certs)
-
-                if is_trusted_anchor:
+                if any(issuer is sc for sc in roots.get(issuer.subject, ())):
                     if self._is_self_issued(issuer):
                         yield new_chain
                     elif self.allow_partial_chain:
