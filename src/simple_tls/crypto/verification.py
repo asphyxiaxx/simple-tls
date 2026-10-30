@@ -313,7 +313,9 @@ class Verifier:
 
         while q:
             chain = q.popleft()
-            if len(chain) > self.max_chain_depth:
+
+            # Skip if this path is already at or beyond max depth
+            if len(chain) >= self.max_chain_depth:
                 continue
 
             tip = chain[-1]
@@ -351,15 +353,7 @@ class Verifier:
                 q.append(new_chain)
 
     def _verify_chain(self, chain: list[x509.Certificate]) -> None:
-        assert chain
-
-        if len(chain) > self.max_chain_depth:
-            leaf = chain[0]
-            err_str = (
-                f"chain length exceeds max depth "
-                f"[{len(chain)} > {self.max_chain_depth}]"
-            )
-            raise PolicyViolationError(leaf, err_str)
+        assert len(chain) > 0
 
         now = datetime.now(timezone.utc)
         skew = 300
