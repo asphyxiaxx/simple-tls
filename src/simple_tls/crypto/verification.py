@@ -326,7 +326,7 @@ class Verifier:
             )
             for issuer in possible_issuers:
                 # avoid immediate loop (same cert)
-                if issuer is tip:
+                if issuer == tip:
                     continue
 
                 # optional AKI/SKI filter
