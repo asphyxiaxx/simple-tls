@@ -5,13 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from simple_tls.crypto.verification import StoreBuilder
-from simple_tls.tls.configuration import TLSConfiguration, TLSCredential
-from simple_tls.tls.enums import Protocol, VerifyMode
-from simple_tls.tls.handshake_client import TLSHandshakeClient
-from simple_tls.tls.handshake_server import TLSHandshakeServer
-from simple_tls.tls.keyexchange import load_pem_parameters
-
 
 def format_path(*paths: str):
     return os.path.join(os.path.dirname(__file__), *paths)
@@ -98,89 +91,3 @@ def wycheproof_tests(*paths: str, subdir: str = "testvectors_v1"):
         return wrapper
 
     return decorator
-
-
-SERVER_DH_PARAMETERS_FILE = format_path("certs", "dhparams.pem")
-
-SERVER_CAFILE = format_path("certs", "root_ca.crt")
-SERVER_RSA_CERTFILE = format_path("certs", "server_rsa_chain.crt")
-SERVER_RSA_KEYFILE = format_path("certs", "server_rsa.key")
-SERVER_DSA_CERTFILE = format_path("certs", "server_dsa_chain.crt")
-SERVER_DSA_KEYFILE = format_path("certs", "server_dsa.key")
-SERVER_EC_SECP256R1_CERTFILE = format_path(
-    "certs", "server_ec_secp256r1_chain.crt"
-)
-SERVER_EC_SECP256R1_KEYFILE = format_path("certs", "server_ec_secp256r1.key")
-SERVER_ED25519_CERTFILE = format_path("certs", "server_ed25519_chain.crt")
-SERVER_ED25519_KEYFILE = format_path("certs", "server_ed25519.key")
-SERVER_ED448_CERTFILE = format_path("certs", "server_ed448_chain.crt")
-SERVER_ED448_KEYFILE = format_path("certs", "server_ed448.key")
-
-
-class SessionHandler:
-    def __init__(self):
-        self._sessions = []
-
-    def __call__(self, session):
-        self._sessions.append(session)
-
-    def __len__(self):
-        return len(self._sessions)
-
-    def pop(self):
-        return self._sessions.pop()
-
-
-class TicketAEAD:
-    def __init__(self):
-        self._storage = {}
-
-    def seal(self, plaintext, _):
-        ticket = os.urandom(32)
-        self._storage[ticket] = plaintext
-        return ticket
-
-    def open(self, ticket, _):
-        try:
-            return self._storage[ticket]
-        except KeyError:
-            return None
-
-
-def load_castore(cafile):
-    builder = StoreBuilder()
-    builder.load_locations(cafile=cafile)
-    return builder.build()
-
-
-def create_server(
-    certfile=SERVER_RSA_CERTFILE,
-    keyfile=SERVER_RSA_KEYFILE,
-    dh_params_file=None,
-    **kwargs,
-):
-    if dh_params_file:
-        with open(dh_params_file, "rb") as fp:
-            dh_parameters = load_pem_parameters(fp.read())
-    else:
-        dh_parameters = None
-
-    credential = TLSCredential.from_certfile(certfile, keyfile)
-    config = TLSConfiguration(
-        is_server=True,
-        protocol=Protocol.TLS,
-        dh_parameters=dh_parameters,
-        credential=credential,
-        **kwargs,
-    )
-    return TLSHandshakeServer(config)
-
-
-def create_client(cafile=SERVER_CAFILE, **kwargs):
-    kwargs.setdefault("server_hostname", b"localhost")
-    kwargs.setdefault("verify_mode", VerifyMode.CERT_REQUIRED)
-    kwargs.setdefault("check_hostname", True)
-
-    castore = load_castore(cafile)
-    config = TLSConfiguration(castore=castore, **kwargs)
-    return TLSHandshakeClient(config)

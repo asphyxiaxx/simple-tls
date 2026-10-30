@@ -46,19 +46,16 @@ def write_key_cert(
         pem_data = b"".join(
             c.public_bytes(serialization.Encoding.PEM) for c in certificates
         )
-        filename_prefix += "_chain"
 
     write_to_file(output_dir / f"{filename_prefix}.crt", pem_data)
 
 
 def generate_root_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     print("Generating RSA Root CA...")
-    # 1. Generate RSA 2048-bit Private Key
     private_key = rsa.generate_private_key(
         public_exponent=65537, key_size=2048
     )
 
-    # 2. Build the CA Subject/Issuer Name
     subject = issuer = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
@@ -71,7 +68,6 @@ def generate_root_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
         ]
     )
 
-    # 3. Build the CA Certificate
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -80,7 +76,6 @@ def generate_root_ca() -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
-            # Valid for 10 years
             datetime.datetime.now(datetime.timezone.utc)
             + datetime.timedelta(days=3650)
         )
@@ -99,12 +94,10 @@ def generate_intermediate_ca(
     root_cert: x509.Certificate,
 ) -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     print("Generating RSA Intermediate CA...")
-    # 1. Generate RSA 2048-bit Private Key for Intermediate
     private_key = rsa.generate_private_key(
         public_exponent=65537, key_size=2048
     )
 
-    # 2. Build the Intermediate CA Subject Name
     subject = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
@@ -117,7 +110,6 @@ def generate_intermediate_ca(
         ]
     )
 
-    # 3. Build the Intermediate Certificate
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -126,13 +118,10 @@ def generate_intermediate_ca(
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
-            # Valid for 5 years
             datetime.datetime.now(datetime.timezone.utc)
             + datetime.timedelta(days=1825)
         )
         .add_extension(
-            # path_length=0 means it can sign leaf certs, but cannot sign
-            # other CAs
             x509.BasicConstraints(ca=True, path_length=0),
             critical=True,
         )
@@ -143,8 +132,8 @@ def generate_intermediate_ca(
                 key_encipherment=False,
                 data_encipherment=False,
                 key_agreement=False,
-                key_cert_sign=True,  # Critical for a CA
-                crl_sign=True,  # Critical for a CA
+                key_cert_sign=True,
+                crl_sign=True,
                 encipher_only=False,
                 decipher_only=False,
             ),
@@ -157,7 +146,7 @@ def generate_intermediate_ca(
             critical=False,
         )
         .sign(root_key, hashes.SHA256())
-    )  # Signed by the Root CA's private key
+    )
 
     return private_key, cert
 
@@ -166,27 +155,26 @@ def generate_leaf_cert(
     ca_key: CertificateIssuerPrivateKeyTypes,
     ca_cert: x509.Certificate,
     leaf_private_key: CertificateIssuerPrivateKeyTypes,
+    extended_key_usages: list[ExtendedKeyUsageOID],
     common_name: str,
+    organization_name: str = "Test Server",
+    sans: list[x509.GeneralName] | None = None,
 ) -> x509.Certificate:
-    print(f"Generating Leaf Certificate: {common_name}...")
+    print(f"Generating Leaf Certificate ({common_name})...")
 
-    # 1. Build the Leaf Subject Name
     subject = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "State"),
             x509.NameAttribute(NameOID.LOCALITY_NAME, "City"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test Server"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization_name),
             x509.NameAttribute(NameOID.COMMON_NAME, common_name),
         ]
     )
 
-    # DSA keys can only be used for signatures, not encipherment.
-    # RSA and EC can be used for both in TLS.
     can_encipher = not isinstance(leaf_private_key, dsa.DSAPrivateKey)
 
-    # 2. Build the Leaf Certificate
-    cert = (
+    builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
         .issuer_name(ca_cert.subject)
@@ -194,18 +182,8 @@ def generate_leaf_cert(
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
         .not_valid_after(
-            # Valid for 1 year
             datetime.datetime.now(datetime.timezone.utc)
             + datetime.timedelta(days=365)
-        )
-        .add_extension(
-            x509.SubjectAlternativeName(
-                [
-                    x509.DNSName("localhost"),
-                    x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-                ]
-            ),
-            critical=False,
         )
         .add_extension(
             x509.BasicConstraints(ca=False, path_length=None),
@@ -226,7 +204,7 @@ def generate_leaf_cert(
             critical=True,
         )
         .add_extension(
-            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+            x509.ExtendedKeyUsage(extended_key_usages),
             critical=False,
         )
         .add_extension(
@@ -235,16 +213,20 @@ def generate_leaf_cert(
             ),
             critical=False,
         )
-        # Signed by the CA's RSA private key
-        .sign(ca_key, hashes.SHA256())
     )
 
-    return cert
+    if sans:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName(sans),
+            critical=False,
+        )
+
+    return builder.sign(ca_key, hashes.SHA256())
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate CA and Leaf Certificates."
+        description="Generate CA, Server Leaf, and Client Leaf Certificates."
     )
     parser.add_argument(
         "output_dir",
@@ -253,7 +235,7 @@ if __name__ == "__main__":
         default=Path("."),
         help=(
             "Target directory to save the generated certificates and keys "
-            "(default: current directory)",
+            "(default: current directory)"
         ),
     )
     args = parser.parse_args()
@@ -261,21 +243,29 @@ if __name__ == "__main__":
     output_dir: Path = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Generate the Root CA
+    # Generate the Root CA
     root_key, root_cert = generate_root_ca()
     write_key_cert(root_key, root_cert, "root_ca", output_dir)
 
-    # 2. Generate the Intermediate CA (Signed by Root CA)
+    # Generate the Intermediate CA (Signed by Root CA)
     int_key, int_cert = generate_intermediate_ca(root_key, root_cert)
     write_key_cert(int_key, int_cert, "intermediate_ca", output_dir)
 
-    # 3. Generate RSA Leaf (Signed by Intermediate CA)
+    # --- SERVER LEAF CERTIFICATES ---
+    server_sans = [
+        x509.DNSName("localhost"),
+        x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+    ]
+
     rsa_leaf_key = rsa.generate_private_key(65537, 2048)
     rsa_leaf_cert = generate_leaf_cert(
         int_key,
         int_cert,
         rsa_leaf_key,
-        "localhost-rsa",
+        extended_key_usages=[ExtendedKeyUsageOID.SERVER_AUTH],
+        common_name="localhost-rsa",
+        organization_name="Test Server",
+        sans=server_sans,
     )
     write_key_cert(
         rsa_leaf_key,
@@ -284,13 +274,15 @@ if __name__ == "__main__":
         output_dir,
     )
 
-    # 4. Generate EC Leaf (Signed by Intermediate CA)
     ec_leaf_key = ec.generate_private_key(ec.SECP256R1())
     ec_leaf_cert = generate_leaf_cert(
         int_key,
         int_cert,
         ec_leaf_key,
-        "localhost-ec",
+        extended_key_usages=[ExtendedKeyUsageOID.SERVER_AUTH],
+        common_name="localhost-ec",
+        organization_name="Test Server",
+        sans=server_sans,
     )
     write_key_cert(
         ec_leaf_key,
@@ -299,13 +291,15 @@ if __name__ == "__main__":
         output_dir,
     )
 
-    # 5. Generate DSA Leaf (Signed by Intermediate CA)
     dsa_leaf_key = dsa.generate_private_key(key_size=2048)
     dsa_leaf_cert = generate_leaf_cert(
         int_key,
         int_cert,
         dsa_leaf_key,
-        "localhost-dsa",
+        extended_key_usages=[ExtendedKeyUsageOID.SERVER_AUTH],
+        common_name="localhost-dsa",
+        organization_name="Test Server",
+        sans=server_sans,
     )
     write_key_cert(
         dsa_leaf_key,
@@ -314,13 +308,15 @@ if __name__ == "__main__":
         output_dir,
     )
 
-    # 6. Generate Ed25519 Leaf (Signed by Intermediate CA)
     ed25519_leaf_key = ed25519.Ed25519PrivateKey.generate()
     ed25519_leaf_cert = generate_leaf_cert(
         int_key,
         int_cert,
         ed25519_leaf_key,
-        "localhost-ed25519",
+        extended_key_usages=[ExtendedKeyUsageOID.SERVER_AUTH],
+        common_name="localhost-ed25519",
+        organization_name="Test Server",
+        sans=server_sans,
     )
     write_key_cert(
         ed25519_leaf_key,
@@ -329,18 +325,102 @@ if __name__ == "__main__":
         output_dir,
     )
 
-    # 7. Generate Ed448 Leaf (Signed by Intermediate CA)
     ed448_leaf_key = ed448.Ed448PrivateKey.generate()
     ed448_leaf_cert = generate_leaf_cert(
         int_key,
         int_cert,
         ed448_leaf_key,
-        "localhost-ed448",
+        extended_key_usages=[ExtendedKeyUsageOID.SERVER_AUTH],
+        common_name="localhost-ed448",
+        organization_name="Test Server",
+        sans=server_sans,
     )
     write_key_cert(
         ed448_leaf_key,
         [ed448_leaf_cert, int_cert],
         "server_ed448",
+        output_dir,
+    )
+
+    # --- CLIENT LEAF CERTIFICATES ---
+    rsa_client_key = rsa.generate_private_key(65537, 2048)
+    rsa_client_cert = generate_leaf_cert(
+        int_key,
+        int_cert,
+        rsa_client_key,
+        extended_key_usages=[ExtendedKeyUsageOID.CLIENT_AUTH],
+        common_name="client-rsa-user",
+        organization_name="Test Client",
+    )
+    write_key_cert(
+        rsa_client_key,
+        [rsa_client_cert, int_cert],
+        "client_rsa",
+        output_dir,
+    )
+
+    # 9. Generate EC Client Certificate
+    ec_client_key = ec.generate_private_key(ec.SECP256R1())
+    ec_client_cert = generate_leaf_cert(
+        int_key,
+        int_cert,
+        ec_client_key,
+        extended_key_usages=[ExtendedKeyUsageOID.CLIENT_AUTH],
+        common_name="client-ec-user",
+        organization_name="Test Client",
+    )
+    write_key_cert(
+        ec_client_key,
+        [ec_client_cert, int_cert],
+        "client_ec_secp256r1",
+        output_dir,
+    )
+
+    dsa_client_key = dsa.generate_private_key(key_size=2048)
+    dsa_client_cert = generate_leaf_cert(
+        int_key,
+        int_cert,
+        dsa_client_key,
+        extended_key_usages=[ExtendedKeyUsageOID.CLIENT_AUTH],
+        common_name="client-dsa-user",
+        organization_name="Test Client",
+    )
+    write_key_cert(
+        dsa_client_key,
+        [dsa_client_cert, int_cert],
+        "client_dsa",
+        output_dir,
+    )
+
+    ed25519_client_key = ed25519.Ed25519PrivateKey.generate()
+    ed25519_client_cert = generate_leaf_cert(
+        int_key,
+        int_cert,
+        ed25519_client_key,
+        extended_key_usages=[ExtendedKeyUsageOID.CLIENT_AUTH],
+        common_name="client-ed25519-user",
+        organization_name="Test Client",
+    )
+    write_key_cert(
+        ed25519_client_key,
+        [ed25519_client_cert, int_cert],
+        "client_ed25519",
+        output_dir,
+    )
+
+    ed448_client_key = ed448.Ed448PrivateKey.generate()
+    ed448_client_cert = generate_leaf_cert(
+        int_key,
+        int_cert,
+        ed448_client_key,
+        extended_key_usages=[ExtendedKeyUsageOID.CLIENT_AUTH],
+        common_name="client-ed448-user",
+        organization_name="Test Client",
+    )
+    write_key_cert(
+        ed448_client_key,
+        [ed448_client_cert, int_cert],
+        "client_ed448",
         output_dir,
     )
 
