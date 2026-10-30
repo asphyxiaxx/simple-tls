@@ -433,6 +433,8 @@ class SSLContext(_ssl.SSLContext):
             "alpn_protocols": self._alpn_protocols,
             "castore": self._castore_builder.build(),
             "check_hostname": self._check_hostname,
+            "credential": self._credential,
+            "dh_parameters": self._dh_parameters,
             "post_handshake_auth": self._post_handshake_auth,
         }
 
@@ -453,9 +455,7 @@ class SSLContext(_ssl.SSLContext):
         else:
             raise ValueError(f"Unsupported verify_mode '{self._verify_mode}'")
 
-        if self._server_side:
-            config["dh_parameters"] = self._dh_parameters
-            if not (self.options & Options.OP_NO_TICKET):
-                config["ticket_aead"] = self._ticket_aead
+        if not (self.options & Options.OP_NO_TICKET):
+            config["ticket_aead"] = self._ticket_aead
 
         return config
