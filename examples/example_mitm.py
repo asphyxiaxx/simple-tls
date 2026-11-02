@@ -243,13 +243,14 @@ class SSLConnection:
             return chain
         return [OpenSSL_X509.from_cryptography(c) for c in chain]
 
-    def get_peer_ech_retry_configs(self) -> list[bytes] | None:
+    def get_peer_ech_retry_configs(self) -> bytes | None:
         if self._conn is None:
             raise TypeError("connection state not set")
         retry_configs = self._conn.get_peer_ech_retry_configs()
         if retry_configs is not None:
-            return [c.serialize() for c in retry_configs]
-        return []
+            data = b"".join(c.serialize() for c in retry_configs)
+            return len(data).to_bytes(2) + data
+        return b""
 
     def get_alpn_proto_negotiated(self) -> bytes | None:
         if self._conn is None:
