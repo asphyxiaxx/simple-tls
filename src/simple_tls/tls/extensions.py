@@ -131,7 +131,7 @@ class Extensions:
         return -1, None
 
     def replace(self, extension: Extension) -> None:
-        """Replace an existing extension by type, or append if not found."""
+        """Replace an existing extension by type."""
         for i, (ext_type, _) in enumerate(self._extensions):
             if ext_type == extension.extension_type:
                 self._extensions[i] = (
