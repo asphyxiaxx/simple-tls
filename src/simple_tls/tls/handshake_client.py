@@ -166,6 +166,8 @@ from simple_tls.tls.utils import (
     negotiate,
 )
 
+_PreSharedKey = tuple[KeySchedule, PSKIdentity, bytes]
+
 NewSessionCallback = Callable[[TLSSession], None]
 
 
@@ -254,9 +256,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._selected_ech_config: ECHConfigContext | None = None
         self._ech_client_outer: ECHClientExtension | None = None
         self._ticket_expected: bool = False
-        self._pre_shared_keys: list[
-            tuple[KeySchedule, PSKIdentity, bytes]
-        ] = []
+        self._pre_shared_keys: list[_PreSharedKey] = []
         self._key_exchange: BaseKeyExchange | None = None
         self._key_exchanges: dict[int, BaseKeyExchange] = {}
 
@@ -2477,7 +2477,7 @@ class TLSHandshakeClient(TLSHandshake):
     @classmethod
     def _update_binders(
         cls,
-        pre_shared_keys: list[tuple[KeySchedule, PSKIdentity, bytes]],
+        pre_shared_keys: list[_PreSharedKey],
         transcript: Transcript,
         client_hello: ClientHello,
         encoded_client_hello: ClientHello | None = None,

@@ -97,6 +97,7 @@ from simple_tls.tls.extensions import (
     NPNServerExtension,
     PostHandshakeAuthExtension,
     PSKClientExtension,
+    PSKIdentity,
     PSKKeyExchangeModesExtension,
     PSKServerExtension,
     RenegotiationInfoExtension,
@@ -136,6 +137,8 @@ from simple_tls.tls.messages import (
 )
 from simple_tls.tls.session import TicketContext, TLSSession
 from simple_tls.tls.utils import KeySchedule, negotiate
+
+_PreSharedKey = tuple[PSKIdentity, bytes]
 
 ClientHelloCallback = Callable[["ClientHelloInfo", "HandshakeContext"], None]
 
@@ -207,7 +210,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._npn_expected: bool = False
         self._ticket_expected: bool = False
         self._certificate_requested: bool = False
-        self._pre_shared_key: tuple[bytes, bytes] | None = None
+        self._pre_shared_key: _PreSharedKey | None = None
         self._key_exchange: BaseKeyExchange | None = None
 
         # Peer item
@@ -991,8 +994,7 @@ class TLSHandshakeServer(TLSHandshake):
                 )
 
                 for index, psk_identity in enumerate(psk_ext.identities):
-                    identity = psk_identity.identity
-                    session = self._decrypt_session(identity)
+                    session = self._decrypt_session(psk_identity.identity)
                     if session is None:
                         continue
 
@@ -1010,7 +1012,7 @@ class TLSHandshakeServer(TLSHandshake):
                     self._session_reused = True
                     self._psk_index = index
                     # Store in case of HRR
-                    self._pre_shared_key = (identity, binder_key)
+                    self._pre_shared_key = (psk_identity, binder_key)
                     break
 
         if self._session_reused:
@@ -1276,6 +1278,9 @@ class TLSHandshakeServer(TLSHandshake):
             if psk_ext is None:
                 raise AlertMissingExtension("missing PSK extension")
 
+            exp_identity = self._pre_shared_key[0].identity
+            binder_key = self._pre_shared_key[1]
+
             binders = psk_ext.binders
             transcript = self._transcript.copy()
             transcript.update_hash(
@@ -1283,11 +1288,11 @@ class TLSHandshakeServer(TLSHandshake):
             )
 
             for i, psk_identity in enumerate(psk_ext.identities):
-                if psk_identity.identity != self._pre_shared_key[0]:
+                if psk_identity.identity != exp_identity:
                     continue
 
                 expected_binder = self._key_schedule.finished_verify_data(
-                    self._pre_shared_key[1], transcript
+                    binder_key, transcript
                 )
                 if not compare_digest(binders[i], expected_binder):
                     raise AlertDecryptError("binder mismatch")
