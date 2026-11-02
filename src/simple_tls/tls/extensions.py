@@ -178,10 +178,9 @@ class Extensions:
 
     def __repr__(self) -> str:
         exts_repr = ", ".join(
-            (f"Extension(type={self._type_name(t)}, data_length={len(data)})")
-            for t, data in self._extensions
+            f"({self._type_name(t)}, {d})" for t, d in self._extensions
         )
-        return f"{self.__class__.__name__}([{exts_repr}])"
+        return f"Extension([{exts_repr}])"
 
     def __getitem__(self, index: int) -> tuple[int, bytes]:
         return self._extensions[index]
