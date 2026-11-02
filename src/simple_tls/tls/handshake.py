@@ -1033,7 +1033,6 @@ class TLSHandshake:
 
         verifier = Verifier(
             store=configuration.castore,
-            allow_partial_chain=True,
             ee_policy=ee_policy,
             ca_policy=ca_policy,
         )
