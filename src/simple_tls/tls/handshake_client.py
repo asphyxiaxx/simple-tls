@@ -162,7 +162,7 @@ from simple_tls.tls.utils import (
     KeySchedule,
     Transcript,
     check_server_hostname,
-    is_ipaddress,
+    ip_address,
     negotiate,
 )
 
@@ -1997,7 +1997,10 @@ class TLSHandshakeClient(TLSHandshake):
             extensions.append(SNIClientExtension(hostname))
         else:
             # RFC 6066 explicitly forbids literal IP addresses in SNI
-            if self._hostname is not None and not is_ipaddress(self._hostname):
+            if (
+                self._hostname is not None
+                and ip_address(self._hostname) is None
+            ):
                 extensions.append(SNIClientExtension(self._hostname))
 
         # Status Request

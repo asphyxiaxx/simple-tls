@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import ipaddress
-import re
 from collections.abc import Container, Iterable
 from datetime import datetime, timezone
 from os import PathLike
@@ -47,6 +46,8 @@ from simple_tls.tls.enums import Protocol
 Buffer: TypeAlias = bytes | bytearray | memoryview
 WritableBuffer: TypeAlias = bytearray | memoryview
 StrOrBytesPath: TypeAlias = str | bytes | PathLike[str] | PathLike[bytes]
+IPAddress: TypeAlias = ipaddress.IPv4Address | ipaddress.IPv6Address
+
 
 _T = TypeVar("_T")
 
@@ -94,13 +95,12 @@ def check_server_hostname(server_hostname: bytes) -> None:
         raise ValueError("SNI hostname is too long")
 
 
-def is_ipaddress(server_hostname: bytes) -> bool:
+def ip_address(server_hostname: Buffer) -> IPAddress | None:
     hostname = bytes_to_str(server_hostname)
     try:
-        ipaddress.ip_address(hostname)
-        return True
+        return ipaddress.ip_address(hostname)
     except ValueError:
-        return False
+        return None
 
 
 def filter(items: Iterable[_T], valid_items: Container[_T]) -> tuple[_T, ...]:
@@ -354,7 +354,7 @@ class SANValidator(Validator):
     oid = ExtensionOID.SUBJECT_ALTERNATIVE_NAME
 
     def __init__(self, server_hostname: Buffer) -> None:
-        self._server_hostname = bytes_to_str(server_hostname)
+        self._server_hostname = server_hostname
 
     def __call__(
         self,
@@ -362,17 +362,12 @@ class SANValidator(Validator):
         ee: x509.Certificate,
         extension: x509.Extension[x509.SubjectAlternativeName],
     ) -> None:
-        server_hostname = self._server_hostname
-        is_ip = False
-        try:
-            ip_addr = ipaddress.ip_address(server_hostname)
-            is_ip = True
-        except ValueError:
-            ip_addr = None
+        server_hostname = bytes_to_str(self._server_hostname)
+        ip_addr = ip_address(self._server_hostname)
 
         # if IP, compare iPAddress entries
         san = extension.value
-        if is_ip:
+        if ip_addr is not None:
             for entry in san.get_values_for_type(x509.IPAddress):
                 if ip_addr == entry:
                     return
@@ -414,36 +409,6 @@ class SANValidator(Validator):
         # only single wildcard in left-most label
         if parts_pat[0] != "*" or len(parts_pat) != len(parts_host):
             return False
-        return parts_pat[1:] == parts_host[1:]
-
-    @staticmethod
-    def _dnsname_match2(pattern: str, hostname: str) -> bool:
-        """
-        Relaxed wildcard matching:
-        - Case-insensitive
-        - Wildcard '*' may appear anywhere in the left-most label
-          (not only as full '*')
-        - '*' matches zero or more chars
-        - Still requires same number of labels
-        """
-        pattern = pattern.lower()
-        hostname = hostname.lower()
-
-        if pattern == hostname:
-            return True
-
-        parts_pat = pattern.split(".")
-        parts_host = hostname.split(".")
-
-        if len(parts_pat) != len(parts_host):
-            return False
-
-        # turn left-most label into regex
-        left_pat = re.escape(parts_pat[0]).replace("\\*", ".*")
-        if not re.fullmatch(left_pat, parts_host[0]):
-            return False
-
-        # rest must match exactly
         return parts_pat[1:] == parts_host[1:]
 
 
