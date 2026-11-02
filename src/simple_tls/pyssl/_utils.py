@@ -268,7 +268,7 @@ def load_ech_config_list(data: ECHConfigListType) -> list[tls.ECHConfig]:
 
 def serialize_ech_configs(configs: Sequence[tls.ECHConfig]) -> bytes:
     data = b"".join(c.serialize() for c in configs)
-    return len(data).to_bytes(2) + data
+    return len(data).to_bytes(2, "big") + data
 
 
 def create_default_context(

@@ -249,7 +249,7 @@ class SSLConnection:
         retry_configs = self._conn.get_peer_ech_retry_configs()
         if retry_configs is not None:
             data = b"".join(c.serialize() for c in retry_configs)
-            return len(data).to_bytes(2) + data
+            return len(data).to_bytes(2, "big") + data
         return b""
 
     def get_alpn_proto_negotiated(self) -> bytes | None:
