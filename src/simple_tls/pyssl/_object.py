@@ -89,6 +89,8 @@ class SSLObject(_ssl.SSLObject):
 
         self._sslobj = self._sslobj = SSLConnection(
             configuration=config,
+            inbio=incoming,
+            outbio=outgoing,
             new_session_callback=new_session_callback,
             client_hello_callback=client_hello_callback,
         )
