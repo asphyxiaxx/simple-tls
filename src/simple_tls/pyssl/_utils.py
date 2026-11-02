@@ -53,6 +53,7 @@ SrvnmeCbType: TypeAlias = Callable[
     [Union["SSLSocket", "SSLObject"], str | None, "SSLContext"],
     int | None,
 ]
+ECHConfigListType: TypeAlias = Sequence[bytes] | bytes | None
 
 
 def _parse_name(name: x509.Name) -> tuple[tuple[tuple[str, str], ...], ...]:
@@ -253,9 +254,7 @@ def parse_cipher_string(cipher_str: str) -> list[tls.CipherSuite]:
     return cipher_suites
 
 
-def load_ech_config_list(
-    data: Sequence[bytes] | bytes | None,
-) -> list[tls.ECHConfig]:
+def load_ech_config_list(data: ECHConfigListType) -> list[tls.ECHConfig]:
     if data is None:
         return []
 
@@ -265,6 +264,11 @@ def load_ech_config_list(
     for d in data:
         ech_configs.extend(tls.load_ech_configs(d))
     return ech_configs
+
+
+def serialize_ech_configs(configs: Sequence[tls.ECHConfig]) -> bytes:
+    data = b"".join(c.serialize() for c in configs)
+    return len(data).to_bytes(2) + data
 
 
 def create_default_context(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ssl as _ssl
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 from cryptography.hazmat.primitives import serialization
@@ -13,6 +12,7 @@ from ._constants import Options
 from ._exceptions import SSLEOFError, SSLWantReadError
 from ._session import SSLSession
 from ._utils import (
+    ECHConfigListType,
     PeerCertRetDictType,
     ReadableBuffer,
     SrvnmeCbType,
@@ -22,6 +22,7 @@ from ._utils import (
     get_version_name,
     load_ech_config_list,
     parse_certificate,
+    serialize_ech_configs,
 )
 
 if TYPE_CHECKING:
@@ -46,7 +47,7 @@ class SSLObject(_ssl.SSLObject):
         server_hostname: str | bytes | None = None,
         session: SSLSession | None = None,
         context: SSLContext | None = None,
-        peer_ech_configs: Sequence[bytes] | bytes | None = None,
+        peer_ech_configs: ECHConfigListType | None = None,
     ) -> SSLObject:
         if context is None:
             raise ValueError("context not provided")
@@ -155,10 +156,10 @@ class SSLObject(_ssl.SSLObject):
     def ech_accepted(self) -> bool:
         return self._sslobj.ech_accepted()
 
-    def get_peer_ech_retry_configs(self) -> list[bytes] | None:
+    def get_peer_ech_retry_configs(self) -> bytes | None:
         retry_configs = self._sslobj.get_peer_ech_retry_configs()
         if retry_configs is not None:
-            return [c.serialize() for c in retry_configs]
+            return serialize_ech_configs(retry_configs)
         return None
 
     @overload

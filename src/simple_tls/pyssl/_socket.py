@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import errno
 import ssl as _ssl
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from socket import SO_TYPE, SOCK_STREAM, SOL_SOCKET, socket
 from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
@@ -20,6 +20,7 @@ from ._exceptions import (
 )
 from ._session import SSLSession
 from ._utils import (
+    ECHConfigListType,
     PeerCertRetDictType,
     ReadableBuffer,
     SrvnmeCbType,
@@ -29,6 +30,7 @@ from ._utils import (
     get_version_name,
     load_ech_config_list,
     parse_certificate,
+    serialize_ech_configs,
 )
 
 if TYPE_CHECKING:
@@ -61,7 +63,7 @@ class SSLSocket(_ssl.SSLSocket):
         server_hostname: str | bytes | None = None,
         context: SSLContext | None = None,
         session: SSLSession | None = None,
-        peer_ech_configs: Sequence[bytes] | bytes | None = None,
+        peer_ech_configs: ECHConfigListType | None = None,
     ) -> SSLSocket:
         if context is None:
             raise ValueError("context not provided")
@@ -268,11 +270,11 @@ class SSLSocket(_ssl.SSLSocket):
             return self._sslobj.ech_accepted()
         return False
 
-    def get_peer_ech_retry_configs(self) -> list[bytes] | None:
+    def get_peer_ech_retry_configs(self) -> bytes | None:
         if self._sslobj is not None:
             retry_configs = self._sslobj.get_peer_ech_retry_configs()
             if retry_configs is not None:
-                return [c.serialize() for c in retry_configs]
+                return serialize_ech_configs(retry_configs)
         return None
 
     @overload
