@@ -159,6 +159,26 @@ class TLSConnection:
     def server_hostname(self) -> bytes | None:
         return self._handshake.hostname
 
+    @property
+    def handshake_complete(self) -> bool:
+        return self._handshake.session_established
+
+    @property
+    def session_reused(self) -> bool:
+        return self._handshake.session_reused
+
+    @property
+    def early_data_accepted(self) -> bool:
+        return self._handshake.early_data_accepted
+
+    @property
+    def early_data_offered(self) -> bool:
+        return self._handshake.early_data_offered
+
+    @property
+    def ech_accepted(self) -> bool:
+        return self._handshake.ech_status == ECHStatus.ACCEPTED
+
     def bio_write(self, data: Buffer) -> None:
         """
         Data from the network
@@ -319,28 +339,13 @@ class TLSConnection:
 
         self._handshake.send_key_update(message_type)
 
-    def version(self) -> TLSVersion | None:
+    def get_protocol_version(self) -> TLSVersion | None:
         if self._has_final_version():
             protocol = self._handshake.configuration.protocol
             version = self._handshake.protocol_version()
             wire_version = version_to_wire(protocol, version)
             return TLSVersion(wire_version)
         return None
-
-    def handshake_complete(self) -> bool:
-        return self._handshake.session_established
-
-    def session_reused(self) -> bool:
-        return self._handshake.session_reused
-
-    def early_data_accepted(self) -> bool:
-        return self._handshake.early_data_accepted
-
-    def early_data_offered(self) -> bool:
-        return self._handshake.early_data_offered
-
-    def ech_accepted(self) -> bool:
-        return self._handshake.ech_status == ECHStatus.ACCEPTED
 
     def get_peer_ciphers(self) -> list[CipherSuite] | None:
         if self._handshake.peer_cipher_suites is not None:

@@ -277,12 +277,12 @@ class SSLConnection:
             stls.TLSVersion.TLSv1_3: "TLSv1.3",
             None: "Unknown version",
         }
-        return version_map[self._conn.version()]
+        return version_map[self._conn.get_protocol_version()]
 
     def ech_accepted(self) -> bool:
         if self._conn is None:
             raise TypeError("connection state not set")
-        return self._conn.ech_accepted()
+        return self._conn.ech_accepted
 
     def get_app_data(self) -> bytes:
         return self._app_data

@@ -109,15 +109,6 @@ class SSLObject(_ssl.SSLObject):
         self._context = context
 
     @property
-    def session(self) -> SSLSession | None:  # type: ignore[override]
-        return self._session
-
-    @property
-    def session_reused(self) -> bool:
-        """Was the client session reused during handshake"""
-        return self._sslobj.session_reused()
-
-    @property
     def server_side(self) -> bool:
         """Whether this is a server-side socket."""
         return self._server_side
@@ -129,6 +120,19 @@ class SSLObject(_ssl.SSLObject):
         server hostname is set.
         """
         return self._server_hostname
+
+    @property
+    def session(self) -> SSLSession | None:  # type: ignore[override]
+        return self._session
+
+    @property
+    def session_reused(self) -> bool:
+        """Was the client session reused during handshake"""
+        return self._sslobj.session_reused
+
+    @property
+    def ech_accepted(self) -> bool:
+        return self._sslobj.ech_accepted
 
     def read(
         self, len: int = 1024, buffer: WritableBuffer | None = None
@@ -154,9 +158,6 @@ class SSLObject(_ssl.SSLObject):
         The 'data' argument must support the buffer interface.
         """
         return self._sslobj.write(data)  # type: ignore
-
-    def ech_accepted(self) -> bool:
-        return self._sslobj.ech_accepted()
 
     def get_peer_ech_retry_configs(self) -> bytes | None:
         retry_configs = self._sslobj.get_peer_ech_retry_configs()
@@ -296,7 +297,7 @@ class SSLObject(_ssl.SSLObject):
         Return a string identifying the protocol version used by the
         current SSL channel.
         """
-        version = self._sslobj.version()
+        version = self._sslobj.get_protocol_version()
         if version is not None:
             return get_version_name(version)
         return None

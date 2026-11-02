@@ -215,8 +215,14 @@ class SSLSocket(_ssl.SSLSocket):
     @property
     def session_reused(self) -> bool | None:
         if self._sslobj is not None:
-            return self._sslobj.session_reused()
+            return self._sslobj.session_reused
         return None
+
+    @property
+    def ech_accepted(self) -> bool:
+        if self._sslobj is not None:
+            return self._sslobj.ech_accepted
+        return False
 
     def dup(self) -> SSLSocket:
         raise NotImplementedError(
@@ -264,11 +270,6 @@ class SSLSocket(_ssl.SSLSocket):
         if self._sslobj is None:
             raise ValueError("Write on closed or unwrapped SSL socket.")
         return self._drive_tls(self._sslobj.write, data)
-
-    def ech_accepted(self) -> bool:
-        if self._sslobj is not None:
-            return self._sslobj.ech_accepted()
-        return False
 
     def get_peer_ech_retry_configs(self) -> bytes | None:
         if self._sslobj is not None:
@@ -555,7 +556,7 @@ class SSLSocket(_ssl.SSLSocket):
 
     def version(self) -> str | None:
         if self._sslobj is not None:
-            version = self._sslobj.version()
+            version = self._sslobj.get_protocol_version()
             if version is not None:
                 return get_version_name(version)
         return None
