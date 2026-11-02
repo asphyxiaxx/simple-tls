@@ -178,7 +178,7 @@ class Extensions:
 
     def __repr__(self) -> str:
         exts_repr = ", ".join(
-            f"({self._type_name(t)}, {d})" for t, d in self._extensions
+            f"({self._type_name(t)}, {d!r})" for t, d in self._extensions
         )
         return f"Extension([{exts_repr}])"
 
