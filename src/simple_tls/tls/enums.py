@@ -76,6 +76,12 @@ class ECHStatus(int, enum.Enum):
     REJECTED = 2
 
 
+class EarlyDataStatus(int, enum.Enum):
+    NONE = 0
+    ACCEPTED = 1
+    REJECTED = 2
+
+
 class ClientState(int, enum.Enum):
     START_CONNECT = enum.auto()
     ENTER_EARLY_DATA = enum.auto()

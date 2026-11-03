@@ -17,6 +17,7 @@ from ._constants import (
     PROTOCOL_TLS_CLIENT,
     PROTOCOL_TLS_SERVER,
     ASN1Object,
+    ECHStatus,
     Purpose,
     TLSVersion,
 )
@@ -271,6 +272,10 @@ def serialize_ech_configs(configs: Sequence[tls.ECHConfig]) -> bytes:
     return len(data).to_bytes(2, "big") + data
 
 
+def map_ech_status(status: tls.ECHStatus) -> ECHStatus:
+    return _ECH_STATUS_MAP[status]
+
+
 def create_default_context(
     purpose: Purpose = Purpose.SERVER_AUTH,
     *,
@@ -310,6 +315,12 @@ class SSLConnection(tls.TLSConnection):
             return protocol.decode()
         return None
 
+
+_ECH_STATUS_MAP = {
+    tls.ECHStatus.NONE: ECHStatus.NONE,
+    tls.ECHStatus.ACCEPTED: ECHStatus.ACCEPTED,
+    tls.ECHStatus.REJECTED: ECHStatus.REJECTED,
+}
 
 _OPENSSL_VERSION_NAMES: dict[int, tuple[str, str]] = {
     TLSVersion.TLSv1: ("TLSv1.0", "TLSv1"),

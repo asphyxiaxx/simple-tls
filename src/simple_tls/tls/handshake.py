@@ -81,6 +81,7 @@ from simple_tls.tls.constants import (
 )
 from simple_tls.tls.enums import (
     Direction,
+    EarlyDataStatus,
     ECHStatus,
     Epoch,
     Protocol,
@@ -335,14 +336,14 @@ class TLSHandshake:
         self._can_early_write: bool = False
         self._can_early_read: bool = False
         self._early_data_offered: bool = False
-        self._early_data_accepted: bool = False
         self._hello_retry_request_used: bool = False
         self._extended_master_secret: bool = False
         self._encrypt_then_mac: bool = False
         self._secure_renegotiation: bool = False
+        self._ech_status: ECHStatus = ECHStatus.NONE
+        self._early_data_status: EarlyDataStatus = EarlyDataStatus.NONE
         self._npn_protocol: bytes | None = None
         self._alpn_protocol: bytes | None = None
-        self._ech_status: ECHStatus = ECHStatus.NONE
 
         # Buffer
         self._incoming_data: bytearray = bytearray()
@@ -430,12 +431,12 @@ class TLSHandshake:
         return 0
 
     @property
-    def early_data_accepted(self) -> bool:
-        return self._early_data_accepted
+    def early_data_status(self) -> EarlyDataStatus:
+        return self._early_data_status
 
     @property
-    def early_data_offered(self) -> bool:
-        return self._early_data_offered
+    def ech_status(self) -> ECHStatus:
+        return self._ech_status
 
     @property
     def cipher_suite(self) -> CipherSuite | None:
@@ -451,10 +452,6 @@ class TLSHandshake:
             assert self._session is not None
             return self._session.early_alpn
         return self._alpn_protocol
-
-    @property
-    def ech_status(self) -> ECHStatus:
-        return self._ech_status
 
     @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:

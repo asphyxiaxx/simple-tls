@@ -38,7 +38,13 @@ from simple_tls.tls.constants import (
     Symmetric,
     TLSVersion,
 )
-from simple_tls.tls.enums import Direction, Protocol, VerifyMode
+from simple_tls.tls.enums import (
+    Direction,
+    EarlyDataStatus,
+    ECHStatus,
+    Protocol,
+    VerifyMode,
+)
 from simple_tls.tls.exceptions import (
     TLSAlert,
     TLSEOFError,
@@ -64,6 +70,8 @@ __all__ = [
     "DHParameters",
     "Direction",
     "ECHConfig",
+    "ECHStatus",
+    "EarlyDataStatus",
     "HandshakeContext",
     "HashAlgorithm",
     "KeyExchange",

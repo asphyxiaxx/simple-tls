@@ -282,7 +282,7 @@ class SSLConnection:
     def ech_accepted(self) -> bool:
         if self._conn is None:
             raise TypeError("connection state not set")
-        return self._conn.ech_accepted
+        return self._conn.ech_status == stls.ECHStatus.ACCEPTED
 
     def get_app_data(self) -> bytes:
         return self._app_data

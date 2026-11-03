@@ -40,7 +40,14 @@ from simple_tls.tls.constants import (
     KeyUpdateMessageType,
     TLSVersion,
 )
-from simple_tls.tls.enums import Direction, ECHStatus, Epoch, Shutdown, Status
+from simple_tls.tls.enums import (
+    Direction,
+    EarlyDataStatus,
+    ECHStatus,
+    Epoch,
+    Shutdown,
+    Status,
+)
 from simple_tls.tls.exceptions import (
     TLSEOFError,
     TLSLocalAlert,
@@ -168,16 +175,12 @@ class TLSConnection:
         return self._handshake.session_reused
 
     @property
-    def early_data_accepted(self) -> bool:
-        return self._handshake.early_data_accepted
+    def early_data_status(self) -> EarlyDataStatus:
+        return self._handshake.early_data_status
 
     @property
-    def early_data_offered(self) -> bool:
-        return self._handshake.early_data_offered
-
-    @property
-    def ech_accepted(self) -> bool:
-        return self._handshake.ech_status == ECHStatus.ACCEPTED
+    def ech_status(self) -> ECHStatus:
+        return self._handshake.ech_status
 
     def bio_write(self, data: Buffer) -> None:
         """

@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from simple_tls import tls
 from simple_tls.crypto.utils import bytes_to_str, str_to_bytes
 
-from ._constants import Options
+from ._constants import ECHStatus, Options
 from ._exceptions import (
     SSLEOFError,
     SSLError,
@@ -29,6 +29,7 @@ from ._utils import (
     get_cipher_tuple,
     get_version_name,
     load_ech_config_list,
+    map_ech_status,
     parse_certificate,
     serialize_ech_configs,
 )
@@ -219,10 +220,10 @@ class SSLSocket(_ssl.SSLSocket):
         return None
 
     @property
-    def ech_accepted(self) -> bool:
+    def ech_status(self) -> ECHStatus:
         if self._sslobj is not None:
-            return self._sslobj.ech_accepted
-        return False
+            return map_ech_status(self._sslobj.ech_status)
+        return ECHStatus.NONE
 
     def dup(self) -> SSLSocket:
         raise NotImplementedError(

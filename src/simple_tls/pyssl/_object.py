@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from simple_tls import tls
 from simple_tls.crypto.utils import bytes_to_str, str_to_bytes
 
-from ._constants import Options
+from ._constants import ECHStatus, Options
 from ._exceptions import SSLEOFError, SSLWantReadError
 from ._session import SSLSession
 from ._utils import (
@@ -21,6 +21,7 @@ from ._utils import (
     get_cipher_tuple,
     get_version_name,
     load_ech_config_list,
+    map_ech_status,
     parse_certificate,
     serialize_ech_configs,
 )
@@ -131,8 +132,10 @@ class SSLObject(_ssl.SSLObject):
         return self._sslobj.session_reused
 
     @property
-    def ech_accepted(self) -> bool:
-        return self._sslobj.ech_accepted
+    def ech_status(self) -> ECHStatus:
+        if self._sslobj is not None:
+            return map_ech_status(self._sslobj.ech_status)
+        return ECHStatus.NONE
 
     def read(
         self, len: int = 1024, buffer: WritableBuffer | None = None

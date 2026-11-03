@@ -1,3 +1,4 @@
+import enum
 import ssl as _ssl
 
 AlertDescription = _ssl.AlertDescription
@@ -7,6 +8,12 @@ Purpose = _ssl.Purpose
 TLSVersion = _ssl.TLSVersion
 VerifyFlags = _ssl.VerifyFlags
 VerifyMode = _ssl.VerifyMode
+
+
+class ECHStatus(enum.IntEnum):
+    NONE = enum.auto()
+    ACCEPTED = enum.auto()
+    REJECTED = enum.auto()
 
 
 # Alert Description
@@ -47,6 +54,12 @@ ALERT_DESCRIPTION_USER_CANCELLED = _ssl.ALERT_DESCRIPTION_USER_CANCELLED
 CERT_NONE = _ssl.CERT_NONE
 CERT_OPTIONAL = _ssl.CERT_OPTIONAL
 CERT_REQUIRED = _ssl.CERT_REQUIRED
+
+
+# Early Data Status
+ECH_STATUS_NONE = ECHStatus.NONE
+ECH_STATUS_ACCEPTED = ECHStatus.ACCEPTED
+ECH_STATUS_REJECTED = ECHStatus.REJECTED
 
 
 # Options

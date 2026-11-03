@@ -71,6 +71,7 @@ from simple_tls.tls.constants import (
 )
 from simple_tls.tls.enums import (
     Direction,
+    EarlyDataStatus,
     Epoch,
     ServerState,
     Status,
@@ -1143,7 +1144,7 @@ class TLSHandshakeServer(TLSHandshake):
                     and session.local_alps == new_session.local_alps
                 )
             ):
-                self._early_data_accepted = True
+                self._early_data_status = EarlyDataStatus.ACCEPTED
 
                 if new_session.has_alps:
                     new_session.peer_alps = session.peer_alps
@@ -1156,7 +1157,7 @@ class TLSHandshakeServer(TLSHandshake):
                     transcript=self._transcript,
                 )
             else:
-                self._early_data_accepted = False
+                self._early_data_status = EarlyDataStatus.REJECTED
                 self._skip_early_data = True
 
         if hrr:
@@ -1379,19 +1380,23 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_encrypted_extensions_tls13(self) -> Status:
         assert self._key_schedule is not None
         assert self._session is not None
+        session = self._session
 
         self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
         enc_exts = Extensions()
 
-        if self._early_data_accepted:
+        if self._early_data_status == EarlyDataStatus.ACCEPTED:
             enc_exts.append(EarlyDataServerExtension())
 
         if self._alpn_protocol is not None:
             enc_exts.append(ALPNServerExtension(self._alpn_protocol))
 
-        if self._session.has_alps and not self._early_data_accepted:
-            enc_exts.append(ALPSExtension(self._session.local_alps))
+        if (
+            session.has_alps
+            and self._early_data_status != EarlyDataStatus.ACCEPTED
+        ):
+            enc_exts.append(ALPSExtension(session.local_alps))
 
         encrypted_extensions = EncryptedExtensions(enc_exts)
         self.message_cb(Direction.WRITE, encrypted_extensions)
@@ -1478,7 +1483,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_read_second_client_flight_tls13(self) -> Status:
         self._setup_traffic_tls13(Direction.WRITE, Epoch.APPLICATION_DATA)
 
-        if self._early_data_accepted:
+        if self._early_data_status == EarlyDataStatus.ACCEPTED:
             self._setup_traffic_tls13(Direction.READ, Epoch.ZERO_RTT)
             self._can_early_write = True
             self._can_early_read = True
@@ -1491,7 +1496,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_process_end_of_early_data_tls13(self) -> Status:
-        if self._early_data_accepted:
+        if self._early_data_status == EarlyDataStatus.ACCEPTED:
             message = self._get_message()
             if message is None:
                 return Status.READ_MESSAGE
@@ -1513,7 +1518,12 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_read_client_encrypted_extensions_tls13(self) -> Status:
         assert self._session is not None
-        if not (self._session.has_alps and not self._early_data_accepted):
+        session = self._session
+
+        if not (
+            session.has_alps
+            and self._early_data_status != EarlyDataStatus.ACCEPTED
+        ):
             self._set_state(ServerState.READ_CLIENT_CERTIFICATE_TLS13)
             return Status.OK
 
@@ -1532,7 +1542,7 @@ class TLSHandshakeServer(TLSHandshake):
         if alps_ext is None:
             raise AlertMissingExtension("missing ALPS extension")
 
-        self._session.peer_alps = alps_ext.settings
+        session.peer_alps = alps_ext.settings
 
         if not extensions.has_allowed(allowed_extensions):
             raise AlertUnsupportedExtension("received unexpected extensions")

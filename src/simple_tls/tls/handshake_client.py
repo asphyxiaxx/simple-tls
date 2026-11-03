@@ -74,6 +74,7 @@ from simple_tls.tls.enums import (
     ClientHelloType,
     ClientState,
     Direction,
+    EarlyDataStatus,
     ECHStatus,
     Epoch,
     Status,
@@ -400,7 +401,34 @@ class TLSHandshakeClient(TLSHandshake):
             )
         ):
             assert session.cipher_suite is not None
-            if session.protocol_version() <= TLSVersion.TLSv1_2:
+
+            if session.protocol_version() >= TLSVersion.TLSv1_3:
+                if session.ticket:
+                    identity = PSKIdentity(
+                        identity=session.ticket,
+                        obfuscated_ticket_age=session.obfuscated_age(),
+                    )
+                    key_schedule = KeySchedule(session.cipher_suite.prf_hash)
+                    key_schedule.extract(session.secret)
+                    binder_key = key_schedule.derive_secret(
+                        b"res binder", self._transcript
+                    )
+                    self._pre_shared_keys = [
+                        (key_schedule, identity, binder_key)
+                    ]
+
+                    # Check if we should offer early data
+                    if (
+                        self._enable_early_data
+                        and len(self._pre_shared_keys) == 1
+                        and session.ticket_max_early_data > 0
+                        and (
+                            session.early_alpn is None
+                            or session.early_alpn in self._alpn_protocols
+                        )
+                    ):
+                        self._early_data_offered = True
+            else:
                 if session.ticket:
                     # Generate random session_id so it track
                     # the session is resumed
@@ -408,21 +436,6 @@ class TLSHandshakeClient(TLSHandshake):
                     self._session_ticket = session.ticket
                 elif session.session_id:
                     self._session_id = session.session_id
-
-            elif session.ticket:
-                identity = PSKIdentity(
-                    identity=session.ticket,
-                    obfuscated_ticket_age=session.obfuscated_age(),
-                )
-                key_schedule = KeySchedule(session.cipher_suite.prf_hash)
-                key_schedule.extract(session.secret)
-                binder_key = key_schedule.derive_secret(
-                    b"res binder", self._transcript
-                )
-                self._pre_shared_keys = [(key_schedule, identity, binder_key)]
-
-                if self._should_offer_early_data():
-                    self._early_data_offered = True
 
         if (
             self._new_session_callback is not None
@@ -1382,8 +1395,9 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._session is not None
         session = self._session
 
-        if self._early_data_accepted:
+        if self._early_data_status == EarlyDataStatus.ACCEPTED:
             assert self._offered_session is not None
+            assert self._early_data_offered
             assert self._session_reused
 
             if self._ech_status == ECHStatus.REJECTED:
@@ -1392,7 +1406,6 @@ class TLSHandshakeClient(TLSHandshake):
                 )
 
             offered_session = self._offered_session
-
             if offered_session.cipher_suite != session.cipher_suite:
                 raise AlertIllegalParameter("received cipher suite mismatch")
             if offered_session.early_alpn != self._alpn_protocol:
@@ -1401,9 +1414,10 @@ class TLSHandshakeClient(TLSHandshake):
             session.has_alps = offered_session.has_alps
             session.local_alps = offered_session.local_alps
             session.peer_alps = offered_session.peer_alps
-
-        elif self._early_data_offered:
-            self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
+        else:
+            if self._early_data_offered:
+                assert self._early_data_status == EarlyDataStatus.REJECTED
+                self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
         alps_ext = extensions.get(ALPSExtension)
         if alps_ext is not None:
@@ -1544,7 +1558,7 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_end_of_early_data_tls13(self) -> Status:
-        if self._early_data_accepted:
+        if self._early_data_status == EarlyDataStatus.ACCEPTED:
             end_of_early_data = EndOfEarlyData()
             self.message_cb(Direction.WRITE, end_of_early_data)
             self._add_message(end_of_early_data)
@@ -1555,15 +1569,19 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.PACK_FLIGHT
 
     def _do_send_client_encrypted_extensions_tls13(self) -> Status:
-        if self._early_data_accepted:
+        if self._early_data_status == EarlyDataStatus.ACCEPTED:
             self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
         assert self._session is not None
+        session = self._session
 
         extensions = Extensions()
 
-        if self._session.has_alps and not self._early_data_accepted:
-            alps = ALPSExtension(self._session.local_alps)
+        if (
+            session.has_alps
+            and self._early_data_status != EarlyDataStatus.ACCEPTED
+        ):
+            alps = ALPSExtension(session.local_alps)
             extensions.append(alps)
 
         if len(extensions) > 0:
@@ -2232,7 +2250,6 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received unexpected protocol in ALPN extension"
                 )
-
             self._alpn_protocol = alpn_ext.protocol
 
         if version >= TLSVersion.TLSv1_3:
@@ -2252,7 +2269,6 @@ class TLSHandshakeClient(TLSHandshake):
                     raise AlertIllegalParameter(
                         "received unexpected ECH extension"
                     )
-
                 self._peer_ech_retry_configs = tuple(ech_ext.retry_configs)
 
             # Early data extension
@@ -2262,8 +2278,11 @@ class TLSHandshakeClient(TLSHandshake):
                     raise AlertUnsupportedExtension(
                         "received unexpected early data extension"
                     )
-
-                self._early_data_accepted = True
+                assert self._early_data_offered
+                self._early_data_status = EarlyDataStatus.ACCEPTED
+            else:
+                if self._early_data_offered:
+                    self._early_data_status = EarlyDataStatus.REJECTED
         else:
             allowed_extensions.update(
                 (
@@ -2310,7 +2329,6 @@ class TLSHandshakeClient(TLSHandshake):
                     raise AlertIllegalParameter(
                         "received unexpected encrypt-then-mac extension"
                     )
-
                 self._encrypt_then_mac = True
 
             # EC point formats extension
@@ -2332,7 +2350,6 @@ class TLSHandshakeClient(TLSHandshake):
                 )
                 if npn_protocol is None:
                     npn_protocol = npn_ext.protocols[0]
-
                 self._npn_protocol = npn_protocol
 
         if not extensions.has_allowed(allowed_extensions):
@@ -2408,30 +2425,6 @@ class TLSHandshakeClient(TLSHandshake):
         c_verify = CertificateVerifyTLS12(signature, signature_algorithm)
         self.message_cb(Direction.WRITE, c_verify)
         self._add_message(c_verify)
-
-    def _should_offer_early_data(self) -> bool:
-        if not self._enable_early_data:
-            return False
-        if self._maximum_version < TLSVersion.TLSv1_3:
-            return False
-        if len(self._pre_shared_keys) != 1:
-            return False
-
-        offered_session = self._offered_session
-
-        if offered_session is None:
-            return False
-        if offered_session.protocol_version() < TLSVersion.TLSv1_3:
-            return False
-        if offered_session.ticket_max_early_data == 0:
-            return False
-        if (
-            offered_session.early_alpn is not None
-            and offered_session.early_alpn not in self._alpn_protocols
-        ):
-            return False
-
-        return True
 
     @staticmethod
     def _select_ech_config(
