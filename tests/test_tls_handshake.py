@@ -211,7 +211,10 @@ def run_handshake(client, server, stop_condition=None):
         # If neither the client nor the server made any progress in this
         # iteration, they are deadlocked (both waiting for data from each
         # other, or crashed).
-        assert progress_made or (client.done and server.done)
+        assert progress_made or (client.done and server.done), (
+            f"client_status: {client_status}, client_state: {client.state}"
+            f"server_status: {server_status}, server_state: {server.state}"
+        )
 
     assert client.done, "Client did not finish handshake"
     assert server.done, "Server did not finish handshake"
