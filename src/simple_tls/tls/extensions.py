@@ -981,6 +981,16 @@ class ECHConfig:
             extensions=extensions,
         )
 
+    @classmethod
+    def from_bytes(cls, data: bytes) -> ECHConfig:
+        parser = Parser(data)
+        config = ECHConfig.parse(parser)
+
+        if parser.remaining():
+            raise ParseError("trailing data")
+
+        return config
+
     def write(self, writer: Writer) -> None:
         cipher_writer = Writer()
         for kdf_id, aead_id in self.cipher_suites:
@@ -1075,6 +1085,8 @@ class ECHServerExtension(Extension):
 
         if not configs:
             raise ParseError("empty retry config list")
+        if parser.remaining():
+            raise ParseError("trailing data")
 
         return ECHServerExtension(configs)
 
