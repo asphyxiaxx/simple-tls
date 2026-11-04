@@ -25,7 +25,7 @@ from collections.abc import Callable
 from typing import ClassVar, cast
 
 from cryptography import exceptions, x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import (
     dsa,
     ec,
@@ -408,7 +408,7 @@ class Ed448PublicKey(BasePublicKey):
             raise InvalidSignature from None
 
 
-def _map_public_key(public_key: PublicKeyTypes) -> BasePublicKey:
+def map_public_key(public_key: PublicKeyTypes) -> BasePublicKey:
     if isinstance(public_key, rsa.RSAPublicKey):
         return RSAPublicKey(public_key)
     if isinstance(public_key, ec.EllipticCurvePublicKey):
@@ -419,10 +419,10 @@ def _map_public_key(public_key: PublicKeyTypes) -> BasePublicKey:
         return Ed448PublicKey(public_key)
     if isinstance(public_key, dsa.DSAPublicKey):
         return DSAPublicKey(public_key)
-    raise TypeError("Unsupported public key type in certificate")
+    raise TypeError("unsupported public key type")
 
 
-def _map_private_key(private_key: PrivateKeyTypes) -> BasePrivateKey:
+def map_private_key(private_key: PrivateKeyTypes) -> BasePrivateKey:
     if isinstance(private_key, rsa.RSAPrivateKey):
         return RSAPrivateKey(private_key)
     if isinstance(private_key, ec.EllipticCurvePrivateKey):
@@ -433,26 +433,11 @@ def _map_private_key(private_key: PrivateKeyTypes) -> BasePrivateKey:
         return Ed448PrivateKey(private_key)
     if isinstance(private_key, dsa.DSAPrivateKey):
         return DSAPrivateKey(private_key)
-
-    raise TypeError(
-        f"Unsupported key type in certificate: {type(private_key).__name__}"
-    )
+    raise TypeError("unsupported private key type")
 
 
 def load_certificate_public_key(
     certificate: x509.Certificate,
 ) -> BasePublicKey:
     public_key = certificate.public_key()
-    return _map_public_key(public_key)
-
-
-def load_pem_private_key(
-    data: bytes, password: bytes | None
-) -> BasePrivateKey:
-    private_key: PrivateKeyTypes
-    if b"-----BEGIN OPENSSH PRIVATE KEY-----" in data:
-        private_key = serialization.load_ssh_private_key(data, password)
-    else:
-        private_key = serialization.load_pem_private_key(data, password)
-
-    return _map_private_key(private_key)
+    return map_public_key(public_key)

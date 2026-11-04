@@ -24,6 +24,7 @@ from simple_tls.tls.config import (
     Credential,
     TLSConfiguration,
     load_ech_configs,
+    load_pem_private_key,
 )
 from simple_tls.tls.connection import TLSConnection
 from simple_tls.tls.constants import (
@@ -55,7 +56,7 @@ from simple_tls.tls.exceptions import (
 )
 from simple_tls.tls.extensions import ECHConfig
 from simple_tls.tls.handshake_server import ClientHelloInfo, HandshakeContext
-from simple_tls.tls.key import BasePrivateKey, load_pem_private_key
+from simple_tls.tls.key import BasePrivateKey
 from simple_tls.tls.keyexchange import DHParameters, load_pem_parameters
 from simple_tls.tls.session import TicketAEAD, TicketContext, TLSSession
 

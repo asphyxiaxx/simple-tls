@@ -22,8 +22,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
 from simple_tls.codec import ParseError, Parser
 from simple_tls.crypto.utils import str_to_bytes
@@ -36,10 +38,21 @@ from simple_tls.tls.constants import (
 )
 from simple_tls.tls.enums import Protocol, VerifyMode
 from simple_tls.tls.extensions import ECHConfig
-from simple_tls.tls.key import BasePrivateKey, load_pem_private_key
+from simple_tls.tls.key import BasePrivateKey, map_private_key
 from simple_tls.tls.keyexchange import DHParameters
 from simple_tls.tls.session import TicketAEAD, TLSSession
 from simple_tls.tls.utils import Buffer, StrOrBytesPath
+
+
+def load_pem_private_key(
+    data: bytes, password: bytes | None
+) -> BasePrivateKey:
+    private_key: Any
+    if b"-----BEGIN OPENSSH PRIVATE KEY-----" in data:
+        private_key = serialization.load_ssh_private_key(data, password)
+    else:
+        private_key = serialization.load_pem_private_key(data, password)
+    return map_private_key(private_key)
 
 
 def load_ech_configs(data: bytes) -> list[ECHConfig]:
