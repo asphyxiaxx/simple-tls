@@ -431,8 +431,8 @@ class TLSHandshakeServer(TLSHandshake):
             x509_cert = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_cert)
-            except ValueError as exc:
-                raise AlertInternalError(str(exc)) from exc
+            except (ValueError, TypeError) as exc:
+                raise AlertInternalError(str(exc)) from None
             auth = self._get_pubkey_auth(public_key)
         else:
             x509_cert = None
@@ -1024,7 +1024,6 @@ class TLSHandshakeServer(TLSHandshake):
         else:
             if self._credential is None:
                 raise AlertHandshakeFailure("credential not provided")
-
             if self._peer_signature_algorithms is None:
                 raise AlertMissingExtension(
                     "missing signature algorithms extension"
@@ -1033,8 +1032,8 @@ class TLSHandshakeServer(TLSHandshake):
             x509_cert = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_cert)
-            except ValueError as exc:
-                raise AlertInternalError(str(exc)) from exc
+            except (ValueError, TypeError) as exc:
+                raise AlertInternalError(str(exc)) from None
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
@@ -1051,11 +1050,6 @@ class TLSHandshakeServer(TLSHandshake):
             new_session = self._get_new_session()
             key_schedule = KeySchedule(cipher_suite.prf_hash)
             key_schedule.extract(None)
-
-        hrr = False
-
-        if self._cookie is not None:
-            hrr = True
 
         if (
             not self._session_reused
@@ -1092,7 +1086,6 @@ class TLSHandshakeServer(TLSHandshake):
                     break
                 if group_id in self._peer_supported_groups:
                     self._group_id_hrr = group_id
-                    hrr = True
                     break
             else:
                 raise AlertHandshakeFailure("no supported key shares group")
@@ -1116,6 +1109,11 @@ class TLSHandshakeServer(TLSHandshake):
         # Early data key required update client hello hash
         self.message_cb(Direction.READ, client_hello)
         self._next_message()
+
+        if self._cookie is not None or self._group_id_hrr is not None:
+            hrr = True
+        else:
+            hrr = False
 
         if self._early_data_offered:
             if psk_ext is None:

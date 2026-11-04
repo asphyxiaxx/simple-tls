@@ -1153,8 +1153,8 @@ class TLSHandshake:
         peer_cert = session.peer_cert
         try:
             peer_public_key = load_certificate_public_key(peer_cert)
-        except ValueError as exc:
-            raise AlertHandshakeFailure(str(exc)) from exc
+        except (ValueError, TypeError) as exc:
+            raise AlertHandshakeFailure(str(exc)) from None
 
         peer_public_key_oid = peer_cert.public_key_algorithm_oid
         if version >= TLSVersion.TLSv1_2:

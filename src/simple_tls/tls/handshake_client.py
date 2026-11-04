@@ -127,7 +127,6 @@ from simple_tls.tls.extensions import (
 )
 from simple_tls.tls.handshake import Handshake, TLSHandshake
 from simple_tls.tls.key import (
-    BasePrivateKey,
     InvalidSignature,
     RSAPublicKey,
     load_certificate_public_key,
@@ -765,8 +764,8 @@ class TLSHandshakeClient(TLSHandshake):
             peer_cert = session.peer_cert
             try:
                 peer_public_key = load_certificate_public_key(peer_cert)
-            except ValueError as exc:
-                raise AlertHandshakeFailure(str(exc)) from exc
+            except (ValueError, TypeError) as exc:
+                raise AlertHandshakeFailure(str(exc)) from None
 
             auth = self._get_pubkey_auth(peer_public_key)
             if auth != cipher_suite.auth:
@@ -865,8 +864,8 @@ class TLSHandshakeClient(TLSHandshake):
             x509_cert = self._credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_cert)
-            except ValueError as exc:
-                raise AlertInternalError(str(exc)) from exc
+            except (ValueError, TypeError) as exc:
+                raise AlertInternalError(str(exc)) from None
 
             cert_type = self._get_pubkey_cert_type(public_key)
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
@@ -919,8 +918,9 @@ class TLSHandshakeClient(TLSHandshake):
             peer_cert = session.peer_cert
             try:
                 peer_public_key = load_certificate_public_key(peer_cert)
-            except ValueError as exc:
-                raise AlertHandshakeFailure(str(exc)) from exc
+            except (ValueError, TypeError) as exc:
+                raise AlertHandshakeFailure(str(exc)) from None
+
             if not isinstance(peer_public_key, RSAPublicKey):
                 raise AlertIllegalParameter("received invalid public key type")
 
@@ -2374,22 +2374,20 @@ class TLSHandshakeClient(TLSHandshake):
         else:
             compression = None
 
-        private_key: BasePrivateKey | None = None
-        signature_algorithm: int | None = None
-
-        # draft-ietf-tls-esni 25 Section 6.1.7
-        # If the server requests a client certificate, the client MUST
-        # respond with an empty Certificate message, denoting no client
-        # certificate.
-        if self._ech_status == ECHStatus.REJECTED:
-            pass
-        elif self._credential is not None:
-            private_key = self._credential.private_key
-            x509_cert = self._credential.certificate
+        if (
+            self._credential is not None
+            # draft-ietf-tls-esni 25 Section 6.1.7
+            # If the server requests a client certificate, the client MUST
+            # respond with an empty Certificate message, denoting no client
+            # certificate.
+            and self._ech_status != ECHStatus.REJECTED
+        ):
+            credential = self._credential
+            x509_cert = credential.certificate
             try:
                 public_key = load_certificate_public_key(x509_cert)
-            except ValueError as exc:
-                raise AlertInternalError(str(exc)) from exc
+            except (ValueError, TypeError) as exc:
+                raise AlertInternalError(str(exc)) from None
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=self.protocol_version(),
@@ -2398,10 +2396,11 @@ class TLSHandshakeClient(TLSHandshake):
                 supported_sigalgs=self._signing_signature_algorithms,
             )
             signature_algorithm = negotiate(supported_sigalgs, sigalg_ext.data)
-
-        if signature_algorithm is not None:
-            credential = self._credential
         else:
+            credential = None
+            signature_algorithm = None
+
+        if signature_algorithm is None:
             credential = None
 
         certificate = self._create_certificate_tls13(
@@ -2412,19 +2411,17 @@ class TLSHandshakeClient(TLSHandshake):
         self.message_cb(Direction.WRITE, certificate)
         self._add_message(certificate)
 
-        if signature_algorithm is None:
-            return
+        if signature_algorithm is not None:
+            assert credential is not None
+            assert self._key_schedule is not None
+            data = self._key_schedule.certificate_verify_data(
+                TLS13_CLIENT_CONTEXT_STRING, self._transcript
+            )
+            signature = credential.private_key.sign(data, signature_algorithm)
 
-        assert self._key_schedule is not None
-        private_key = cast(BasePrivateKey, private_key)
-        data = self._key_schedule.certificate_verify_data(
-            TLS13_CLIENT_CONTEXT_STRING, self._transcript
-        )
-        signature = private_key.sign(data, signature_algorithm)
-
-        c_verify = CertificateVerifyTLS12(signature, signature_algorithm)
-        self.message_cb(Direction.WRITE, c_verify)
-        self._add_message(c_verify)
+            c_verify = CertificateVerifyTLS12(signature, signature_algorithm)
+            self.message_cb(Direction.WRITE, c_verify)
+            self._add_message(c_verify)
 
     @staticmethod
     def _select_ech_config(
