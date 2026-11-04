@@ -926,12 +926,12 @@ class SCTServerExtension(PrefixedBytesExtension):
 
 @dataclass(frozen=True)
 class ECHConfig:
-    public_key: bytes
-    public_name: bytes
-    cipher_suites: Sequence[tuple[int, int]]
-    kem_id: int
-    maximum_name_length: int
     config_id: int
+    kem_id: int
+    public_key: bytes
+    cipher_suites: Sequence[tuple[int, int]]
+    maximum_name_length: int
+    public_name: bytes
     extensions: Extensions
 
     def supported(self, all_extensions_mandatory: bool = False) -> bool:
