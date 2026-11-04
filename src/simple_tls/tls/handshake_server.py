@@ -1234,7 +1234,7 @@ class TLSHandshakeServer(TLSHandshake):
             or supported_vers_ext is None
             or self.protocol_version() not in supported_vers_ext.data
         ):
-            raise AlertProtocolVersion("inconsistent client hello")
+            raise AlertProtocolVersion("received inconsistent client hello")
 
         if (
             client_hello.random != self._client_random
@@ -1242,7 +1242,7 @@ class TLSHandshakeServer(TLSHandshake):
             or Compression.NULL not in client_hello.compression_methods
             or self._cipher_suite not in client_hello.cipher_suites
         ):
-            raise AlertIllegalParameter("inconsistent client hello")
+            raise AlertIllegalParameter("received inconsistent client hello")
 
         if self._group_id_hrr is None and self._cookie is None:
             raise AlertInternalError(
@@ -1254,7 +1254,9 @@ class TLSHandshakeServer(TLSHandshake):
             if key_share_ext is None:
                 raise AlertMissingExtension("missing key share extension")
             if len(key_share_ext.key_shares) != 1:
-                raise AlertIllegalParameter("inconsistent client hello")
+                raise AlertIllegalParameter(
+                    "received inconsistent client hello"
+                )
 
             key_share_entry = key_share_ext.key_shares[0]
             if key_share_entry.group != self._group_id_hrr:
@@ -1268,9 +1270,9 @@ class TLSHandshakeServer(TLSHandshake):
             if cookie_ext is None:
                 raise AlertMissingExtension("missing cookie extension")
             if cookie_ext.data != self._cookie:
-                raise AlertIllegalParameter("malformed cookie extension")
-        elif cookie_ext is not None:
-            raise AlertIllegalParameter("received unexpected cookie extension")
+                raise AlertIllegalParameter(
+                    "received malformed cookie extension"
+                )
 
         psk_ext = extensions.get(PSKClientExtension)
         if self._psk_index is not None:
