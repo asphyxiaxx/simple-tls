@@ -254,7 +254,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._state = ClientState.START_CONNECT
         self._extensions_sent: set[int] = set()
         self._session_ticket: bytes | None = None
-        self._selected_ech_config: ECHConfigContext | None = None
+        self._ech_config: ECHConfigContext | None = None
         self._ech_client_outer: ECHClientExtension | None = None
         self._ticket_expected: bool = False
         self._pre_shared_keys: list[_PreSharedKey] = []
@@ -374,11 +374,11 @@ class TLSHandshakeClient(TLSHandshake):
             if configuration.peer_ech_configs is not None:
                 c = self._select_ech_config(configuration.peer_ech_configs)
                 if c is not None:
-                    self._selected_ech_config = c
+                    self._ech_config = c
                     self._inner_transcript = Transcript()
                     self._inner_client_random = get_random_bytes(32)
 
-            if self._selected_ech_config is None and configuration.grease_ech:
+            if self._ech_config is None and configuration.grease_ech:
                 self._ech_client_outer = ECHClientExtension(
                     ech_client_hello_type=ECHClientHelloType.OUTER,
                     hpke_kdf_id=HpkeKdfId.HKDF_SHA256,
@@ -397,7 +397,7 @@ class TLSHandshakeClient(TLSHandshake):
             and session.protocol_version() <= self._maximum_version
             and not (
                 session.protocol_version() < TLSVersion.TLSv1_3
-                and self._selected_ech_config is not None
+                and self._ech_config is not None
             )
         ):
             assert session.cipher_suite is not None
@@ -443,7 +443,7 @@ class TLSHandshakeClient(TLSHandshake):
         ):
             self._session_ticket = b""
 
-        if self._selected_ech_config is not None:
+        if self._ech_config is not None:
             client_hello = self._build_encrypted_client_hello()
         else:
             client_hello = self._build_client_hello()
@@ -468,7 +468,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Early data extension is included in ClientHello
         self._key_schedule, _, _ = self._pre_shared_keys[0]
-        if self._selected_ech_config is not None:
+        if self._ech_config is not None:
             assert self._inner_transcript is not None
             transcript = self._inner_transcript
         else:
@@ -576,7 +576,7 @@ class TLSHandshakeClient(TLSHandshake):
         ):
             raise AlertIllegalParameter("protocol downgrade detected")
 
-        if self._selected_ech_config is not None:
+        if self._ech_config is not None:
             self._ech_status = ECHStatus.REJECTED
 
         # Update server random
@@ -1149,7 +1149,7 @@ class TLSHandshakeClient(TLSHandshake):
             )
         )
 
-        if self._selected_ech_config is not None:
+        if self._ech_config is not None:
             assert self._inner_transcript is not None
             allowed_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
             self._inner_transcript.update_for_hello_retry_request(
@@ -1238,7 +1238,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Check if ECH accepted
         if (
-            self._selected_ech_config is not None
+            self._ech_config is not None
             and self._ech_status != ECHStatus.REJECTED
         ):
             assert self._inner_transcript is not None
@@ -1488,8 +1488,8 @@ class TLSHandshakeClient(TLSHandshake):
         if self._verify_mode != VerifyMode.CERT_NONE:
             hostname = self._hostname
             if self._ech_status == ECHStatus.REJECTED:
-                assert self._selected_ech_config is not None
-                hostname = self._selected_ech_config.public_name
+                assert self._ech_config is not None
+                hostname = self._ech_config.public_name
             self._verify_x509(self._session, hostname)
 
         self.message_cb(Direction.READ, certificate)
@@ -1778,7 +1778,7 @@ class TLSHandshakeClient(TLSHandshake):
         )
         header_len = len(client_hello.serialize())
 
-        if self._selected_ech_config is not None:
+        if self._ech_config is not None:
             hello_type = ClientHelloType.OUTER
         else:
             hello_type = ClientHelloType.UNENCRYPTED
@@ -1798,10 +1798,10 @@ class TLSHandshakeClient(TLSHandshake):
     def _build_encrypted_client_hello(
         self, is_hrr: bool = False
     ) -> ClientHello:
-        assert self._selected_ech_config is not None
+        assert self._ech_config is not None
         assert self._inner_transcript is not None
         assert self._inner_client_random is not None
-        ech_config = self._selected_ech_config
+        ech_config = self._ech_config
         inner_transcript = self._inner_transcript
         inner_client_random = self._inner_client_random
 
@@ -2010,8 +2010,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Server Name Indicator
         if hello_type == ClientHelloType.OUTER:
-            assert self._selected_ech_config is not None
-            hostname = self._selected_ech_config.public_name
+            assert self._ech_config is not None
+            hostname = self._ech_config.public_name
             extensions.append(SNIClientExtension(hostname))
         else:
             # RFC 6066 explicitly forbids literal IP addresses in SNI
