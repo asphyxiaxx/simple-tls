@@ -33,12 +33,15 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from .kdf import hkdf_expand, hkdf_extract
 from .utils import bytes_to_int, int_to_bytes, strxor
 
-HPKEPrivateKeyType = Union[
+_C = TypeVar("_C", bound="Context")
+
+
+PrivateKeyTypes = Union[
     ec.EllipticCurvePrivateKey,
     x25519.X25519PrivateKey,
     x448.X448PrivateKey,
 ]
-HPKEPublicKeyType = Union[
+PublicKeyTypes = Union[
     ec.EllipticCurvePublicKey,
     x25519.X25519PublicKey,
     x448.X448PublicKey,
@@ -48,10 +51,9 @@ AEADContext = Union[
     aead.ChaCha20Poly1305,
 ]
 
-_C = TypeVar("_C", bound="Context")
-
 
 # Constant
+
 _HPKE_VERSION_V1 = b"HPKE-v1"
 
 
@@ -63,6 +65,8 @@ class Mode(int, enum.Enum):
 
 
 # KDF
+
+
 class HKDF:
     ID: ClassVar[int]
     ALGORITHM: ClassVar[hashes.HashAlgorithm]
@@ -109,6 +113,8 @@ class HKDF_SHA512(HKDF):
 
 
 # KEM
+
+
 class DHKEM:
     ID: ClassVar[int]
     KDF: ClassVar[type[HKDF]]
@@ -124,7 +130,7 @@ class DHKEM:
         return shared_secret
 
     @classmethod
-    def encap(cls, pk_r: HPKEPublicKeyType) -> tuple[bytes, bytes]:
+    def encap(cls, pk_r: PublicKeyTypes) -> tuple[bytes, bytes]:
         sk_e = cls.generate()
         pk_e = sk_e.public_key()
         dh = cls.dh(sk_e, pk_r)
@@ -137,7 +143,7 @@ class DHKEM:
         return shared_secret, enc
 
     @classmethod
-    def decap(cls, enc: bytes, sk_r: HPKEPrivateKeyType) -> bytes:
+    def decap(cls, enc: bytes, sk_r: PrivateKeyTypes) -> bytes:
         pk_e = cls.deserialize_public_key(enc)
         dh = cls.dh(sk_r, pk_e)
 
@@ -149,7 +155,7 @@ class DHKEM:
 
     @classmethod
     def auth_encap(
-        cls, pk_r: HPKEPublicKeyType, sk_s: HPKEPrivateKeyType
+        cls, pk_r: PublicKeyTypes, sk_s: PrivateKeyTypes
     ) -> tuple[bytes, bytes]:
         sk_e = cls.generate()
         pk_e = sk_e.public_key()
@@ -167,8 +173,8 @@ class DHKEM:
     def auth_decap(
         cls,
         enc: bytes,
-        sk_r: HPKEPrivateKeyType,
-        pk_s: HPKEPublicKeyType,
+        sk_r: PrivateKeyTypes,
+        pk_s: PublicKeyTypes,
     ) -> bytes:
         pk_e = cls.deserialize_public_key(enc)
         dh = cls.dh(sk_r, pk_e) + cls.dh(sk_r, pk_s)
@@ -181,7 +187,7 @@ class DHKEM:
         return shared_secret
 
     @classmethod
-    def dh(cls, sk_x: HPKEPrivateKeyType, pk_y: HPKEPublicKeyType) -> bytes:
+    def dh(cls, sk_x: PrivateKeyTypes, pk_y: PublicKeyTypes) -> bytes:
         """
         Perform a non-interactive Diffie-Hellman exchange using the
         private key *sk_x* and public key *pk_y* to produce a Diffie-Hellman
@@ -190,23 +196,23 @@ class DHKEM:
         raise NotImplementedError
 
     @classmethod
-    def serialize_public_key(cls, pk_x: HPKEPublicKeyType) -> bytes:
+    def serialize_public_key(cls, pk_x: PublicKeyTypes) -> bytes:
         raise NotImplementedError
 
     @classmethod
-    def deserialize_public_key(cls, pk_xm: bytes) -> HPKEPublicKeyType:
+    def deserialize_public_key(cls, pk_xm: bytes) -> PublicKeyTypes:
         raise NotImplementedError
 
     @classmethod
-    def serialize_private_key(cls, sk_x: HPKEPrivateKeyType) -> bytes:
+    def serialize_private_key(cls, sk_x: PrivateKeyTypes) -> bytes:
         raise NotImplementedError
 
     @classmethod
-    def deserialize_private_key(cls, sk_xm: bytes) -> HPKEPrivateKeyType:
+    def deserialize_private_key(cls, sk_xm: bytes) -> PrivateKeyTypes:
         raise NotImplementedError
 
     @classmethod
-    def generate(cls) -> HPKEPrivateKeyType:
+    def generate(cls) -> PrivateKeyTypes:
         raise NotImplementedError
 
 
@@ -214,7 +220,7 @@ class DHKEM_Weierstrass(DHKEM):
     CURVE: ClassVar[ec.EllipticCurve]
 
     @classmethod
-    def dh(cls, sk_x: HPKEPrivateKeyType, pk_y: HPKEPublicKeyType) -> bytes:
+    def dh(cls, sk_x: PrivateKeyTypes, pk_y: PublicKeyTypes) -> bytes:
         if not isinstance(sk_x, ec.EllipticCurvePrivateKey):
             raise TypeError("sk_x must be ec.EllipticCurvePrivateKey")
         if not isinstance(pk_y, ec.EllipticCurvePublicKey):
@@ -222,7 +228,7 @@ class DHKEM_Weierstrass(DHKEM):
         return sk_x.exchange(ec.ECDH(), pk_y)
 
     @classmethod
-    def serialize_public_key(cls, pk_x: HPKEPublicKeyType) -> bytes:
+    def serialize_public_key(cls, pk_x: PublicKeyTypes) -> bytes:
         if not isinstance(pk_x, ec.EllipticCurvePublicKey):
             raise TypeError("pk_x must be ec.EllipticCurvePublicKey")
         return pk_x.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
@@ -232,7 +238,7 @@ class DHKEM_Weierstrass(DHKEM):
         return ec.EllipticCurvePublicKey.from_encoded_point(cls.CURVE, pk_xm)
 
     @classmethod
-    def serialize_private_key(cls, sk_x: HPKEPrivateKeyType) -> bytes:
+    def serialize_private_key(cls, sk_x: PrivateKeyTypes) -> bytes:
         if not isinstance(sk_x, ec.EllipticCurvePrivateKey):
             raise TypeError("sk_x must be ec.EllipticCurvePrivateKey")
         scalar = sk_x.private_numbers().private_value
@@ -273,7 +279,7 @@ class DHKEM_X25519_HKDF_SHA256(DHKEM):
     KDF = HKDF_SHA256
 
     @classmethod
-    def dh(cls, sk_x: HPKEPrivateKeyType, pk_y: HPKEPublicKeyType) -> bytes:
+    def dh(cls, sk_x: PrivateKeyTypes, pk_y: PublicKeyTypes) -> bytes:
         if not isinstance(sk_x, x25519.X25519PrivateKey):
             raise TypeError("sk_x must be x25519.X25519PrivateKey")
         if not isinstance(pk_y, x25519.X25519PublicKey):
@@ -281,7 +287,7 @@ class DHKEM_X25519_HKDF_SHA256(DHKEM):
         return sk_x.exchange(pk_y)
 
     @classmethod
-    def serialize_public_key(cls, pk_x: HPKEPublicKeyType) -> bytes:
+    def serialize_public_key(cls, pk_x: PublicKeyTypes) -> bytes:
         if not isinstance(pk_x, x25519.X25519PublicKey):
             raise TypeError("pk_x must be x25519.X25519PublicKey")
         return pk_x.public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -291,7 +297,7 @@ class DHKEM_X25519_HKDF_SHA256(DHKEM):
         return x25519.X25519PublicKey.from_public_bytes(pk_xm)
 
     @classmethod
-    def serialize_private_key(cls, sk_x: HPKEPrivateKeyType) -> bytes:
+    def serialize_private_key(cls, sk_x: PrivateKeyTypes) -> bytes:
         if not isinstance(sk_x, x25519.X25519PrivateKey):
             raise TypeError("sk_x must be x25519.X25519PrivateKey")
         return sk_x.private_bytes_raw()
@@ -306,6 +312,8 @@ class DHKEM_X25519_HKDF_SHA256(DHKEM):
 
 
 # AEAD
+
+
 class AEAD:
     ID: ClassVar[int]
     KEY_SIZE: ClassVar[int]
@@ -349,6 +357,9 @@ class AEAD_ExportOnly(AEAD):
     ID = 0xFFFF
     KEY_SIZE = 0
     NONCE_SIZE = 0
+
+
+# Context
 
 
 class Context:
@@ -472,22 +483,31 @@ class CipherSuite:
             b"", b"psk_id_hash", psk_id, suite_id
         )
         info_hash = kdf.labeled_extract(b"", b"info_hash", info, suite_id)
+        secret = kdf.labeled_extract(shared_secret, b"secret", psk, suite_id)
         key_schedule_context = bytes([mode]) + psk_id_hash + info_hash
 
-        secret = kdf.labeled_extract(shared_secret, b"secret", psk, suite_id)
-
-        nk = aead.KEY_SIZE
-        nn = aead.NONCE_SIZE
         key = kdf.labeled_expand(
-            secret, b"key", key_schedule_context, nk, suite_id
+            prk=secret,
+            label=b"key",
+            labeled_info=key_schedule_context,
+            length=aead.KEY_SIZE,
+            suite_id=suite_id,
         )
         base_nonce = kdf.labeled_expand(
-            secret, b"base_nonce", key_schedule_context, nn, suite_id
+            prk=secret,
+            label=b"base_nonce",
+            labeled_info=key_schedule_context,
+            length=aead.NONCE_SIZE,
+            suite_id=suite_id,
         )
-        nh = kdf.ALGORITHM.digest_size
         exporter_secret = kdf.labeled_expand(
-            secret, b"exp", key_schedule_context, nh, suite_id
+            prk=secret,
+            label=b"exp",
+            labeled_info=key_schedule_context,
+            length=kdf.ALGORITHM.digest_size,
+            suite_id=suite_id,
         )
+
         return context_cls(
             kdf=kdf,
             aead=aead,
@@ -498,7 +518,7 @@ class CipherSuite:
         )
 
     def setup_send(
-        self, pk_r: HPKEPublicKeyType, info: bytes
+        self, pk_r: PublicKeyTypes, info: bytes
     ) -> tuple[bytes, SenderContext]:
         mode = Mode.BASE
         shared_secret, enc = self.kem.encap(pk_r)
@@ -507,14 +527,14 @@ class CipherSuite:
         )
 
     def setup_recv(
-        self, enc: bytes, sk_r: HPKEPrivateKeyType, info: bytes
+        self, enc: bytes, sk_r: PrivateKeyTypes, info: bytes
     ) -> ReceiverContext:
         mode = Mode.BASE
         shared_secret = self.kem.decap(enc, sk_r)
         return self._key_schedule(ReceiverContext, mode, shared_secret, info)
 
     def setup_psk_send(
-        self, pk_r: HPKEPublicKeyType, info: bytes, psk: bytes, psk_id: bytes
+        self, pk_r: PublicKeyTypes, info: bytes, psk: bytes, psk_id: bytes
     ) -> tuple[bytes, SenderContext]:
         mode = Mode.PSK
         shared_secret, enc = self.kem.encap(pk_r)
@@ -525,7 +545,7 @@ class CipherSuite:
     def setup_psk_recv(
         self,
         enc: bytes,
-        sk_r: HPKEPrivateKeyType,
+        sk_r: PrivateKeyTypes,
         info: bytes,
         psk: bytes,
         psk_id: bytes,
@@ -537,7 +557,10 @@ class CipherSuite:
         )
 
     def setup_auth_send(
-        self, pk_r: HPKEPublicKeyType, info: bytes, sk_s: HPKEPrivateKeyType
+        self,
+        pk_r: PublicKeyTypes,
+        info: bytes,
+        sk_s: PrivateKeyTypes,
     ) -> tuple[bytes, SenderContext]:
         mode = Mode.AUTH
         shared_secret, enc = self.kem.auth_encap(pk_r, sk_s)
@@ -548,9 +571,9 @@ class CipherSuite:
     def setup_auth_recv(
         self,
         enc: bytes,
-        sk_r: HPKEPrivateKeyType,
+        sk_r: PrivateKeyTypes,
         info: bytes,
-        pk_s: HPKEPublicKeyType,
+        pk_s: PublicKeyTypes,
     ) -> ReceiverContext:
         mode = Mode.AUTH
         shared_secret = self.kem.auth_decap(enc, sk_r, pk_s)
@@ -558,9 +581,9 @@ class CipherSuite:
 
     def setup_auth_psk_send(
         self,
-        pk_r: HPKEPublicKeyType,
+        pk_r: PublicKeyTypes,
         info: bytes,
-        sk_s: HPKEPrivateKeyType,
+        sk_s: PrivateKeyTypes,
         psk: bytes,
         psk_id: bytes,
     ) -> tuple[bytes, SenderContext]:
@@ -573,9 +596,9 @@ class CipherSuite:
     def setup_auth_psk_recv(
         self,
         enc: bytes,
-        sk_r: HPKEPrivateKeyType,
+        sk_r: PrivateKeyTypes,
         info: bytes,
-        pk_s: HPKEPublicKeyType,
+        pk_s: PublicKeyTypes,
         psk: bytes,
         psk_id: bytes,
     ) -> ReceiverContext:
