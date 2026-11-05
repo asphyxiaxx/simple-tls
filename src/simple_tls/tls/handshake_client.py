@@ -172,16 +172,16 @@ NewSessionCallback = Callable[[TLSSession], None]
 
 
 @dataclass(frozen=True)
-class ECHConfigContext:
+class ECHContext:
     kdf_id: int
     aead_id: int
     kem_id: int
-    hpke_context: hpke.Context
     config_id: int
     public_name: bytes
     maximum_name_length: int
-    enc: bytes
     extensions: Extensions
+    enc: bytes
+    hpke_context: hpke.Context
 
 
 class TLSHandshakeClient(TLSHandshake):
@@ -253,7 +253,7 @@ class TLSHandshakeClient(TLSHandshake):
         self._state = ClientState.START_CONNECT
         self._extensions_sent: set[int] = set()
         self._session_ticket: bytes | None = None
-        self._ech_config: ECHConfigContext | None = None
+        self._ech_context: ECHContext | None = None
         self._ech_client_outer: ECHClientExtension | None = None
         self._ticket_expected: bool = False
         self._pre_shared_keys: list[_PreSharedKey] = []
@@ -371,13 +371,13 @@ class TLSHandshakeClient(TLSHandshake):
 
             # ECH
             if configuration.peer_ech_configs is not None:
-                c = self._select_ech_config(configuration.peer_ech_configs)
-                if c is not None:
-                    self._ech_config = c
+                ctx = self._select_ech_config(configuration.peer_ech_configs)
+                if ctx is not None:
+                    self._ech_context = ctx
                     self._inner_transcript = Transcript()
                     self._inner_client_random = get_random_bytes(32)
 
-            if self._ech_config is None and configuration.grease_ech:
+            if self._ech_context is None and configuration.grease_ech:
                 self._ech_client_outer = ECHClientExtension(
                     ech_client_hello_type=ECHClientHelloType.OUTER,
                     hpke_kdf_id=HpkeKdfId.HKDF_SHA256,
@@ -396,7 +396,7 @@ class TLSHandshakeClient(TLSHandshake):
             and session.protocol_version() <= self._maximum_version
             and not (
                 session.protocol_version() < TLSVersion.TLSv1_3
-                and self._ech_config is not None
+                and self._ech_context is not None
             )
         ):
             assert session.cipher_suite is not None
@@ -442,7 +442,7 @@ class TLSHandshakeClient(TLSHandshake):
         ):
             self._session_ticket = b""
 
-        if self._ech_config is not None:
+        if self._ech_context is not None:
             client_hello = self._build_encrypted_client_hello()
         else:
             client_hello = self._build_client_hello()
@@ -467,7 +467,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Early data extension is included in ClientHello
         self._key_schedule, _, _ = self._pre_shared_keys[0]
-        if self._ech_config is not None:
+        if self._ech_context is not None:
             assert self._inner_transcript is not None
             transcript = self._inner_transcript
         else:
@@ -575,7 +575,7 @@ class TLSHandshakeClient(TLSHandshake):
         ):
             raise AlertIllegalParameter("protocol downgrade detected")
 
-        if self._ech_config is not None:
+        if self._ech_context is not None:
             self._ech_status = ECHStatus.REJECTED
 
         # Update server random
@@ -1149,7 +1149,7 @@ class TLSHandshakeClient(TLSHandshake):
             )
         )
 
-        if self._ech_config is not None:
+        if self._ech_context is not None:
             assert self._inner_transcript is not None
             allowed_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
             self._inner_transcript.update_for_hello_retry_request(
@@ -1238,7 +1238,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Check if ECH accepted
         if (
-            self._ech_config is not None
+            self._ech_context is not None
             and self._ech_status != ECHStatus.REJECTED
         ):
             assert self._inner_transcript is not None
@@ -1488,8 +1488,8 @@ class TLSHandshakeClient(TLSHandshake):
         if self._verify_mode != VerifyMode.CERT_NONE:
             hostname = self._hostname
             if self._ech_status == ECHStatus.REJECTED:
-                assert self._ech_config is not None
-                hostname = self._ech_config.public_name
+                assert self._ech_context is not None
+                hostname = self._ech_context.public_name
             self._verify_x509(self._session, hostname)
 
         self.message_cb(Direction.READ, certificate)
@@ -1778,7 +1778,7 @@ class TLSHandshakeClient(TLSHandshake):
         )
         header_len = len(client_hello.serialize())
 
-        if self._ech_config is not None:
+        if self._ech_context is not None:
             hello_type = ClientHelloType.OUTER
         else:
             hello_type = ClientHelloType.UNENCRYPTED
@@ -1798,10 +1798,10 @@ class TLSHandshakeClient(TLSHandshake):
     def _build_encrypted_client_hello(
         self, is_hrr: bool = False
     ) -> ClientHello:
-        assert self._ech_config is not None
+        assert self._ech_context is not None
         assert self._inner_transcript is not None
         assert self._inner_client_random is not None
-        ech_config = self._ech_config
+        ech_context = self._ech_context
         inner_transcript = self._inner_transcript
         inner_client_random = self._inner_client_random
 
@@ -1871,7 +1871,7 @@ class TLSHandshakeClient(TLSHandshake):
         # draft-ietf-tls-esni-13, section 6.1.3.
         # Pad the EncodedClientHelloInner
         padding_len = 0
-        maximum_name_length = ech_config.maximum_name_length
+        maximum_name_length = ech_context.maximum_name_length
         if self._hostname is not None:
             server_name_len = len(self._hostname)
             if server_name_len <= maximum_name_length:
@@ -1885,24 +1885,24 @@ class TLSHandshakeClient(TLSHandshake):
         )
         encoded_hello_inner_data += bytes(padding_len)
 
-        hpke_context = cast(hpke.SenderContext, ech_config.hpke_context)
+        hpke_context = cast(hpke.SenderContext, ech_context.hpke_context)
         aead_overhead = hpke_context.aead_overhead
         payload_len = len(encoded_hello_inner_data) + aead_overhead
         if not is_hrr:
             self._ech_client_outer = ECHClientExtension(
                 ECHClientHelloType.OUTER,
-                ech_config.kdf_id,
-                ech_config.aead_id,
-                ech_config.config_id,
-                ech_config.enc,
+                ech_context.kdf_id,
+                ech_context.aead_id,
+                ech_context.config_id,
+                ech_context.enc,
                 bytes(payload_len),
             )
         else:
             self._ech_client_outer = ECHClientExtension(
                 ECHClientHelloType.OUTER,
-                ech_config.kdf_id,
-                ech_config.aead_id,
-                ech_config.config_id,
+                ech_context.kdf_id,
+                ech_context.aead_id,
+                ech_context.config_id,
                 b"",
                 bytes(payload_len),
             )
@@ -2010,8 +2010,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Server Name Indicator
         if hello_type == ClientHelloType.OUTER:
-            assert self._ech_config is not None
-            hostname = self._ech_config.public_name
+            assert self._ech_context is not None
+            hostname = self._ech_context.public_name
             extensions.append(SNIClientExtension(hostname))
         else:
             # RFC 6066 explicitly forbids literal IP addresses in SNI
@@ -2424,43 +2424,43 @@ class TLSHandshakeClient(TLSHandshake):
             self._add_message(c_verify)
 
     @staticmethod
-    def _select_ech_config(
-        ech_configs: Sequence[ECHConfig],
-    ) -> ECHConfigContext | None:
-        for ech_config in ech_configs:
-            if not ech_config.supported():
+    def _select_ech_config(configs: Sequence[ECHConfig]) -> ECHContext | None:
+        for config in configs:
+            if not config.supported():
                 continue
 
-            info = b"tls ech" + b"\x00" + ech_config.serialize()
-
-            for cipher_suite in ech_config.cipher_suites:
-                kem_id = ech_config.kem_id
+            for cipher_suite in config.cipher_suites:
+                kem_id = config.kem_id
                 kdf_id, aead_id = cipher_suite
                 try:
                     suite = hpke.create_suite(kem_id, kdf_id, aead_id)
                     peer_public_key = suite.kem.deserialize_public_key(
-                        ech_config.public_key
+                        config.public_key
                     )
                 except ValueError:
                     continue
+                break
+            else:
+                continue
 
-                enc, ctx = suite.setup_send(peer_public_key, info=info)
-                config_id = ech_config.config_id
-                public_name = ech_config.public_name
-                maximum_name_length = ech_config.maximum_name_length
-                extensions = ech_config.extensions
+            info = b"tls ech" + b"\x00" + config.serialize()
+            enc, ctx = suite.setup_send(peer_public_key, info)
+            config_id = config.config_id
+            public_name = config.public_name
+            maximum_name_length = config.maximum_name_length
+            extensions = config.extensions
 
-                return ECHConfigContext(
-                    kdf_id=kdf_id,
-                    aead_id=aead_id,
-                    kem_id=kem_id,
-                    hpke_context=ctx,
-                    config_id=config_id,
-                    public_name=public_name,
-                    maximum_name_length=maximum_name_length,
-                    enc=enc,
-                    extensions=extensions,
-                )
+            return ECHContext(
+                kdf_id=kdf_id,
+                aead_id=aead_id,
+                kem_id=kem_id,
+                config_id=config_id,
+                public_name=public_name,
+                maximum_name_length=maximum_name_length,
+                extensions=extensions,
+                enc=enc,
+                hpke_context=ctx,
+            )
 
         return None
 
