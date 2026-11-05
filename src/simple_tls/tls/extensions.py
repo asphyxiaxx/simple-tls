@@ -52,16 +52,14 @@ class Extension:
 
 
 class Extensions:
-    def __init__(
-        self, extensions: Iterable[tuple[int, bytes]] | None = None
-    ) -> None:
-        if extensions is not None:
-            self._extensions = list(extensions)
+    def __init__(self, raw: Iterable[tuple[int, bytes]] | None = None) -> None:
+        if raw is not None:
+            self._extensions = list(raw)
         else:
             self._extensions = []
 
     @property
-    def extensions(self) -> list[tuple[int, bytes]]:
+    def raw(self) -> list[tuple[int, bytes]]:
         return self._extensions
 
     def get_types(self) -> list[int]:
@@ -181,15 +179,6 @@ class Extensions:
             f"({self._type_name(t)}, {d!r})" for t, d in self._extensions
         )
         return f"Extension([{exts_repr}])"
-
-    def __getitem__(self, index: int) -> tuple[int, bytes]:
-        return self._extensions[index]
-
-    def __setitem__(self, index: int, value: tuple[int, bytes]) -> None:
-        ext_type, ext_data = value
-        if not isinstance(ext_type, int) or not isinstance(ext_data, bytes):
-            raise TypeError("Extension item must be a tuple of (int, bytes)")
-        self._extensions[index] = value
 
     def __iter__(self) -> Iterator[tuple[int, bytes]]:
         return iter(self._extensions)

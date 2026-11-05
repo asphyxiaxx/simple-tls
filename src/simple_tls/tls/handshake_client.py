@@ -1935,7 +1935,7 @@ class TLSHandshakeClient(TLSHandshake):
     ) -> Extensions:
         extensions = self._get_extensions_internal(hello_type, is_hrr)
         if len(extensions) > 0:
-            last_was_empty = len(extensions[-1][1]) == 0
+            last_was_empty = len(extensions.raw[-1][1]) == 0
         else:
             last_was_empty = True
 
@@ -2473,7 +2473,9 @@ class TLSHandshakeClient(TLSHandshake):
         encoded_client_hello: ClientHello | None = None,
     ) -> None:
         assert client_hello.extensions
-        assert client_hello.extensions[-1][0] == ExtensionType.PRE_SHARED_KEY
+        assert (
+            client_hello.extensions.raw[-1][0] == ExtensionType.PRE_SHARED_KEY
+        )
 
         handshake_data = cls._pack_handshake(client_hello)
         total_binders_length = sum(
