@@ -25,6 +25,7 @@ import struct
 from dataclasses import dataclass
 from typing import ClassVar, TypeVar, Union
 
+from cryptography import exceptions
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, x448, x25519
 from cryptography.hazmat.primitives.ciphers import aead
@@ -51,6 +52,8 @@ AEADContext = Union[
     aead.ChaCha20Poly1305,
 ]
 
+
+InvalidTag = exceptions.InvalidTag
 
 # Constant
 
