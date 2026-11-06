@@ -1,5 +1,6 @@
 import functools
 import os
+from dataclasses import replace
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric import x25519
@@ -144,6 +145,22 @@ def create_client_config(**kwargs):
     kwargs.setdefault("castore", load_cafile())
 
     return TLSConfiguration(is_server=False, **kwargs)
+
+
+def create_ech_key(config_id):
+    private_key_bytes = b"0" * 32
+    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
+    ech_config = ECHConfig(
+        config_id=config_id,
+        kem_id=0x0020,
+        public_key=private_key.public_key().public_bytes_raw(),
+        cipher_suites=[(0x0001, 0x0001)],
+        maximum_name_length=0,
+        public_name=b"localhost",
+        extensions=Extensions(),
+    )
+    ech_key = ECHKey(ech_config, private_key, is_retry_config=True)
+    return ech_key
 
 
 def run_handshake(client, server, stop_condition=None):
@@ -1212,23 +1229,9 @@ def test_tls13_certificate_request():
 
 
 def test_tls13_ech():
-    private_key_bytes = b"0" * 32
-    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
-    ech_config = ECHConfig(
-        config_id=123,
-        kem_id=0x0020,
-        public_key=private_key.public_key().public_bytes_raw(),
-        cipher_suites=[(0x0001, 0x0001)],
-        maximum_name_length=0,
-        public_name=b"localhost",
-        extensions=Extensions(),
-    )
-    ech_key = ECHKey(
-        ech_config=ech_config,
-        private_key=private_key,
-        is_retry_config=True,
-    )
     version = TLSVersion.TLSv1_3
+    ech_key = create_ech_key(config_id=123)
+    ech_config = ech_key.ech_config
 
     client = TLSHandshakeClient(
         configuration=create_client_config(
@@ -1257,32 +1260,10 @@ def test_tls13_ech():
 
 
 def test_tls13_ech_with_retry_config():
-    private_key_bytes = b"0" * 32
-    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
-    invalid_ech_config = ECHConfig(
-        config_id=0,
-        kem_id=0x0020,
-        public_key=private_key.public_key().public_bytes_raw(),
-        cipher_suites=[(0x0001, 0x0001)],
-        maximum_name_length=0,
-        public_name=b"localhost",
-        extensions=Extensions(),
-    )
-    ech_config = ECHConfig(
-        config_id=123,
-        kem_id=0x0020,
-        public_key=private_key.public_key().public_bytes_raw(),
-        cipher_suites=[(0x0001, 0x0001)],
-        maximum_name_length=0,
-        public_name=b"localhost",
-        extensions=Extensions(),
-    )
-    ech_key = ECHKey(
-        ech_config=ech_config,
-        private_key=private_key,
-        is_retry_config=True,
-    )
     version = TLSVersion.TLSv1_3
+    ech_key = create_ech_key(config_id=123)
+    ech_config = ech_key.ech_config
+    invalid_ech_config = replace(ech_config, config_id=0)
 
     client = TLSHandshakeClient(
         configuration=create_client_config(
@@ -1338,23 +1319,9 @@ def test_tls13_ech_with_retry_config():
 
 
 def test_tls13_ech_with_hello_retry_request():
-    private_key_bytes = b"0" * 32
-    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
-    ech_config = ECHConfig(
-        config_id=123,
-        kem_id=0x0020,
-        public_key=private_key.public_key().public_bytes_raw(),
-        cipher_suites=[(0x0001, 0x0001)],
-        maximum_name_length=0,
-        public_name=b"localhost",
-        extensions=Extensions(),
-    )
-    ech_key = ECHKey(
-        ech_config=ech_config,
-        private_key=private_key,
-        is_retry_config=True,
-    )
     version = TLSVersion.TLSv1_3
+    ech_key = create_ech_key(config_id=123)
+    ech_config = ech_key.ech_config
 
     client = TLSHandshakeClient(
         configuration=create_client_config(
@@ -1394,25 +1361,11 @@ def test_tls13_ech_with_hello_retry_request():
 
 
 def test_tls13_ech_with_psk():
-    private_key_bytes = b"0" * 32
-    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
-    ech_config = ECHConfig(
-        config_id=123,
-        kem_id=0x0020,
-        public_key=private_key.public_key().public_bytes_raw(),
-        cipher_suites=[(0x0001, 0x0001)],
-        maximum_name_length=0,
-        public_name=b"localhost",
-        extensions=Extensions(),
-    )
-    ech_key = ECHKey(
-        ech_config=ech_config,
-        private_key=private_key,
-        is_retry_config=True,
-    )
     version = TLSVersion.TLSv1_3
     session_handler = SessionHandler()
     ticket_aead = TicketAEAD()
+    ech_key = create_ech_key(config_id=123)
+    ech_config = ech_key.ech_config
 
     client = TLSHandshakeClient(
         configuration=create_client_config(
