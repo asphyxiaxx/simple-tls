@@ -22,8 +22,10 @@ from __future__ import annotations
 
 from simple_tls.tls.config import (
     Credential,
+    ECHKey,
     TLSConfiguration,
     load_ech_configs,
+    load_pem_ech_key,
     load_pem_private_key,
 )
 from simple_tls.tls.connection import TLSConnection
@@ -71,6 +73,7 @@ __all__ = [
     "DHParameters",
     "Direction",
     "ECHConfig",
+    "ECHKey",
     "ECHStatus",
     "EarlyDataStatus",
     "HandshakeContext",
@@ -94,6 +97,7 @@ __all__ = [
     "TicketContext",
     "VerifyMode",
     "load_ech_configs",
+    "load_pem_ech_key",
     "load_pem_parameters",
     "load_pem_private_key",
 ]

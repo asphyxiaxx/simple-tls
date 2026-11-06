@@ -22,8 +22,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from simple_tls.codec import Parser, Writer
+from simple_tls.crypto import hpke
 from simple_tls.crypto.constant_time import compare_digest
 from simple_tls.crypto.utils import (
     bytes_to_int,
@@ -44,7 +46,7 @@ from simple_tls.tls.alerts import (
     AlertUnexpectedMessage,
     AlertUnsupportedExtension,
 )
-from simple_tls.tls.config import Credential, TLSConfiguration
+from simple_tls.tls.config import Credential, ECHKey, TLSConfiguration
 from simple_tls.tls.constants import (
     DSA_SIGNATURE_ALGORITHMS,
     ECDSA_SIGNATURE_ALGORITHMS,
@@ -60,6 +62,7 @@ from simple_tls.tls.constants import (
     ClientCertificateType,
     Compression,
     ECCurveType,
+    ECHClientHelloType,
     ECPointFormat,
     ExtensionType,
     HandshakeType,
@@ -72,6 +75,7 @@ from simple_tls.tls.constants import (
 from simple_tls.tls.enums import (
     Direction,
     EarlyDataStatus,
+    ECHStatus,
     Epoch,
     ServerState,
     Status,
@@ -86,6 +90,11 @@ from simple_tls.tls.extensions import (
     CookieExtension,
     EarlyDataExtension,
     EarlyDataServerExtension,
+    ECHClientExtension,
+    ECHConfig,
+    ECHHRRExtension,
+    ECHOuterExtension,
+    ECHServerExtension,
     ECPointFormatsExtension,
     EncryptThenMacExtension,
     ExtendedMasterSecretExtension,
@@ -109,7 +118,7 @@ from simple_tls.tls.extensions import (
     SupportedVersionsClientExtension,
     SupportedVersionsServerExtension,
 )
-from simple_tls.tls.handshake import Handshake, TLSHandshake
+from simple_tls.tls.handshake import ECHContext, Handshake, TLSHandshake
 from simple_tls.tls.key import RSAPrivateKey, load_certificate_public_key
 from simple_tls.tls.keyexchange import (
     BaseKeyExchange,
@@ -205,6 +214,13 @@ class TLSHandshakeServer(TLSHandshake):
         # DH parameters
         self._dh_parameters: DHParameters | None = configuration.dh_parameters
 
+        # ECH Configs
+        self._ech_keys: tuple[ECHKey, ...] = (
+            tuple(configuration.ech_keys)
+            if configuration.ech_keys is not None
+            else ()
+        )
+
         # Temporary State
         self._state = ServerState.START_ACCEPT
         self._extensions_recv: set[int] = set()
@@ -213,6 +229,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._certificate_requested: bool = False
         self._pre_shared_key: _PreSharedKey | None = None
         self._key_exchange: BaseKeyExchange | None = None
+        self._ech_context: ECHContext | None = None
 
         # Peer item
         self._peer_cipher_suites: tuple[int, ...] | None = None
@@ -292,7 +309,7 @@ class TLSHandshakeServer(TLSHandshake):
             raise ValueError("handshake not complete")
         self._set_state(ServerState.READ_POST_HANDSHAKE)
 
-    def send_key_update(self, message_type: KeyUpdateMessageType) -> None:
+    def send_key_update(self, message_type: int) -> None:
         if not self.done:
             raise ValueError("handshake not complete")
         self._write_key_update(message_type)
@@ -303,11 +320,18 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_read_client_hello(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        client_hello = message.parse_as(ClientHello)
+        client_hello = handshake.parse_as(ClientHello)
+
+        # try decrypt ECH
+        inner_client_hello = self._decrypt_ech(client_hello)
+        if inner_client_hello is not None:
+            self.message_cb(Direction.READ, client_hello)
+            handshake.set_message(inner_client_hello)
+            client_hello = inner_client_hello
 
         self._server_random = get_random_bytes(32)
         self._client_random = client_hello.random
@@ -417,11 +441,13 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_select_parameters(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
+        assert self._ech_status != ECHStatus.ACCEPTED
         assert self._peer_cipher_suites is not None
+
         version = self.protocol_version()
         supported_cipher_suites = self._cipher_suites
         peer_cipher_suites = self._peer_cipher_suites
@@ -475,6 +501,7 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.auth != Authentication.ANON:
             assert x509_cert is not None
             assert public_key is not None
+
             default_sigalg, supported_sigalgs = self._sigalgs_for_pubkey(
                 version=version,
                 public_key=public_key,
@@ -502,7 +529,7 @@ class TLSHandshakeServer(TLSHandshake):
                 sentinel = TLS11_DOWNGRADE_SENTINEL
             self._server_random = self._server_random[:24] + sentinel
 
-        client_hello = message.parse_as(ClientHello)
+        client_hello = handshake.parse_as(ClientHello)
 
         # Process extension first
         extensions = client_hello.extensions
@@ -552,7 +579,7 @@ class TLSHandshakeServer(TLSHandshake):
         self._session = session
 
         self.message_cb(Direction.READ, client_hello)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.SEND_SERVER_HELLO)
         return Status.OK
@@ -604,11 +631,13 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_send_server_certificate(self) -> Status:
         assert self._cipher_suite is not None
+
         if self._cipher_suite.auth == Authentication.ANON:
             self._set_state(ServerState.SEND_SERVER_KEY_EXCHANGE)
             return Status.OK
 
         assert self._credential is not None
+
         certificate = self._create_certificate(self._credential)
         self.message_cb(Direction.WRITE, certificate)
         self._add_message(certificate)
@@ -618,8 +647,8 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_send_server_key_exchange(self) -> Status:
         assert self._cipher_suite is not None
-        cipher_suite = self._cipher_suite
 
+        cipher_suite = self._cipher_suite
         if cipher_suite.kea == KeyExchange.RSA:
             self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
             return Status.OK
@@ -646,12 +675,14 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.auth != Authentication.ANON:
             assert self._credential is not None
             assert self._signing_signature_algorithm is not None
+
             private_key = self._credential.private_key
             ske_data = writer.tobytes()
             data = self._client_random + self._server_random + ske_data
             signature = private_key.sign(
                 data, self._signing_signature_algorithm
             )
+
             if version == TLSVersion.TLSv1_2:
                 writer.write_int(self._signing_signature_algorithm, 2)
             writer.write_prefixed_bytes(signature, 2)
@@ -710,31 +741,33 @@ class TLSHandshakeServer(TLSHandshake):
         self._add_message(server_hello_done)
 
         self._set_state(ServerState.READ_CLIENT_CERTIFICATE)
-        return Status.FLUSH_MESSAGE
+        return Status.FLUSH_HANDSHAKE
 
     def _do_read_client_certificate(self) -> Status:
         if not self._certificate_requested:
             self._set_state(ServerState.VERIFY_CLIENT_CERTIFICATE)
             return Status.OK
 
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
         assert self._session is not None
+
         certificate = self._process_certificate(
-            message=message,
+            handshake=handshake,
             session=self._session,
             allow_anon=(self._verify_mode != VerifyMode.CERT_REQUIRED),
         )
         self.message_cb(Direction.READ, certificate)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.VERIFY_CLIENT_CERTIFICATE)
         return Status.OK
 
     def _do_verify_client_certificate(self) -> Status:
         assert self._session is not None
+
         if self._session.peer_cert is not None:
             self._verify_x509(self._session)
 
@@ -742,14 +775,15 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_read_client_key_exchange(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        cke = message.parse_as(ClientKeyExchange)
+        cke = handshake.parse_as(ClientKeyExchange)
 
         assert self._cipher_suite is not None
         assert self._session is not None
+
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         parser = Parser(cke.data)
@@ -758,6 +792,7 @@ class TLSHandshakeServer(TLSHandshake):
         if cipher_suite.kea == KeyExchange.RSA:
             assert cipher_suite.auth == Authentication.RSA
             assert self._credential is not None
+
             private_key = self._credential.private_key
             if not isinstance(private_key, RSAPrivateKey):
                 raise AlertInternalError("not a RSA private key")
@@ -771,6 +806,8 @@ class TLSHandshakeServer(TLSHandshake):
             ):
                 premaster_secret = get_random_bytes(48)
         else:
+            assert self._key_exchange is not None
+
             if cipher_suite.kea == KeyExchange.ECDHE:
                 peer_key = parser.read_prefixed_bytes(1)
             elif cipher_suite.kea == KeyExchange.DHE:
@@ -778,7 +815,6 @@ class TLSHandshakeServer(TLSHandshake):
             else:
                 raise AlertInternalError("unsupported cipher suite selected")
 
-            assert self._key_exchange is not None
             try:
                 premaster_secret = self._key_exchange.exchange(peer_key)
             except ValueError as exc:
@@ -790,7 +826,7 @@ class TLSHandshakeServer(TLSHandshake):
         # Update hash since extended master secret required transcript
         # until client key exchange
         self.message_cb(Direction.READ, cke)
-        self._next_message()
+        self._next_handshake()
 
         if self._extended_master_secret:
             label = b"extended master secret"
@@ -816,19 +852,20 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_read_client_certificate_verify(self) -> Status:
         assert self._session is not None
+
         if self._session.peer_cert is None:
             self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
             return Status.OK
 
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
         cert_verify: CertificateVerifyTLS12 | CertificateVerify
         if self.protocol_version() >= TLSVersion.TLSv1_2:
-            cert_verify = message.parse_as(CertificateVerifyTLS12)
+            cert_verify = handshake.parse_as(CertificateVerifyTLS12)
         else:
-            cert_verify = message.parse_as(CertificateVerify)
+            cert_verify = handshake.parse_as(CertificateVerify)
 
         self._process_certificate_verify(
             session=self._session,
@@ -837,7 +874,7 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         self.message_cb(Direction.READ, cert_verify)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
         return Status.OK
@@ -856,11 +893,11 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.READ_CLIENT_FINISHED)
             return Status.OK
 
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        next_proto = message.parse_as(NextProtocol)
+        next_proto = handshake.parse_as(NextProtocol)
 
         if next_proto.next_protocol not in self._npn_protocols:
             raise AlertIllegalParameter("peer selected unexpected next_proto")
@@ -868,19 +905,20 @@ class TLSHandshakeServer(TLSHandshake):
         self._npn_protocol = next_proto.next_protocol
 
         self.message_cb(Direction.READ, next_proto)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.READ_CLIENT_FINISHED)
         return Status.OK
 
     def _do_read_client_finished(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
-
-        finished = message.parse_as(Finished)
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
         assert self._session is not None
+
+        finished = handshake.parse_as(Finished)
+
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"client finished"
@@ -889,7 +927,7 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertDecryptError("finished verify data mismatch")
 
         self.message_cb(Direction.READ, finished)
-        self._next_message()
+        self._next_handshake()
 
         if self._session_reused:
             self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
@@ -917,9 +955,10 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.WRITE_CHANGE_CIPHER_SPEC
 
     def _do_send_server_finished(self) -> Status:
+        assert self._session is not None
+
         self._setup_traffic(Direction.WRITE)
 
-        assert self._session is not None
         master_secret = self._session.secret
         verify_data = self._derive_finished_verify_data(
             master_secret, b"server finished"
@@ -932,17 +971,18 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.READ_CHANGE_CIPHER_SPEC)
         else:
             self._set_state(ServerState.FINISHED_SERVER_HANDSHAKE)
-        return Status.FLUSH_MESSAGE
+        return Status.FLUSH_HANDSHAKE
 
     def _do_select_parameters_tls13(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
+
+        assert self._peer_cipher_suites is not None
 
         if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("trailing handshake data")
 
-        assert self._peer_cipher_suites is not None
         version = self.protocol_version()
         supported_cipher_suites = self._cipher_suites
         peer_cipher_suites = self._peer_cipher_suites
@@ -959,7 +999,7 @@ class TLSHandshakeServer(TLSHandshake):
         else:
             raise AlertHandshakeFailure("no supported cipher suite")
 
-        client_hello = message.parse_as(ClientHello)
+        client_hello = handshake.parse_as(ClientHello)
 
         # Update session id
         self._session_id = client_hello.session_id
@@ -991,7 +1031,7 @@ class TLSHandshakeServer(TLSHandshake):
                 binders = psk_ext.binders
                 transcript = self._transcript.copy()
                 transcript.update_hash(
-                    self._get_client_hello_without_binders(message, psk_ext)
+                    self._get_client_hello_without_binders(handshake, psk_ext)
                 )
 
                 for index, psk_identity in enumerate(psk_ext.identities):
@@ -1108,7 +1148,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Early data key required update client hello hash
         self.message_cb(Direction.READ, client_hello)
-        self._next_message()
+        self._next_handshake()
 
         if self._cookie is not None or self._group_id_hrr is not None:
             hrr = True
@@ -1170,11 +1210,10 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_send_hello_retry_request_tls13(self) -> Status:
         assert self._cipher_suite is not None
-        version = self.protocol_version()
-        cipher_suite = self._cipher_suite
 
         extensions = Extensions()
 
+        version = self.protocol_version()
         extensions.append(SupportedVersionsServerExtension(version))
 
         if self._cookie is not None:
@@ -1192,17 +1231,20 @@ class TLSHandshakeServer(TLSHandshake):
             version=self._client_version,
             random=TLS13_HRR_SENTINEL,
             session_id=self._session_id,
-            cipher_suite=cipher_suite.id,
+            cipher_suite=self._cipher_suite.id,
             compression_method=Compression.NULL,
             extensions=extensions,
         )
+        if self._ech_status == ECHStatus.ACCEPTED:
+            self._apply_ech_acceptance(hrr, is_hrr=True)
+
         self.message_cb(Direction.WRITE, hrr)
         self._add_message(hrr)
 
         self._hello_retry_request_used = True
 
         self._set_state(ServerState.HRR_COMPAT_CSS_TLS13)
-        return Status.FLUSH_MESSAGE
+        return Status.FLUSH_HANDSHAKE
 
     def _do_hrr_compat_ccs_tls13(self) -> Status:
         self._set_state(ServerState.READ_SECOND_CLIENT_HELLO_TLS13)
@@ -1211,17 +1253,33 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_read_second_client_hello_tls13(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        client_hello = message.parse_as(ClientHello)
+        assert self._cipher_suite is not None
+        assert self._key_schedule is not None
+
+        client_hello = handshake.parse_as(ClientHello)
 
         if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("trailing handshake data")
 
-        assert self._cipher_suite is not None
-        assert self._key_schedule is not None
+        if self._ech_status == ECHStatus.ACCEPTED:
+            assert self._ech_context is not None
+
+            ech_ext = client_hello.extensions.get(ECHClientExtension)
+            if ech_ext is None:
+                raise AlertMissingExtension(
+                    "missing ECH extension in second client hello"
+                )
+
+            inner_client_hello = self._decrypt_ech_payload(
+                self._ech_context, client_hello, ech_ext
+            )
+            self.message_cb(Direction.READ, client_hello)
+            handshake.set_message(inner_client_hello)
+            client_hello = inner_client_hello
 
         # Process extensions
         extensions = client_hello.extensions
@@ -1247,8 +1305,8 @@ class TLSHandshakeServer(TLSHandshake):
                 "no supported key share or cookie extension"
             )
 
-        key_share_ext = extensions.get(KeyShareClientExtension)
         if self._group_id_hrr is not None:
+            key_share_ext = extensions.get(KeyShareClientExtension)
             if key_share_ext is None:
                 raise AlertMissingExtension("missing key share extension")
             if len(key_share_ext.key_shares) != 1:
@@ -1263,8 +1321,8 @@ class TLSHandshakeServer(TLSHandshake):
             self._group_id = self._group_id_hrr
             self._peer_key = key_share_entry.key_exchange
 
-        cookie_ext = extensions.get(CookieExtension)
         if self._cookie is not None:
+            cookie_ext = extensions.get(CookieExtension)
             if cookie_ext is None:
                 raise AlertMissingExtension("missing cookie extension")
             if cookie_ext.data != self._cookie:
@@ -1272,10 +1330,10 @@ class TLSHandshakeServer(TLSHandshake):
                     "received malformed cookie extension"
                 )
 
-        psk_ext = extensions.get(PSKClientExtension)
         if self._psk_index is not None:
             assert self._pre_shared_key is not None
 
+            psk_ext = extensions.get(PSKClientExtension)
             if psk_ext is None:
                 raise AlertMissingExtension("missing PSK extension")
 
@@ -1285,25 +1343,25 @@ class TLSHandshakeServer(TLSHandshake):
             binders = psk_ext.binders
             transcript = self._transcript.copy()
             transcript.update_hash(
-                self._get_client_hello_without_binders(message, psk_ext)
+                self._get_client_hello_without_binders(handshake, psk_ext)
             )
 
-            for i, psk_identity in enumerate(psk_ext.identities):
+            for idx, psk_identity in enumerate(psk_ext.identities):
                 if psk_identity.identity != exp_identity:
                     continue
 
                 expected_binder = self._key_schedule.finished_verify_data(
                     binder_key, transcript
                 )
-                if not compare_digest(binders[i], expected_binder):
+                if not compare_digest(binders[idx], expected_binder):
                     raise AlertDecryptError("binder mismatch")
 
-                self._psk_index = i
+                self._psk_index = idx
                 break
             else:
                 raise AlertDecryptError("missing expected psk identity")
 
-        self._next_message()
+        self._next_handshake()
         self.message_cb(Direction.READ, client_hello)
 
         self._set_state(ServerState.SEND_SERVER_HELLO_TLS13)
@@ -1328,6 +1386,7 @@ class TLSHandshakeServer(TLSHandshake):
             key = self._peer_key
             kex = self._get_key_exchange(self._group_id)
             assert kex is not None
+
             try:
                 key_share, shared_secret = kex.generate_and_exchange(key)
             except ValueError as exc:
@@ -1337,9 +1396,8 @@ class TLSHandshakeServer(TLSHandshake):
 
             key_share_entry = KeyShareEntry(self._group_id, key_share)
             extensions.append(KeyShareServerExtension(key_share_entry))
-            self._key_schedule.extract(shared_secret)
         else:
-            self._key_schedule.extract(None)
+            shared_secret = None
 
         server_hello = ServerHello(
             version=self._client_version,
@@ -1349,9 +1407,13 @@ class TLSHandshakeServer(TLSHandshake):
             compression_method=Compression.NULL,
             extensions=extensions,
         )
+        if self._ech_status == ECHStatus.ACCEPTED:
+            self._apply_ech_acceptance(server_hello, is_hrr=False)
+
         self.message_cb(Direction.WRITE, server_hello)
         self._add_message(server_hello)
 
+        self._key_schedule.extract(shared_secret)
         self._derive_secret_tls13(
             direction=Direction.WRITE,
             epoch=Epoch.HANDSHAKE,
@@ -1380,23 +1442,34 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_encrypted_extensions_tls13(self) -> Status:
         assert self._key_schedule is not None
         assert self._session is not None
-        session = self._session
 
         self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
 
         enc_exts = Extensions()
 
+        # Early Data
         if self._early_data_status == EarlyDataStatus.ACCEPTED:
             enc_exts.append(EarlyDataServerExtension())
 
+        # ALPN Protocol
         if self._alpn_protocol is not None:
             enc_exts.append(ALPNServerExtension(self._alpn_protocol))
 
+        # ALPS
         if (
-            session.has_alps
+            self._session.has_alps
             and self._early_data_status != EarlyDataStatus.ACCEPTED
         ):
-            enc_exts.append(ALPSExtension(session.local_alps))
+            enc_exts.append(ALPSExtension(self._session.local_alps))
+
+        # ECH retry configs
+        if self._ech_status == ECHStatus.REJECTED:
+            retry_configs: list[ECHConfig] = []
+            for ech_key in self._ech_keys:
+                if ech_key.is_retry_config:
+                    retry_configs.append(ech_key.ech_config)
+            if retry_configs:
+                enc_exts.append(ECHServerExtension(retry_configs))
 
         encrypted_extensions = EncryptedExtensions(enc_exts)
         self.message_cb(Direction.WRITE, encrypted_extensions)
@@ -1410,10 +1483,12 @@ class TLSHandshakeServer(TLSHandshake):
             context = b""
             cert_exts = Extensions()
 
+            # Signature Algorithms
             cert_exts.append(
                 SignatureAlgorithmsExtension(self._signature_algorithms)
             )
 
+            # Certificate compression algorithm
             if self._certificate_compressions:
                 cert_exts.append(
                     CompressedCertificateExtension(
@@ -1478,7 +1553,7 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
         self._set_state(ServerState.READ_SECOND_CLIENT_FLIGHT_TLS13)
-        return Status.FLUSH_MESSAGE
+        return Status.FLUSH_HANDSHAKE
 
     def _do_read_second_client_flight_tls13(self) -> Status:
         self._setup_traffic_tls13(Direction.WRITE, Epoch.APPLICATION_DATA)
@@ -1497,11 +1572,11 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_process_end_of_early_data_tls13(self) -> Status:
         if self._early_data_status == EarlyDataStatus.ACCEPTED:
-            message = self._get_message()
-            if message is None:
-                return Status.READ_MESSAGE
+            handshake = self._read_handshake()
+            if handshake is None:
+                return Status.READ_HANDSHAKE
 
-            end_of_early_data = message.parse_as(EndOfEarlyData)
+            end_of_early_data = handshake.parse_as(EndOfEarlyData)
 
             if self.has_unprocessed_data():
                 raise AlertUnexpectedMessage("trailing handshake data")
@@ -1509,7 +1584,7 @@ class TLSHandshakeServer(TLSHandshake):
             self._close_early_data()
 
             self.message_cb(Direction.READ, end_of_early_data)
-            self._next_message()
+            self._next_handshake()
 
         self._setup_traffic_tls13(Direction.READ, Epoch.HANDSHAKE)
 
@@ -1518,20 +1593,19 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_read_client_encrypted_extensions_tls13(self) -> Status:
         assert self._session is not None
-        session = self._session
 
         if not (
-            session.has_alps
+            self._session.has_alps
             and self._early_data_status != EarlyDataStatus.ACCEPTED
         ):
             self._set_state(ServerState.READ_CLIENT_CERTIFICATE_TLS13)
             return Status.OK
 
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        encrypted_extensiosn = message.parse_as(EncryptedExtensions)
+        encrypted_extensiosn = handshake.parse_as(EncryptedExtensions)
 
         # Process extensions
         extensions = encrypted_extensiosn.extensions
@@ -1542,13 +1616,13 @@ class TLSHandshakeServer(TLSHandshake):
         if alps_ext is None:
             raise AlertMissingExtension("missing ALPS extension")
 
-        session.peer_alps = alps_ext.settings
+        self._session.peer_alps = alps_ext.settings
 
         if not extensions.has_allowed(allowed_extensions):
             raise AlertUnsupportedExtension("received unexpected extensions")
 
         self.message_cb(Direction.READ, encrypted_extensiosn)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.READ_CLIENT_CERTIFICATE_TLS13)
         return Status.OK
@@ -1558,13 +1632,14 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
             return Status.OK
 
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
         assert self._session is not None
+
         certificate = self._process_certificate_tls13(
-            message=message,
+            handshake=handshake,
             session=self._session,
             allow_anon=(self._verify_mode != VerifyMode.CERT_REQUIRED),
             compression_supported=True,
@@ -1576,44 +1651,47 @@ class TLSHandshakeServer(TLSHandshake):
             self._verify_x509(self._session)
 
         self.message_cb(Direction.READ, certificate)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.READ_CLIENT_CERTIFICATE_VERIFY_TLS13)
         return Status.OK
 
     def _do_read_client_certificate_verify_tls13(self) -> Status:
         assert self._session is not None
+
         if self._session.peer_cert is None:
             self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
             return Status.OK
 
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        cert_verify = message.parse_as(CertificateVerifyTLS12)
+        cert_verify = handshake.parse_as(CertificateVerifyTLS12)
+
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
             supported_sigalgs=self._signature_algorithms,
         )
         self.message_cb(Direction.READ, cert_verify)
-        self._next_message()
+        self._next_handshake()
 
         self._set_state(ServerState.READ_CLIENT_FINISHED_TLS13)
         return Status.OK
 
     def _do_read_client_finished_tls13(self) -> Status:
-        message = self._get_message()
-        if message is None:
-            return Status.READ_MESSAGE
+        handshake = self._read_handshake()
+        if handshake is None:
+            return Status.READ_HANDSHAKE
 
-        finished = message.parse_as(Finished)
+        assert self._key_schedule is not None
+
+        finished = handshake.parse_as(Finished)
 
         if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("trailing handshake data")
 
-        assert self._key_schedule is not None
         expected_verify_data = self._key_schedule.finished_verify_data(
             self._dec_secret[Epoch.HANDSHAKE], self._transcript
         )
@@ -1621,7 +1699,7 @@ class TLSHandshakeServer(TLSHandshake):
             raise AlertDecryptError("finished verify data mismatch")
 
         self.message_cb(Direction.READ, finished)
-        self._next_message()
+        self._next_handshake()
 
         self._setup_traffic_tls13(Direction.READ, Epoch.APPLICATION_DATA)
 
@@ -1679,6 +1757,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_finish_server_handshake(self) -> Status:
         assert self._session is not None
+
         if not self._session_reused:
             self._session.not_resumable = False
 
@@ -1688,15 +1767,15 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_read_post_handshake(self) -> Status:
-        message = self._get_message()
-        if message is None:
+        handshake = self._read_handshake()
+        if handshake is None:
             self._set_state(ServerState.DONE)
             return Status.OK
 
         if self.protocol_version() >= TLSVersion.TLSv1_3:
-            return self._post_handshake_tls13(message)
+            return self._post_handshake_tls13(handshake)
         else:
-            return self._post_handshake(message)
+            return self._post_handshake(handshake)
 
     def _do_process_update_traffic(self) -> Status:
         self._set_state(ServerState.COMPLETE_UPDATE_TRAFFIC)
@@ -1707,14 +1786,14 @@ class TLSHandshakeServer(TLSHandshake):
         self._set_state(ServerState.DONE)
         return Status.OK
 
-    def _post_handshake(self, message: Handshake) -> Status:
+    def _post_handshake(self, handshake: Handshake) -> Status:
         raise AlertUnexpectedMessage(
             "received unexpected post handshake message"
         )
 
-    def _post_handshake_tls13(self, message: Handshake) -> Status:
-        if message.handshake_type == HandshakeType.KEY_UPDATE:
-            key_update = message.parse_as(KeyUpdate)
+    def _post_handshake_tls13(self, handshake: Handshake) -> Status:
+        if handshake.handshake_type == HandshakeType.KEY_UPDATE:
+            key_update = handshake.parse_as(KeyUpdate)
 
             if self.has_unprocessed_data():
                 raise AlertUnexpectedMessage("trailing handshake data")
@@ -1729,7 +1808,7 @@ class TLSHandshakeServer(TLSHandshake):
                 )
 
             self.message_cb(Direction.READ, key_update)
-            self._next_message(update_hash=False)
+            self._next_handshake(update_hash=False)
 
             self._derive_upd_secret_tls13(Direction.READ)
 
@@ -1748,10 +1827,13 @@ class TLSHandshakeServer(TLSHandshake):
         )
 
     def _get_client_hello_without_binders(
-        self, message: Handshake, psk_ext: PSKClientExtension
+        self,
+        handshake: Handshake,
+        psk_ext: PSKClientExtension,
     ) -> bytes:
-        assert message.handshake_type == HandshakeType.CLIENT_HELLO
-        handshake_data = message.tobytes()
+        assert handshake.handshake_type == HandshakeType.CLIENT_HELLO
+
+        handshake_data = self._pack_handshake(handshake)
         binders = psk_ext.binders
         total_binders_length = sum(1 + len(binder) for binder in binders)
         total_length = 2 + total_binders_length
@@ -1760,6 +1842,7 @@ class TLSHandshakeServer(TLSHandshake):
     def _process_extensions(self, extensions: Extensions) -> None:
         assert self._cipher_suite is not None
         assert self._peer_cipher_suites is not None
+
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         self._extensions_recv = set(extensions.get_types())
@@ -1844,11 +1927,12 @@ class TLSHandshakeServer(TLSHandshake):
                 self._npn_expected = True
 
     def _decrypt_session(self, ticket: bytes) -> TLSSession | None:
+        assert self._cipher_suite is not None
+
         ticket_aead = self.configuration.ticket_aead
         if ticket_aead is None or not ticket:
             return None
 
-        assert self._cipher_suite is not None
         ticket_context = TicketContext(
             server_name=self._hostname,
             cipher_suite=self._cipher_suite,
@@ -1876,11 +1960,12 @@ class TLSHandshakeServer(TLSHandshake):
         return None
 
     def _encrypt_session(self, session: TLSSession) -> bytes | None:
+        assert self._cipher_suite is not None
+
         ticket_aead = self.configuration.ticket_aead
         if ticket_aead is None:
             return None
 
-        assert self._cipher_suite is not None
         session_data = session.serialize()
         ticket_context = TicketContext(
             server_name=self._hostname,
@@ -1891,3 +1976,191 @@ class TLSHandshakeServer(TLSHandshake):
         if ticket is not None:
             return bytes(ticket)
         return None
+
+    def _decrypt_ech(self, client_hello: ClientHello) -> ClientHello | None:
+        ech_ext = client_hello.extensions.get(ECHClientExtension)
+        if ech_ext is None:
+            return None
+        if ech_ext.ech_client_hello_type != ECHClientHelloType.OUTER:
+            return None
+
+        config_id = ech_ext.config_id
+        kdf_id = ech_ext.hpke_kdf_id
+        aead_id = ech_ext.hpke_aead_id
+        cipher_suite = (kdf_id, aead_id)
+
+        for ech_key in self._ech_keys:
+            ech_config = ech_key.ech_config
+            if (
+                config_id != ech_config.config_id
+                or cipher_suite not in ech_config.cipher_suites
+            ):
+                continue
+
+            info = b"tls ech" + b"\x00" + ech_config.serialize()
+            try:
+                suite = hpke.create_suite(ech_config.kem_id, kdf_id, aead_id)
+                ctx = suite.setup_recv(ech_ext.enc, ech_key.private_key, info)
+            except ValueError:
+                continue
+
+            context = ECHContext(
+                kdf_id=kdf_id,
+                aead_id=aead_id,
+                kem_id=ech_config.kem_id,
+                config_id=config_id,
+                public_name=ech_config.public_name,
+                maximum_name_length=ech_config.maximum_name_length,
+                extensions=ech_config.extensions,
+                enc=ech_ext.enc,
+                hpke_context=ctx,
+            )
+            try:
+                inner_client_hello = self._decrypt_ech_payload(
+                    context, client_hello, ech_ext
+                )
+            except AlertDecryptError:
+                continue
+
+            self._ech_status = ECHStatus.ACCEPTED
+            self._ech_context = context
+            return inner_client_hello
+
+        self._ech_status = ECHStatus.REJECTED
+        return None
+
+    def _decrypt_ech_payload(
+        self,
+        context: ECHContext,
+        outer_hello: ClientHello,
+        ech_ext: ECHClientExtension,
+    ) -> ClientHello:
+        payload = ech_ext.payload
+
+        # get aad
+        ech_ext.payload = bytes(len(ech_ext.payload))
+        outer_hello.extensions.replace(ech_ext)
+        aad = outer_hello.serialize()
+
+        # replace it back
+        ech_ext.payload = payload
+        outer_hello.extensions.replace(ech_ext)
+
+        hpke_context = cast(hpke.ReceiverContext, context.hpke_context)
+        try:
+            data = hpke_context.open(payload, aad)
+        except hpke.InvalidTag:
+            raise AlertDecryptError("failed to decode ECH")
+
+        inner_hello, trailling = ClientHello.from_bytes_with_trailing(data)
+
+        if trailling.count(0) != len(trailling):
+            raise AlertIllegalParameter(
+                "received encoded inner hello padding not all zero"
+            )
+        if len(inner_hello.session_id) > 0:
+            raise AlertIllegalParameter(
+                "received non-empty session_id in encoded inner hello"
+            )
+        if not inner_hello.extensions:
+            raise AlertIllegalParameter(
+                "missing extensions in encoded inner hello"
+            )
+
+        # inner hello uses the session_id from outer hello
+        inner_hello.session_id = outer_hello.session_id
+
+        # Check that the inner ECH extension exists
+        inner_ech_ext = inner_hello.extensions.get(ECHClientExtension)
+        if inner_ech_ext is None:
+            raise AlertIllegalParameter("missing ECH extension in inner hello")
+        if inner_ech_ext.ech_client_hello_type != ECHClientHelloType.INNER:
+            raise AlertIllegalParameter(
+                "received outer ECH client hello type in inner hello"
+            )
+
+        # Expand inner extensions
+        idx, ext_data = inner_hello.extensions.find(
+            ExtensionType.ECH_OUTER_EXTENSIONS
+        )
+        if ext_data is not None:
+            seen = set(inner_hello.extensions.get_types())
+            base_extensions = inner_hello.extensions.raw
+            inner_extensions = base_extensions[:idx]
+            inner_ech_outer_ext = ECHOuterExtension.from_bytes(ext_data)
+
+            for ext_type in inner_ech_outer_ext.data:
+                # Since we have confirmed that the ECH extension exists,
+                # it is certain that the ECH extension type has been included
+                # in 'seen'
+                if ext_type in seen:
+                    raise AlertIllegalParameter(
+                        "received duplicate extension in ECH outer extension"
+                    )
+
+                seen.add(ext_type)
+
+                _, ext_data = outer_hello.extensions.find(ext_type)
+                if ext_data is None:
+                    raise AlertIllegalParameter(
+                        "referenced outer extension not found in outer hello"
+                    )
+
+                inner_extensions.append((ext_type, ext_data))
+
+            inner_extensions.extend(base_extensions[idx + 1 :])
+            inner_hello.extensions = Extensions(inner_extensions)
+
+        # Ensure all versions offered in the inner supported_versions extension
+        # are >= TLS 1.3
+        supported_vers_ext = inner_hello.extensions.get(
+            SupportedVersionsClientExtension
+        )
+        if supported_vers_ext is None:
+            raise AlertIllegalParameter(
+                "missing supported versions extension in inner hello"
+            )
+        for version in supported_vers_ext.data:
+            if version < TLSVersion.TLSv1_3:
+                raise AlertIllegalParameter(
+                    "received inner hello supported versions extension "
+                    "contains a version below TLS 1.3"
+                )
+
+        return inner_hello
+
+    def _apply_ech_acceptance(
+        self,
+        server_hello: ServerHello,
+        is_hrr: bool,
+    ) -> None:
+        assert self._key_schedule is not None
+
+        client_random = self._client_random
+        transcript = self._transcript.copy()
+        key_schedule = self._key_schedule
+
+        if is_hrr:
+            label = b"hrr ech accept confirmation"
+
+            ech_ext = ECHHRRExtension(bytes(8))
+            server_hello.extensions.append(ech_ext)
+            transcript.update_hash(self._pack_message(server_hello))
+
+            accept_confirmation = key_schedule.ech_accept_confirmation(
+                client_random, label, transcript
+            )
+            ech_ext.data = accept_confirmation
+            server_hello.extensions.replace(ech_ext)
+        else:
+            label = b"ech accept confirmation"
+
+            ori_random = server_hello.random
+            server_hello.random = ori_random[:-8] + bytes(8)
+            transcript.update_hash(self._pack_message(server_hello))
+
+            accept_confirmation = key_schedule.ech_accept_confirmation(
+                client_random, label, transcript
+            )
+            server_hello.random = ori_random[:-8] + accept_confirmation
+            self._server_random = server_hello.random

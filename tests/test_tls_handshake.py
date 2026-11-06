@@ -2,15 +2,17 @@ import functools
 import os
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric import x25519
 
 from simple_tls.crypto.verification import StoreBuilder
 from simple_tls.tls.alerts import (
     AlertDecryptError,
+    AlertECHRequired,
     AlertHandshakeFailure,
     AlertNoApplicationProtocol,
     AlertProtocolVersion,
 )
-from simple_tls.tls.config import Credential, TLSConfiguration
+from simple_tls.tls.config import Credential, ECHKey, TLSConfiguration
 from simple_tls.tls.constants import (
     CipherSuite,
     ClientCertificateType,
@@ -21,12 +23,17 @@ from simple_tls.tls.constants import (
 )
 from simple_tls.tls.enums import (
     ClientState,
+    ECHStatus,
     Epoch,
     ServerState,
     Status,
     VerifyMode,
 )
-from simple_tls.tls.extensions import SignatureAlgorithmsExtension
+from simple_tls.tls.extensions import (
+    ECHConfig,
+    Extensions,
+    SignatureAlgorithmsExtension,
+)
 from simple_tls.tls.handshake_client import TLSHandshakeClient
 from simple_tls.tls.handshake_server import TLSHandshakeServer
 from simple_tls.tls.keyexchange import load_pem_parameters
@@ -152,7 +159,7 @@ def run_handshake(client, server, stop_condition=None):
         #  Process client
         if not client.done:
             # If client wants to send data, grab it and feed it to the server
-            if client_status in (Status.PACK_FLIGHT, Status.FLUSH_MESSAGE):
+            if client_status in (Status.PACK_FLIGHT, Status.FLUSH_HANDSHAKE):
                 flight = client.pending_flight()
                 if flight:
                     server.feed_data(b"".join(flight))
@@ -163,7 +170,7 @@ def run_handshake(client, server, stop_condition=None):
 
             # If client is waiting to read, let it process its buffer
             elif client_status in (
-                Status.READ_MESSAGE,
+                Status.READ_HANDSHAKE,
                 Status.READ_CHANGE_CIPHER_SPEC,
                 Status.READ_END_OF_EARLY_DATA,
                 Status.WRITE_CHANGE_CIPHER_SPEC,
@@ -181,7 +188,7 @@ def run_handshake(client, server, stop_condition=None):
         # Process Server
         if not server.done:
             # If server wants to send data, grab it and feed it to the client
-            if server_status in (Status.PACK_FLIGHT, Status.FLUSH_MESSAGE):
+            if server_status in (Status.PACK_FLIGHT, Status.FLUSH_HANDSHAKE):
                 flight = server.pending_flight()
                 if flight:
                     client.feed_data(b"".join(flight))
@@ -192,7 +199,7 @@ def run_handshake(client, server, stop_condition=None):
 
             # If server is waiting to read, let it process its buffer
             elif server_status in (
-                Status.READ_MESSAGE,
+                Status.READ_HANDSHAKE,
                 Status.READ_CHANGE_CIPHER_SPEC,
                 Status.READ_END_OF_EARLY_DATA,
                 Status.WRITE_CHANGE_CIPHER_SPEC,
@@ -1072,7 +1079,7 @@ def test_tls13_hello_retry_request():
         (CipherSuite.TLS_AES_128_CCM_8_SHA256, 32),
     ),
 )
-def test_tls13_handshake_with_psk(subtests, cipher_suite, psk_length):
+def test_tls13_psk(subtests, cipher_suite, psk_length):
     version = TLSVersion.TLSv1_3
     session_handler = SessionHandler()
     ticket_aead = TicketAEAD()
@@ -1202,6 +1209,270 @@ def test_tls13_certificate_request():
     sigalg_ext = cert_request.extensions.get(SignatureAlgorithmsExtension)
     assert sigalg_ext is not None
     assert sigalg_ext.data == signature_algorithms
+
+
+def test_tls13_ech():
+    private_key_bytes = b"0" * 32
+    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
+    ech_config = ECHConfig(
+        config_id=123,
+        kem_id=0x0020,
+        public_key=private_key.public_key().public_bytes_raw(),
+        cipher_suites=[(0x0001, 0x0001)],
+        maximum_name_length=0,
+        public_name=b"localhost",
+        extensions=Extensions(),
+    )
+    ech_key = ECHKey(
+        ech_config=ech_config,
+        private_key=private_key,
+        is_retry_config=True,
+    )
+    version = TLSVersion.TLSv1_3
+
+    client = TLSHandshakeClient(
+        configuration=create_client_config(
+            minimum_version=version,
+            maximum_version=version,
+            peer_ech_configs=[ech_config],
+        )
+    )
+    server = TLSHandshakeServer(
+        configuration=create_server_config(
+            minimum_version=version,
+            maximum_version=version,
+            ech_keys=[ech_key],
+        )
+    )
+
+    run_handshake(client, server)
+
+    assert client.version == version
+    assert server.version == version
+    assert client.ech_status == ECHStatus.ACCEPTED
+    assert server.ech_status == ECHStatus.ACCEPTED
+
+    assert_tls13_secret(client, server, Epoch.HANDSHAKE)
+    assert_tls13_secret(client, server, Epoch.APPLICATION_DATA)
+
+
+def test_tls13_ech_with_retry_config():
+    private_key_bytes = b"0" * 32
+    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
+    invalid_ech_config = ECHConfig(
+        config_id=0,
+        kem_id=0x0020,
+        public_key=private_key.public_key().public_bytes_raw(),
+        cipher_suites=[(0x0001, 0x0001)],
+        maximum_name_length=0,
+        public_name=b"localhost",
+        extensions=Extensions(),
+    )
+    ech_config = ECHConfig(
+        config_id=123,
+        kem_id=0x0020,
+        public_key=private_key.public_key().public_bytes_raw(),
+        cipher_suites=[(0x0001, 0x0001)],
+        maximum_name_length=0,
+        public_name=b"localhost",
+        extensions=Extensions(),
+    )
+    ech_key = ECHKey(
+        ech_config=ech_config,
+        private_key=private_key,
+        is_retry_config=True,
+    )
+    version = TLSVersion.TLSv1_3
+
+    client = TLSHandshakeClient(
+        configuration=create_client_config(
+            minimum_version=version,
+            maximum_version=version,
+            peer_ech_configs=[invalid_ech_config],
+        )
+    )
+    server = TLSHandshakeServer(
+        configuration=create_server_config(
+            minimum_version=version,
+            maximum_version=version,
+            ech_keys=[ech_key],
+        )
+    )
+
+    with pytest.raises(AlertECHRequired, match="ECH not negotiated"):
+        run_handshake(client, server)
+
+    assert client.version == version
+    assert server.version == version
+    assert client.ech_status == ECHStatus.REJECTED
+    assert server.ech_status == ECHStatus.REJECTED
+
+    retry_configs = client.peer_ech_retry_configs
+    assert retry_configs is not None
+    assert len(retry_configs) == 1
+
+    client = TLSHandshakeClient(
+        configuration=create_client_config(
+            minimum_version=version,
+            maximum_version=version,
+            peer_ech_configs=list(retry_configs),
+        )
+    )
+    server = TLSHandshakeServer(
+        configuration=create_server_config(
+            minimum_version=version,
+            maximum_version=version,
+            ech_keys=[ech_key],
+        )
+    )
+
+    run_handshake(client, server)
+
+    assert client.version == version
+    assert server.version == version
+    assert client.ech_status == ECHStatus.ACCEPTED
+    assert server.ech_status == ECHStatus.ACCEPTED
+
+    assert_tls13_secret(client, server, Epoch.HANDSHAKE)
+    assert_tls13_secret(client, server, Epoch.APPLICATION_DATA)
+
+
+def test_tls13_ech_with_hello_retry_request():
+    private_key_bytes = b"0" * 32
+    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
+    ech_config = ECHConfig(
+        config_id=123,
+        kem_id=0x0020,
+        public_key=private_key.public_key().public_bytes_raw(),
+        cipher_suites=[(0x0001, 0x0001)],
+        maximum_name_length=0,
+        public_name=b"localhost",
+        extensions=Extensions(),
+    )
+    ech_key = ECHKey(
+        ech_config=ech_config,
+        private_key=private_key,
+        is_retry_config=True,
+    )
+    version = TLSVersion.TLSv1_3
+
+    client = TLSHandshakeClient(
+        configuration=create_client_config(
+            minimum_version=version,
+            maximum_version=version,
+            peer_ech_configs=[ech_config],
+            supported_groups=[
+                NamedGroup.SECP256R1,
+                NamedGroup.SECP384R1,
+                NamedGroup.X25519,
+            ],
+        )
+    )
+    server = TLSHandshakeServer(
+        configuration=create_server_config(
+            minimum_version=version,
+            maximum_version=version,
+            ech_keys=[ech_key],
+            supported_groups=[
+                NamedGroup.X25519,
+                NamedGroup.SECP384R1,
+            ],
+        )
+    )
+
+    run_handshake(client, server)
+
+    assert client.version == version
+    assert server.version == version
+    assert client._hello_retry_request_used
+    assert server._hello_retry_request_used
+    assert client.ech_status == ECHStatus.ACCEPTED
+    assert server.ech_status == ECHStatus.ACCEPTED
+
+    assert_tls13_secret(client, server, Epoch.HANDSHAKE)
+    assert_tls13_secret(client, server, Epoch.APPLICATION_DATA)
+
+
+def test_tls13_ech_with_psk():
+    private_key_bytes = b"0" * 32
+    private_key = x25519.X25519PrivateKey.from_private_bytes(private_key_bytes)
+    ech_config = ECHConfig(
+        config_id=123,
+        kem_id=0x0020,
+        public_key=private_key.public_key().public_bytes_raw(),
+        cipher_suites=[(0x0001, 0x0001)],
+        maximum_name_length=0,
+        public_name=b"localhost",
+        extensions=Extensions(),
+    )
+    ech_key = ECHKey(
+        ech_config=ech_config,
+        private_key=private_key,
+        is_retry_config=True,
+    )
+    version = TLSVersion.TLSv1_3
+    session_handler = SessionHandler()
+    ticket_aead = TicketAEAD()
+
+    client = TLSHandshakeClient(
+        configuration=create_client_config(
+            minimum_version=version,
+            maximum_version=version,
+            peer_ech_configs=[ech_config],
+        ),
+        new_session_callback=session_handler,
+    )
+    server = TLSHandshakeServer(
+        configuration=create_server_config(
+            minimum_version=version,
+            maximum_version=version,
+            ech_keys=[ech_key],
+            ticket_aead=ticket_aead,
+        )
+    )
+
+    run_handshake(client, server)
+    assert client.has_unprocessed_data()
+    client.trigger_post_handshake()
+    run_handshake(client, server)
+
+    assert client.version == version
+    assert server.version == version
+    assert client.ech_status == ECHStatus.ACCEPTED
+    assert server.ech_status == ECHStatus.ACCEPTED
+    assert len(session_handler) == 2
+    assert len(ticket_aead) == 2
+
+    assert_tls13_secret(client, server, Epoch.HANDSHAKE)
+    assert_tls13_secret(client, server, Epoch.APPLICATION_DATA)
+
+    client = TLSHandshakeClient(
+        configuration=create_client_config(
+            minimum_version=version,
+            maximum_version=version,
+            peer_ech_configs=[ech_config],
+            session=session_handler.pop(),
+        ),
+    )
+    server = TLSHandshakeServer(
+        configuration=create_server_config(
+            minimum_version=version,
+            maximum_version=version,
+            ech_keys=[ech_key],
+            ticket_aead=ticket_aead,
+        )
+    )
+
+    run_handshake(client, server)
+    assert client.version == version
+    assert server.version == version
+    assert client.session_reused
+    assert server.session_reused
+    assert client.ech_status == ECHStatus.ACCEPTED
+    assert server.ech_status == ECHStatus.ACCEPTED
+
+    assert_tls13_secret(client, server, Epoch.HANDSHAKE)
+    assert_tls13_secret(client, server, Epoch.APPLICATION_DATA)
 
 
 def test_tls13_client_send_key_update(subtests):

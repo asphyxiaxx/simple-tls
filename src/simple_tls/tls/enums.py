@@ -53,9 +53,9 @@ class Status(int, enum.Enum):
     WRITE_CHANGE_CIPHER_SPEC = enum.auto()
     READ_CHANGE_CIPHER_SPEC = enum.auto()
     READ_END_OF_EARLY_DATA = enum.auto()
-    READ_MESSAGE = enum.auto()
+    READ_HANDSHAKE = enum.auto()
     PACK_FLIGHT = enum.auto()
-    FLUSH_MESSAGE = enum.auto()
+    FLUSH_HANDSHAKE = enum.auto()
 
 
 class Shutdown(int, enum.Enum):

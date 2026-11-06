@@ -204,7 +204,9 @@ class TLSConnection:
     def read(self, length: int = ..., buffer: WritableBuffer = ...) -> int: ...
 
     def read(
-        self, length: int = 1024, buffer: WritableBuffer | None = None
+        self,
+        length: int = 1024,
+        buffer: WritableBuffer | None = None,
     ) -> int | bytes:
         hs = self._handshake
 
@@ -300,9 +302,9 @@ class TLSConnection:
         while True:
             if self._handshake_status == Status.PACK_FLIGHT:
                 self._pack_handshake()
-            elif self._handshake_status == Status.FLUSH_MESSAGE:
+            elif self._handshake_status == Status.FLUSH_HANDSHAKE:
                 self._flush_handshake()
-            elif self._handshake_status == Status.READ_MESSAGE:
+            elif self._handshake_status == Status.READ_HANDSHAKE:
                 self._read_handshake()
             elif self._handshake_status == Status.READ_CHANGE_CIPHER_SPEC:
                 self._read_ccs()
@@ -902,6 +904,8 @@ class TLSConnection:
 
     @staticmethod
     def _get_header(
-        content_type: int, record_version: int, length: int
+        content_type: int,
+        record_version: int,
+        length: int,
     ) -> bytes:
         return struct.pack("!BHH", content_type, record_version, length)

@@ -61,6 +61,23 @@ class ClientHello(HandshakeMessage):
     @classmethod
     def from_bytes(cls, data: bytes) -> ClientHello:
         parser = Parser(data)
+        client_hello = cls.parse(parser)
+        if parser.remaining():
+            raise ParseError("trailing data in client hello")
+        return client_hello
+
+    @classmethod
+    def from_bytes_with_trailing(
+        cls,
+        data: bytes,
+    ) -> tuple[ClientHello, bytes]:
+        parser = Parser(data)
+        client_hello = cls.parse(parser)
+        trailing = parser.read_bytes(parser.remaining())
+        return (client_hello, trailing)
+
+    @classmethod
+    def parse(cls, parser: Parser[bytes]) -> ClientHello:
         version = parser.read_int(2)
         random = parser.read_bytes(32)
         session_id = parser.read_prefixed_bytes(1)
@@ -73,8 +90,6 @@ class ClientHello(HandshakeMessage):
 
         if len(session_id) > 32:
             raise ParseError("session_id not within 32 bytes")
-        if parser.remaining():
-            raise ParseError("trailing data in client hello")
 
         return ClientHello(
             version=version,

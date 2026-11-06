@@ -28,6 +28,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from simple_tls.codec import ParseError, Parser
+from simple_tls.crypto import hpke, pem
 from simple_tls.crypto.utils import str_to_bytes
 from simple_tls.crypto.verification import Store
 from simple_tls.tls.constants import (
@@ -72,6 +73,33 @@ def load_ech_configs(data: bytes) -> list[ECHConfig]:
     return configs
 
 
+def load_pem_ech_key(
+    data: bytes,
+    password: bytes | None,
+    is_retry_config: bool = True,
+) -> ECHKey:
+    pos = 0
+    data_len = len(data)
+    while pos <= data_len:
+        result = pem.decode(data, pos=pos)
+        if result.marker == b"ECHCONFIG":
+            ech_configs_data = result.data
+            break
+        pos = result.endpos
+    else:
+        raise ValueError("ECHCONFIG marker not found")
+
+    ech_configs = load_ech_configs(ech_configs_data)
+    if len(ech_configs) != 1:
+        raise ValueError("only single ech config is allowed")
+
+    private_key = serialization.load_pem_private_key(data, password)
+    if not isinstance(private_key, hpke.PrivateKeyTypes):  # type:ignore
+        raise ValueError("private key is not suitable for hpke")
+
+    return ECHKey(ech_configs[0], private_key, is_retry_config)  # type:ignore
+
+
 @dataclass(frozen=True)
 class Credential:
     """Represents a TLS identity consisting of a private key and its associated
@@ -112,6 +140,15 @@ class Credential:
                 key = load_pem_private_key(fp.read(), password)
 
         return Credential(key, certificate, certificate_chain)
+
+
+@dataclass(frozen=True)
+class ECHKey:
+    """Represents a single ECH configuration profile on the server."""
+
+    ech_config: ECHConfig
+    private_key: hpke.PrivateKeyTypes
+    is_retry_config: bool
 
 
 @dataclass(frozen=True)
@@ -216,6 +253,10 @@ class TLSConfiguration:
 
     peer_ech_configs: Sequence[ECHConfig] | None = None
     """Peer encrypted ClientHello (ECH) configuration."""
+
+    ech_keys: Sequence[ECHKey] | None = None
+    """Local encrypted ClientHello (ECH) configurations and private keys for
+    the server."""
 
     encrypt_then_mac: bool = False
     """Enable Encrypt-then-MAC extension for block ciphers (RFC 7366)."""
