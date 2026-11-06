@@ -1268,14 +1268,42 @@ class TLSHandshakeServer(TLSHandshake):
         if self._ech_status == ECHStatus.ACCEPTED:
             assert self._ech_context is not None
 
+            context = self._ech_context
             ech_ext = client_hello.extensions.get(ECHClientExtension)
             if ech_ext is None:
                 raise AlertMissingExtension(
                     "missing ECH extension in second client hello"
                 )
+            if ech_ext.ech_client_hello_type != ECHClientHelloType.OUTER:
+                raise AlertIllegalParameter(
+                    "received invalid ECH client hello type in second client "
+                    "hello after ECH acceptance"
+                )
+            if ech_ext.config_id != context.config_id:
+                raise AlertIllegalParameter(
+                    "received config_id changed in ECH extension in second "
+                    "client hello after ECH acceptance"
+                )
+            if ech_ext.hpke_aead_id != context.aead_id:
+                raise AlertIllegalParameter(
+                    "received hpke_aead_id changed in ECH extension in second "
+                    "client hello after ECH acceptance"
+                )
+            if ech_ext.hpke_kdf_id != context.kdf_id:
+                raise AlertIllegalParameter(
+                    "received hpke_kdf_id changed in ECH extension in second "
+                    "client hello after ECH acceptance"
+                )
+            if len(ech_ext.enc) > 0:
+                raise AlertIllegalParameter(
+                    "received non-empty enc in ECH extension in second client "
+                    "hello after ECH acceptance"
+                )
 
+            payload = ech_ext.payload
+            aad = self._get_ech_aad(client_hello, ech_ext)
             inner_client_hello = self._decrypt_ech_payload(
-                self._ech_context, client_hello, ech_ext
+                self._ech_context, client_hello, payload, aad
             )
             self.message_cb(Direction.READ, client_hello)
             handshake.set_message(inner_client_hello)
@@ -1988,6 +2016,8 @@ class TLSHandshakeServer(TLSHandshake):
         kdf_id = ech_ext.hpke_kdf_id
         aead_id = ech_ext.hpke_aead_id
         cipher_suite = (kdf_id, aead_id)
+        payload = ech_ext.payload
+        aad = None
 
         for ech_key in self._ech_keys:
             ech_config = ech_key.ech_config
@@ -2015,9 +2045,13 @@ class TLSHandshakeServer(TLSHandshake):
                 enc=ech_ext.enc,
                 hpke_context=ctx,
             )
+
+            if aad is None:
+                aad = self._get_ech_aad(client_hello, ech_ext)
+
             try:
                 inner_client_hello = self._decrypt_ech_payload(
-                    context, client_hello, ech_ext
+                    context, client_hello, payload, aad
                 )
             except AlertDecryptError:
                 continue
@@ -2033,19 +2067,9 @@ class TLSHandshakeServer(TLSHandshake):
         self,
         context: ECHContext,
         outer_hello: ClientHello,
-        ech_ext: ECHClientExtension,
+        payload: bytes,
+        aad: bytes,
     ) -> ClientHello:
-        payload = ech_ext.payload
-
-        # get aad
-        ech_ext.payload = bytes(len(ech_ext.payload))
-        outer_hello.extensions.replace(ech_ext)
-        aad = outer_hello.to_bytes()
-
-        # replace it back
-        ech_ext.payload = payload
-        outer_hello.extensions.replace(ech_ext)
-
         hpke_context = cast(hpke.ReceiverContext, context.hpke_context)
         try:
             data = hpke_context.open(payload, aad)
@@ -2128,6 +2152,16 @@ class TLSHandshakeServer(TLSHandshake):
                 )
 
         return inner_hello
+
+    def _get_ech_aad(
+        self,
+        outer_hello: ClientHello,
+        ech_ext: ECHClientExtension,
+    ) -> bytes:
+        ech_ext.payload = bytes(len(ech_ext.payload))
+        outer_hello.extensions.replace(ech_ext)
+        aad = outer_hello.to_bytes()
+        return aad
 
     def _apply_ech_acceptance(
         self,
