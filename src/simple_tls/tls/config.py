@@ -94,10 +94,10 @@ def load_pem_ech_key(
         raise ValueError("only single ech config is allowed")
 
     private_key = serialization.load_pem_private_key(data, password)
-    if not isinstance(private_key, hpke.PrivateKeyTypes):  # type:ignore
+    if not isinstance(private_key, hpke.PrivateKeyTypes):  # type: ignore
         raise ValueError("private key is not suitable for hpke")
 
-    return ECHKey(ech_configs[0], private_key, is_retry_config)  # type:ignore
+    return ECHKey(ech_configs[0], private_key, is_retry_config)  # type: ignore
 
 
 @dataclass(frozen=True)
