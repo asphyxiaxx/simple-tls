@@ -2158,9 +2158,12 @@ class TLSHandshakeServer(TLSHandshake):
         outer_hello: ClientHello,
         ech_ext: ECHClientExtension,
     ) -> bytes:
-        ech_ext.payload = bytes(len(ech_ext.payload))
+        payload = ech_ext.payload
+        ech_ext.payload = bytes(len(payload))
         outer_hello.extensions.replace(ech_ext)
         aad = outer_hello.to_bytes()
+        ech_ext.payload = payload
+        outer_hello.extensions.replace(ech_ext)
         return aad
 
     def _apply_ech_acceptance(
