@@ -1966,7 +1966,7 @@ class TLSHandshakeServer(TLSHandshake):
         if ticket_aead is None:
             return None
 
-        session_data = session.serialize()
+        session_data = session.to_bytes()
         ticket_context = TicketContext(
             server_name=self._hostname,
             cipher_suite=self._cipher_suite,
@@ -1997,7 +1997,7 @@ class TLSHandshakeServer(TLSHandshake):
             ):
                 continue
 
-            info = b"tls ech" + b"\x00" + ech_config.serialize()
+            info = b"tls ech" + b"\x00" + ech_config.to_bytes()
             try:
                 suite = hpke.create_suite(ech_config.kem_id, kdf_id, aead_id)
                 ctx = suite.setup_recv(ech_ext.enc, ech_key.private_key, info)
@@ -2040,7 +2040,7 @@ class TLSHandshakeServer(TLSHandshake):
         # get aad
         ech_ext.payload = bytes(len(ech_ext.payload))
         outer_hello.extensions.replace(ech_ext)
-        aad = outer_hello.serialize()
+        aad = outer_hello.to_bytes()
 
         # replace it back
         ech_ext.payload = payload

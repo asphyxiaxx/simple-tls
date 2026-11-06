@@ -248,7 +248,7 @@ class SSLConnection:
             raise TypeError("connection state not set")
         retry_configs = self._conn.get_peer_ech_retry_configs()
         if retry_configs is not None:
-            data = b"".join(c.serialize() for c in retry_configs)
+            data = b"".join(c.to_bytes() for c in retry_configs)
             return len(data).to_bytes(2, "big") + data
         return b""
 

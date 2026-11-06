@@ -44,7 +44,7 @@ class HandshakeMessage:
     def from_bytes(cls: type[_M], data: bytes) -> _M:
         raise NotImplementedError
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         raise NotImplementedError
 
 
@@ -100,7 +100,7 @@ class ClientHello(HandshakeMessage):
             extensions=extensions,
         )
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if len(self.session_id) > 32:
             raise ValueError("session_id not within 32 bytes")
 
@@ -126,7 +126,7 @@ class HelloRequest(HandshakeMessage):
             raise ParseError("trailing data in hello request")
         return HelloRequest()
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return b""
 
 
@@ -167,7 +167,7 @@ class ServerHello(HandshakeMessage):
             extensions=extensions,
         )
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if len(self.session_id) > 32:
             raise ValueError("session_id not within 32 bytes")
 
@@ -192,7 +192,7 @@ class ClientKeyExchange(HandshakeMessage):
     def from_bytes(cls, data: bytes) -> ClientKeyExchange:
         return ClientKeyExchange(data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return self.data
 
 
@@ -205,7 +205,7 @@ class ServerKeyExchange(HandshakeMessage):
     def from_bytes(cls, data: bytes) -> ServerKeyExchange:
         return ServerKeyExchange(data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return self.data
 
 
@@ -219,7 +219,7 @@ class ServerHelloDone(HandshakeMessage):
             raise ParseError("trailing data in server hello done")
         return ServerHelloDone()
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return b""
 
 
@@ -239,7 +239,7 @@ class NextProtocol(HandshakeMessage):
 
         return NextProtocol(next_proto)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_prefixed_bytes(self.next_protocol, 1)
         padding_len = 32 - ((len(self.next_protocol) + 2) % 32)
@@ -257,8 +257,8 @@ class EncryptedExtensions(HandshakeMessage):
         extensions = Extensions.from_bytes(data)
         return EncryptedExtensions(extensions)
 
-    def serialize(self) -> bytes:
-        return self.extensions.serialize()
+    def to_bytes(self) -> bytes:
+        return self.extensions.to_bytes()
 
 
 @dataclass
@@ -271,7 +271,7 @@ class EndOfEarlyData(HandshakeMessage):
             raise ParseError("trailing data in end of early data")
         return EndOfEarlyData()
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return b""
 
 
@@ -284,7 +284,7 @@ class Finished(HandshakeMessage):
     def from_bytes(cls, data: bytes) -> Finished:
         return Finished(data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return self.verify_data
 
 
@@ -305,7 +305,7 @@ class NewSessionTicket(HandshakeMessage):
 
         return NewSessionTicket(ticket_lifetime, ticket)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writter = Writer()
         writter.write_int(self.ticket_lifetime, 4)
         writter.write_prefixed_bytes(self.ticket, 2)
@@ -341,7 +341,7 @@ class NewSessionTicketTLS13(HandshakeMessage):
             extensions=extensions,
         )
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_int(self.ticket_lifetime, 4)
         writer.write_int(self.ticket_age_add, 4)
@@ -365,7 +365,7 @@ class KeyUpdate(HandshakeMessage):
         message_type = data[0]
         return KeyUpdate(message_type)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return int_to_bytes(self.message_type, 1)
 
 
@@ -404,7 +404,7 @@ class CertificateStatus(HandshakeMessage):
 
         return CertificateStatus(ocsp)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_int(CertificateStatusType.OCSP, 1)
         writer.write_prefixed_bytes(self.ocsp, 3)
@@ -433,7 +433,7 @@ class Certificate(HandshakeMessage):
 
         return Certificate(certificates)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         cert_writer = Writer()
         for certificate in self.certificates:
             if not certificate:
@@ -467,7 +467,7 @@ class CertificateTLS13(HandshakeMessage):
 
         return CertificateTLS13(context, certificates)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         cert_writer = Writer()
         for cert_entry in self.certificate_entries:
             cert_entry.write(cert_writer)
@@ -499,7 +499,7 @@ class CompressedCertificate(HandshakeMessage):
 
         return CompressedCertificate(compression, length, compressed_data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_int(self.compression, 2)
         writer.write_int(self.length, 3)
@@ -512,7 +512,7 @@ class CompressedCertificate(HandshakeMessage):
         compression: int,
         certificate: CertificateTLS13,
     ) -> CompressedCertificate:
-        data = certificate.serialize()
+        data = certificate.to_bytes()
 
         if compression == CertificateCompressionAlgorithm.ZLIB:
             compressed_data = ZLIB.compress(data)
@@ -571,7 +571,7 @@ class CertificateRequest(HandshakeMessage):
 
         return CertificateRequest(types, authorities)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         auth_writer = Writer()
         for auth in self.certificate_authorities:
             auth_writer.write_prefixed_bytes(auth, 2)
@@ -610,7 +610,7 @@ class CertificateRequestTLS12(HandshakeMessage):
             signature_algorithms=signature_algorithms,
         )
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         auth_writer = Writer()
         for auth in self.certificate_authorities:
             auth_writer.write_prefixed_bytes(auth, 2)
@@ -639,7 +639,7 @@ class CertificateRequestTLS13(HandshakeMessage):
 
         return CertificateRequestTLS13(context, extensions)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_prefixed_bytes(self.context, 1)
         self.extensions.write(writer)
@@ -661,7 +661,7 @@ class CertificateVerify(HandshakeMessage):
 
         return CertificateVerify(signature=signature)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_prefixed_bytes(self.signature, 2)
         return writer.tobytes()
@@ -684,7 +684,7 @@ class CertificateVerifyTLS12(HandshakeMessage):
 
         return CertificateVerifyTLS12(signature, signature_algorithm)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_int(self.signature_algorithm, 2)
         writer.write_prefixed_bytes(self.signature, 2)

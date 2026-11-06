@@ -401,7 +401,7 @@ class TLSConnection:
             return
         version = self._handshake.version
         content_type = ContentType.HANDSHAKE
-        data = message.serialize()
+        data = message.to_bytes()
         self._message_callback(self, direction, version, content_type, data)
 
     # Record layer

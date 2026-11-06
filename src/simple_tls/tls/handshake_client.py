@@ -1782,7 +1782,7 @@ class TLSHandshakeClient(TLSHandshake):
             cipher_suites=self._get_cipher_suites(),
             compression_methods=self._compresion_methods,
         )
-        header_len = len(client_hello.serialize())
+        header_len = len(client_hello.to_bytes())
 
         if self._ech_context is not None:
             hello_type = ClientHelloType.OUTER
@@ -1838,7 +1838,7 @@ class TLSHandshakeClient(TLSHandshake):
             extensions.extend(compressed)
             ech_outer_ext = ECHOuterExtension([t for t, _ in compressed])
             encoded_extensions.append(
-                (ech_outer_ext.extension_type, ech_outer_ext.serialize())
+                (ech_outer_ext.extension_type, ech_outer_ext.to_bytes())
             )
 
         if psk_ext is not None:
@@ -1882,7 +1882,7 @@ class TLSHandshakeClient(TLSHandshake):
                 padding_len = maximum_name_length - server_name_len
         else:
             padding_len = 9 + maximum_name_length
-        encoded_inner_hello_data = encoded_inner_hello.serialize()
+        encoded_inner_hello_data = encoded_inner_hello.to_bytes()
         padding_len += 31 - (
             (len(encoded_inner_hello_data) + padding_len - 1) % 32
         )
@@ -1920,12 +1920,12 @@ class TLSHandshakeClient(TLSHandshake):
         )
         extensions_outer = self._get_extensions(
             hello_type=ClientHelloType.OUTER,
-            header_len=len(outer_hello.serialize()),
+            header_len=len(outer_hello.to_bytes()),
             is_hrr=is_hrr,
         )
         outer_hello.extensions = extensions_outer
 
-        aad = outer_hello.serialize()
+        aad = outer_hello.to_bytes()
         payload = hpke_context.seal(encoded_inner_hello_data, aad)
         assert len(payload) == payload_len
 
@@ -1980,7 +1980,7 @@ class TLSHandshakeClient(TLSHandshake):
             header_len += sum(len(e) for _, e in extensions)
 
             if psk_ext is not None:
-                psk_ext_len = len(psk_ext.serialize())
+                psk_ext_len = len(psk_ext.to_bytes())
                 header_len += psk_ext_len
 
             if last_was_empty and psk_ext_len == 0:
@@ -2453,7 +2453,7 @@ class TLSHandshakeClient(TLSHandshake):
             else:
                 continue
 
-            info = b"tls ech" + b"\x00" + config.serialize()
+            info = b"tls ech" + b"\x00" + config.to_bytes()
             enc, ctx = suite.setup_send(peer_public_key, info)
             config_id = config.config_id
             public_name = config.public_name

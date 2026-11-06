@@ -203,7 +203,7 @@ class TLSSession:
             ticket_max_early_data=ticket_max_early_data,
         )
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
 
         writer.write_int(self.protocol.value, 1)

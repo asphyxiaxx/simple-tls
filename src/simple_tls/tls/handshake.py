@@ -190,7 +190,7 @@ class Handshake:
 
     def set_message(self, message: HandshakeMessage) -> None:
         self._cache = message
-        self.data = message.serialize()
+        self.data = message.to_bytes()
 
 
 class TLSHandshake:
@@ -560,7 +560,7 @@ class TLSHandshake:
 
     @staticmethod
     def _pack_message(message: HandshakeMessage) -> bytes:
-        message_data = message.serialize()
+        message_data = message.to_bytes()
         return (
             bytes([message.handshake_type])
             + int_to_bytes(len(message_data), 3)

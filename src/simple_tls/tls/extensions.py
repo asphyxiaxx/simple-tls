@@ -47,7 +47,7 @@ class Extension:
     def from_bytes(cls: type[_E], data: bytes) -> _E:
         raise NotImplementedError()
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         raise NotImplementedError()
 
 
@@ -67,7 +67,7 @@ class Extensions:
 
     @classmethod
     def from_extensions(cls, extensions: Iterable[Extension]) -> Extensions:
-        return cls((e.extension_type, e.serialize()) for e in extensions)
+        return cls((e.extension_type, e.to_bytes()) for e in extensions)
 
     @classmethod
     def from_bytes(cls, data: bytes) -> Extensions:
@@ -79,7 +79,7 @@ class Extensions:
 
         return extensions
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         self.write(writer)
         return writer.tobytes()
@@ -134,7 +134,7 @@ class Extensions:
             if ext_type == extension.extension_type:
                 self._extensions[i] = (
                     extension.extension_type,
-                    extension.serialize(),
+                    extension.to_bytes(),
                 )
                 return
 
@@ -151,12 +151,12 @@ class Extensions:
 
     def insert(self, index: int, extension: Extension) -> None:
         self._extensions.insert(
-            index, (extension.extension_type, extension.serialize())
+            index, (extension.extension_type, extension.to_bytes())
         )
 
     def append(self, extension: Extension) -> None:
         self._extensions.append(
-            (extension.extension_type, extension.serialize())
+            (extension.extension_type, extension.to_bytes())
         )
 
     def has_allowed(self, allowed: Container[int]) -> bool:
@@ -194,7 +194,7 @@ class EmptyExtension(Extension):
             raise ParseError("trailing extension data")
         return cls()
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return b""
 
 
@@ -211,7 +211,7 @@ class GenericExtension(Extension):
     def extension_type(self, value: int) -> None:
         self.parsed_type = value
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return self.data
 
 
@@ -233,7 +233,7 @@ class PrefixedBytesExtension(Extension):
 
         return cls(value)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_prefixed_bytes(self.data, self._prefix_size)
         return writer.tobytes()
@@ -269,7 +269,7 @@ class PrefixedIntListExtension(Extension):
 
         return cls(value)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_prefixed_int_list(
             self.data, self._item_size, self._prefix_size
@@ -306,7 +306,7 @@ class IntExtension(Extension):
 
         return cls(value)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         try:
             return int_to_bytes(self.data, self._item_size)
         except OverflowError:
@@ -338,7 +338,7 @@ class SessionTicketExtension(Extension):
     def from_bytes(cls, data: bytes) -> SessionTicketExtension:
         return SessionTicketExtension(data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return self.ticket
 
 
@@ -396,7 +396,7 @@ class ClientHelloPaddingExtension(Extension):
     def from_bytes(cls, data: bytes) -> ClientHelloPaddingExtension:
         return ClientHelloPaddingExtension(len(data))
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return bytes(self.padding_length)
 
 
@@ -446,7 +446,7 @@ class ALPSClientExtension(Extension):
 
         return ALPSClientExtension(protocols)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if not self.protocols:
             raise ValueError("empty protocol list")
         if not all(bool(p) for p in self.protocols):
@@ -470,7 +470,7 @@ class ALPSExtension(Extension):
     def from_bytes(cls, data: bytes) -> ALPSExtension:
         return ALPSExtension(data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         return self.settings
 
 
@@ -514,7 +514,7 @@ class SNIClientExtension(Extension):
 
         return SNIClientExtension(hostname)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         sn_writer = Writer()
         sn_writer.write_int(NameType.HOSTNAME, 1)
         sn_writer.write_prefixed_bytes(self.hostname, 2)
@@ -561,7 +561,7 @@ class NPNServerExtension(Extension):
 
         return NPNServerExtension(protocols)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if not self.protocols:
             raise ValueError("empty protocol list")
         if not all(bool(p) for p in self.protocols):
@@ -598,7 +598,7 @@ class ALPNClientExtension(Extension):
 
         return ALPNClientExtension(protocols=protocols)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if not self.protocols:
             raise ValueError("empty protocol list")
         if not all(bool(p) for p in self.protocols):
@@ -631,7 +631,7 @@ class ALPNServerExtension(Extension):
 
         return ALPNServerExtension(protocol)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if not self.protocol:
             raise ValueError("empty protocol")
 
@@ -671,7 +671,7 @@ class StatusRequestClientExtension(Extension):
             responder_id_list, request_extensions
         )
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         rid_writer = Writer()
         if self.responder_id_list is not None:
             for i in self.responder_id_list:
@@ -710,7 +710,7 @@ class StatusRequestCertExtension(Extension):
 
         return StatusRequestCertExtension(response)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_int(CertificateStatusType.OCSP, 1)
         writer.write_prefixed_bytes(self.response, 3)
@@ -759,7 +759,7 @@ class KeyShareClientExtension(Extension):
 
         return KeyShareClientExtension(key_shares)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         ks_writer = Writer()
         for key_share in self.key_shares:
             key_share.write(ks_writer)
@@ -784,7 +784,7 @@ class KeyShareServerExtension(Extension):
 
         return KeyShareServerExtension(key_share)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         self.key_share.write(writer)
         return writer.tobytes()
@@ -852,7 +852,7 @@ class PSKClientExtension(Extension):
 
         return PSKClientExtension(identities, binders)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if len(self.identities) != len(self.binders):
             raise ValueError("mismatched identities and binders length")
         if not self.identities:
@@ -998,7 +998,7 @@ class ECHConfig:
         writer.write_int(65037, 2)  # version fixed
         writer.write_prefixed_bytes(contents_writer, 2)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         self.write(writer)
         return writer.tobytes()
@@ -1043,7 +1043,7 @@ class ECHClientExtension(Extension):
 
         return ret
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         writer = Writer()
         writer.write_int(self.ech_client_hello_type, 1)
 
@@ -1079,7 +1079,7 @@ class ECHServerExtension(Extension):
 
         return ECHServerExtension(configs)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if not self.retry_configs:
             raise ValueError("empty retry config list")
 
@@ -1103,7 +1103,7 @@ class ECHHRRExtension(Extension):
             raise ParseError("data must be exactly 8-bytes")
         return ECHHRRExtension(data)
 
-    def serialize(self) -> bytes:
+    def to_bytes(self) -> bytes:
         if not len(self.data) == 8:
             raise ValueError("data must be exactly 8-bytes")
         return self.data
