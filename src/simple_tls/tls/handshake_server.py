@@ -589,24 +589,31 @@ class TLSHandshakeServer(TLSHandshake):
 
         extensions = Extensions()
 
+        # Renegotiation Info
         if self._secure_renegotiation:
             extensions.append(RenegotiationInfoExtension(b""))
 
+        # Extended Master Secret
         if self._extended_master_secret:
             extensions.append(ExtendedMasterSecretExtension())
 
+        # Encrypt then Mac
         if self._encrypt_then_mac:
             extensions.append(EncryptThenMacExtension())
 
+        # EC Point Formats
         if ExtensionType.EC_POINT_FORMATS in self._extensions_recv:
             extensions.append(ECPointFormatsExtension(self._ec_point_formats))
 
+        # NPN Protocols
         if self._npn_expected:
             extensions.append(NPNServerExtension(self._npn_protocols))
 
+        # Session Ticket
         if self._ticket_expected:
             extensions.append(SessionTicketExtension(b""))
 
+        # ALPN Protocols
         if self._alpn_protocol is not None:
             assert not self._npn_expected
             extensions.append(ALPNServerExtension(self._alpn_protocol))
@@ -619,7 +626,6 @@ class TLSHandshakeServer(TLSHandshake):
             compression_method=Compression.NULL,
             extensions=extensions,
         )
-
         self.message_cb(Direction.WRITE, server_hello)
         self._add_message(server_hello)
 
@@ -698,10 +704,11 @@ class TLSHandshakeServer(TLSHandshake):
         if self._certificate_requested:
             version = self.protocol_version()
             cert_request: CertificateRequestTLS12 | CertificateRequest
+            cert_types: list[int]
             cert_authorities: tuple[bytes, ...] = ()
 
             if version == TLSVersion.TLSv1_2:
-                cert_types: list[int] = []
+                cert_types = []
                 supported_sigalgs = set(self._signature_algorithms)
                 if supported_sigalgs.intersection(RSA_SIGNATURE_ALGORITHMS):
                     cert_types.append(ClientCertificateType.RSA_SIGN)
@@ -779,10 +786,10 @@ class TLSHandshakeServer(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
-        cke = handshake.parse_as(ClientKeyExchange)
-
         assert self._cipher_suite is not None
         assert self._session is not None
+
+        cke = handshake.parse_as(ClientKeyExchange)
 
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
@@ -938,9 +945,11 @@ class TLSHandshakeServer(TLSHandshake):
     def _do_send_session_ticket(self) -> Status:
         if self._ticket_expected:
             assert self._session is not None
+
             session = self._session
             session.rebase_time()
             ticket = self._encrypt_session(session)
+
             if ticket:
                 ticket_lifetime = int(session.timeout.total_seconds())
                 new_session_ticket = NewSessionTicket(ticket_lifetime, ticket)
@@ -1199,9 +1208,7 @@ class TLSHandshakeServer(TLSHandshake):
                 self._skip_early_data = True
 
         if hrr:
-            self._transcript.update_for_hello_retry_request(
-                cipher_suite.prf_hash
-            )
+            self._transcript.update_for_hrr(cipher_suite.prf_hash)
             self._set_state(ServerState.SEND_HELLO_RETRY_REQUEST_TLS13)
             return Status.OK
 
@@ -1213,12 +1220,15 @@ class TLSHandshakeServer(TLSHandshake):
 
         extensions = Extensions()
 
+        # Supported versions
         version = self.protocol_version()
         extensions.append(SupportedVersionsServerExtension(version))
 
+        # Cookie
         if self._cookie is not None:
             extensions.append(CookieExtension(self._cookie))
 
+        # Key share group
         if self._group_id_hrr is not None:
             extensions.append(KeyShareHRRExtension(self._group_id_hrr))
 

@@ -1132,7 +1132,7 @@ class TLSHandshakeClient(TLSHandshake):
         if server_hello.session_id != self._session_id:
             raise AlertIllegalParameter("received session ID mismatch")
 
-        self._transcript.update_for_hello_retry_request(cipher_suite.prf_hash)
+        self._transcript.update_for_hrr(cipher_suite.prf_hash)
 
         # Process extensions
         extensions = server_hello.extensions
@@ -1149,9 +1149,7 @@ class TLSHandshakeClient(TLSHandshake):
 
             inner_transcript = self._inner_transcript
             allowed_extensions.add(ExtensionType.ENCRYPTED_CLIENT_HELLO)
-            inner_transcript.update_for_hello_retry_request(
-                cipher_suite.prf_hash
-            )
+            inner_transcript.update_for_hrr(cipher_suite.prf_hash)
             if self._check_ech_confirmation(
                 server_hello, inner_transcript.copy(), is_hrr=True
             ):
@@ -1581,6 +1579,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         extensions = Extensions()
 
+        # Application settings
         if (
             self._session.has_alps
             and self._early_data_status != EarlyDataStatus.ACCEPTED
@@ -2132,13 +2131,15 @@ class TLSHandshakeClient(TLSHandshake):
                 alps_protocol = list(self._alps)
                 extensions.append(ALPSClientExtension(alps_protocol))
 
+            # ECH
             if hello_type == ClientHelloType.INNER:
                 # When offering the encrypted_client_hello extension in
                 # ClientHelloOuter,　the client MUST also offer an empty
                 # encrypted_client_hello extension in the ClientHelloInner
                 extensions.append(ECHClientExtension(ECHClientHelloType.INNER))
-            elif self._ech_client_outer is not None:
-                extensions.append(self._ech_client_outer)
+            else:
+                if self._ech_client_outer is not None:
+                    extensions.append(self._ech_client_outer)
 
             # Supported Key Share Exchange mode
             # RFC 8446, section 4.2.8
@@ -2174,7 +2175,7 @@ class TLSHandshakeClient(TLSHandshake):
                 key=lambda e: order_index.get(e.extension_type, float("inf"))
             )
 
-        # Insert GREASE
+        # GREASE
         if extensions and self._enable_grease:
             extensions.insert(0, GenericExtension(self._get_grease(1), b""))
             extensions.append(GenericExtension(self._get_grease(4), b"\x00"))

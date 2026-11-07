@@ -217,7 +217,7 @@ class Transcript:
         for h in self.__hashes.values():
             h.update(data)
 
-    def update_for_hello_retry_request(self, hash_algorithm: int) -> None:
+    def update_for_hrr(self, hash_algorithm: int) -> None:
         writer = Writer()
         writer.write_int(HandshakeType.MESSAGE_HASH, 1)
         writer.write_prefixed_bytes(self.digest(hash_algorithm), 3)
