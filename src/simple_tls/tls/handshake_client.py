@@ -338,9 +338,9 @@ class TLSHandshakeClient(TLSHandshake):
         self._set_state(ClientState.PROCESS_UPDATE_TRAFFIC)
 
     def _do_start_connect(self) -> Status:
-        self._session_reused = False
-
         configuration = self.configuration
+
+        self._session_reused = False
         self._client_random = get_random_bytes(32)
         self._client_version = min(self._maximum_version, TLSVersion.TLSv1_2)
 
@@ -405,7 +405,6 @@ class TLSHandshakeClient(TLSHandshake):
                     # Check if we should offer early data
                     if (
                         self._enable_early_data
-                        and len(self._pre_shared_keys) == 1
                         and session.ticket_max_early_data > 0
                         and (
                             session.early_alpn is None
@@ -2060,8 +2059,11 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Signature Algorithms
         if self._maximum_version >= TLSVersion.TLSv1_2:
+            signature_algorithms = list(self._signature_algorithms)
+            if self._enable_grease:
+                signature_algorithms.insert(0, self._get_grease(5))
             extensions.append(
-                SignatureAlgorithmsExtension(self._signature_algorithms)
+                SignatureAlgorithmsExtension(signature_algorithms)
             )
 
         if (
@@ -2128,8 +2130,8 @@ class TLSHandshakeClient(TLSHandshake):
 
             # ALPS
             if self._alps:
-                alps_protocol = list(self._alps)
-                extensions.append(ALPSClientExtension(alps_protocol))
+                alps_protocols = list(self._alps)
+                extensions.append(ALPSClientExtension(alps_protocols))
 
             # ECH
             if hello_type == ClientHelloType.INNER:
@@ -2155,6 +2157,7 @@ class TLSHandshakeClient(TLSHandshake):
                 keyshare_entries.insert(
                     0, KeyShareEntry(self._get_grease(3), b"\x00")
                 )
+
             extensions.append(KeyShareClientExtension(keyshare_entries))
 
             if self._peer_cookie is not None:
@@ -2232,6 +2235,8 @@ class TLSHandshakeClient(TLSHandshake):
         return False
 
     def _process_extensions(self, extensions: Extensions) -> None:
+        assert self._cipher_suite is not None
+
         extensions_recv = extensions.get_types()
         self._extensions_recv = set(extensions_recv)
 
@@ -2243,7 +2248,6 @@ class TLSHandshakeClient(TLSHandshake):
         if not self._extensions_sent.issuperset(extensions_recv):
             raise AlertUnsupportedExtension("received unexpected extensions")
 
-        assert self._cipher_suite is not None
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         allowed_extensions: set[int] = set(
@@ -2284,11 +2288,12 @@ class TLSHandshakeClient(TLSHandshake):
             # Early data extension
             early_data_ext = extensions.get(EarlyDataServerExtension)
             if early_data_ext is not None:
+                assert self._early_data_offered
+
                 if self._hello_retry_request_used:
                     raise AlertUnsupportedExtension(
                         "received unexpected early data extension"
                     )
-                assert self._early_data_offered
                 self._early_data_status = EarlyDataStatus.ACCEPTED
             else:
                 if self._early_data_offered:
@@ -2425,6 +2430,7 @@ class TLSHandshakeClient(TLSHandshake):
         if signature_algorithm is not None:
             assert credential is not None
             assert self._key_schedule is not None
+
             data = self._key_schedule.certificate_verify_data(
                 TLS13_CLIENT_CONTEXT_STRING, self._transcript
             )
