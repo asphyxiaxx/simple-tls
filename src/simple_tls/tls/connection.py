@@ -541,19 +541,15 @@ class TLSConnection:
             and content_type == ContentType.APPLICATION_DATA
             and len(plaintext) > 1
         ):
-            written = self._seal_record_internal(
-                content_type, plaintext[:1], dest_view
-            )
+            written = self._seal_single(content_type, plaintext[:1], dest_view)
             plaintext = plaintext[1:]
             dest_view = dest_view[written:]
             total_written = written
 
-        total_written += self._seal_record_internal(
-            content_type, plaintext, dest_view
-        )
+        total_written += self._seal_single(content_type, plaintext, dest_view)
         return out_buf[:total_written]
 
-    def _seal_record_internal(
+    def _seal_single(
         self,
         content_type: int,
         plaintext: Buffer,
