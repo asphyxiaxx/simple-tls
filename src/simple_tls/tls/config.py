@@ -172,8 +172,7 @@ class TLSConfiguration:
     """Peer certificate verification policy mode."""
 
     check_hostname: bool = False
-    """Whether to verify that the peer certificate matches `server_hostname`.
-    """
+    """Whether to verify that the peer certificate matches `server_name`."""
 
     castore: Store | None = None
     """Trusted Root Certificate Authority (CA) store used for peer
@@ -302,7 +301,7 @@ class TLSConfiguration:
     session: TLSSession | None = None
     """Session object to attempt session resumption during the handshake."""
 
-    server_hostname: bytes | None = None
+    server_name: bytes | None = None
     """Target hostname used for Server Name Indication (SNI) and certificate
     verification."""
 

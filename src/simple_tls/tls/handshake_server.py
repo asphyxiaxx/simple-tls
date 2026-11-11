@@ -158,11 +158,28 @@ class ClientHelloInfo:
     """Details extracted from the client's ClientHello message."""
 
     server_name: bytes | None
+    """The server name offered."""
+
+    public_server_name: bytes | None
+    """The outer SNI extension value from `ClientHelloOuter`."""
+
+    ech_server_name: bytes | None
+    """The `public_name` defined within the selected `ECHConfig` structure"""
+
     cipher_suites: Sequence[int]
+    """List of cryptographic cipher suites offered by the client."""
+
     protocol_version: int
-    supported_versions: Sequence[int]
+    """The legacy TLS record layer protocol version."""
+
+    supported_versions: Sequence[int] | None
+    """List of supported TLS protocol versions offered."""
+
     signature_algorithms: Sequence[int] | None
+    """List of supported cryptographic signature algorithms offered."""
+
     supported_groups: Sequence[int] | None
+    """List of supported key exchange groups or elliptic curves offered"""
 
 
 @dataclass
@@ -326,9 +343,18 @@ class TLSHandshakeServer(TLSHandshake):
 
         client_hello = handshake.parse_as(ClientHello)
 
-        # try decrypt ECH
         inner_client_hello = self._decrypt_ech(client_hello)
+        public_server_name = None
+        ech_server_name = None
+
         if inner_client_hello is not None:
+            assert self._ech_context is not None
+
+            outer_sni_ext = client_hello.extensions.get(SNIClientExtension)
+            if outer_sni_ext is not None:
+                public_server_name = outer_sni_ext.hostname
+            ech_server_name = self._ech_context.public_name
+
             self.message_cb(Direction.READ, client_hello)
             handshake.set_message(inner_client_hello)
             client_hello = inner_client_hello
@@ -351,16 +377,16 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received incorrect protocol version"
                 )
-            offered_version = supported_vers_ext.data
+            offered_versions = supported_vers_ext.data
         else:
-            offered_version = [self._client_version]
+            offered_versions = [self._client_version]
 
         supported_versions = range(
             self._maximum_version, self._minimum_version - 1, -1
         )
         version = negotiate(
             supported_versions,
-            offered_version,
+            offered_versions,
             AlertProtocolVersion("no supported protocol version"),
         )
         self._version = version
@@ -404,14 +430,20 @@ class TLSHandshakeServer(TLSHandshake):
         # SNI
         sni_ext = extensions.get(SNIClientExtension)
         if sni_ext is not None:
-            self._hostname = sni_ext.hostname
+            self._server_name = sni_ext.hostname
 
         if self._client_hello_callback is not None:
             client_hello_info = ClientHelloInfo(
-                server_name=self._hostname,
+                server_name=self._server_name,
+                public_server_name=public_server_name,
+                ech_server_name=ech_server_name,
                 cipher_suites=self._peer_cipher_suites,
                 protocol_version=version,
-                supported_versions=tuple(offered_version),
+                supported_versions=(
+                    tuple(offered_versions)
+                    if supported_vers_ext is not None
+                    else None
+                ),
                 signature_algorithms=self._peer_signature_algorithms,
                 supported_groups=self._peer_supported_groups,
             )
@@ -1972,7 +2004,7 @@ class TLSHandshakeServer(TLSHandshake):
             return None
 
         ticket_context = TicketContext(
-            server_name=self._hostname,
+            server_name=self._server_name,
             cipher_suite=self._cipher_suite,
             protocol_version=self.protocol_version(),
         )
@@ -2006,7 +2038,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         session_data = session.to_bytes()
         ticket_context = TicketContext(
-            server_name=self._hostname,
+            server_name=self._server_name,
             cipher_suite=self._cipher_suite,
             protocol_version=self.protocol_version(),
         )

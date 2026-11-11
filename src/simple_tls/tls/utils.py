@@ -86,19 +86,19 @@ def negotiate(
     return None
 
 
-def check_server_hostname(server_hostname: bytes) -> None:
-    if not server_hostname or server_hostname.startswith(b"."):
+def check_server_name(server_name: bytes) -> None:
+    if not server_name or server_name.startswith(b"."):
         raise ValueError(
-            "server_hostname cannot be an empty or start with a leading dot."
+            "server_name cannot be an empty or start with a leading dot."
         )
-    if len(server_hostname) > 253:
+    if len(server_name) > 253:
         raise ValueError("SNI hostname is too long")
 
 
-def ip_address(server_hostname: Buffer) -> IPAddress | None:
-    hostname = bytes_to_str(server_hostname)
+def ip_address(server_name: Buffer) -> IPAddress | None:
+    server_name_str = bytes_to_str(server_name)
     try:
-        return ipaddress.ip_address(hostname)
+        return ipaddress.ip_address(server_name_str)
     except ValueError:
         return None
 
@@ -353,8 +353,8 @@ class Validator:
 class SANValidator(Validator):
     oid = ExtensionOID.SUBJECT_ALTERNATIVE_NAME
 
-    def __init__(self, server_hostname: Buffer) -> None:
-        self._server_hostname = server_hostname
+    def __init__(self, server_name: Buffer) -> None:
+        self._server_name = server_name
 
     def __call__(
         self,
@@ -362,8 +362,8 @@ class SANValidator(Validator):
         ee: x509.Certificate,
         extension: x509.Extension[x509.SubjectAlternativeName],
     ) -> None:
-        server_hostname = bytes_to_str(self._server_hostname)
-        ip_addr = ip_address(self._server_hostname)
+        server_name = bytes_to_str(self._server_name)
+        ip_addr = ip_address(self._server_name)
 
         # if IP, compare iPAddress entries
         san = extension.value
@@ -374,12 +374,12 @@ class SANValidator(Validator):
         else:
             dns_names = san.get_values_for_type(x509.DNSName)
             for dns in dns_names:
-                # compare lower-case, simple wildcard handling
-                if self._dnsname_match(dns, server_hostname):
+                if self._dnsname_match(dns, server_name):
                     return
-            raise AlertBadCertificate(
-                f"hostname '{server_hostname}' not covered by {dns_names}"
-            )
+
+        raise AlertBadCertificate(
+            f"server_name '{server_name}' not covered by {dns_names}"
+        )
 
     @staticmethod
     def _dnsname_match(pattern: str, hostname: str) -> bool:

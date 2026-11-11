@@ -333,7 +333,7 @@ class TLSHandshake:
 
         # Temporary State
         self._state: int = 0
-        self._hostname: bytes | None = None
+        self._server_name: bytes | None = None
         self._version: int = UNSPECIFIED
         self._is_early_version: bool = False
         self._client_version: int = UNSPECIFIED
@@ -398,8 +398,8 @@ class TLSHandshake:
         return self._session_reused
 
     @property
-    def hostname(self) -> bytes | None:
-        return self._hostname
+    def server_name(self) -> bytes | None:
+        return self._server_name
 
     @property
     def version(self) -> int:

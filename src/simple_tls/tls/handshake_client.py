@@ -160,7 +160,7 @@ from simple_tls.tls.session import TLSSession
 from simple_tls.tls.utils import (
     KeySchedule,
     Transcript,
-    check_server_hostname,
+    check_server_name,
     ip_address,
     negotiate,
 )
@@ -182,11 +182,11 @@ class TLSHandshakeClient(TLSHandshake):
         # Initialization
         super().__init__(configuration)
 
-        server_hostname = configuration.server_hostname
-        if server_hostname is not None:
-            check_server_hostname(server_hostname)
+        server_name = configuration.server_name
+        if server_name is not None:
+            check_server_name(server_name)
         elif configuration.check_hostname:
-            raise ValueError("check_hostname requires server_hostname")
+            raise ValueError("check_hostname requires server_name")
 
         # Check if any of the user's requested cipher suites require ECDHE
         if not self._ecc_groups and any(
@@ -198,7 +198,7 @@ class TLSHandshakeClient(TLSHandshake):
             )
 
         self._offered_session = configuration.session
-        self._hostname = server_hostname
+        self._server_name = server_name
         self._new_session_callback = new_session_callback
 
         # Compressions
@@ -655,7 +655,7 @@ class TLSHandshakeClient(TLSHandshake):
             handshake, self._session, allow_anon=False
         )
         if self._verify_mode != VerifyMode.CERT_NONE:
-            self._verify_x509(self._session, self._hostname)
+            self._verify_x509(self._session, self._server_name)
 
         self.message_cb(Direction.READ, certificate)
         self._next_handshake()
@@ -1485,7 +1485,7 @@ class TLSHandshakeClient(TLSHandshake):
             ),
         )
         if self._verify_mode != VerifyMode.CERT_NONE:
-            hostname = self._hostname
+            hostname = self._server_name
             if self._ech_status == ECHStatus.REJECTED:
                 assert self._ech_context is not None
                 hostname = self._ech_context.public_name
@@ -1874,8 +1874,8 @@ class TLSHandshakeClient(TLSHandshake):
         # Pad the EncodedClientHelloInner
         padding_len = 0
         maximum_name_length = ech_context.maximum_name_length
-        if self._hostname is not None:
-            server_name_len = len(self._hostname)
+        if self._server_name is not None:
+            server_name_len = len(self._server_name)
             if server_name_len <= maximum_name_length:
                 padding_len = maximum_name_length - server_name_len
         else:
@@ -2023,10 +2023,10 @@ class TLSHandshakeClient(TLSHandshake):
         else:
             # RFC 6066 explicitly forbids literal IP addresses in SNI
             if (
-                self._hostname is not None
-                and ip_address(self._hostname) is None
+                self._server_name is not None
+                and ip_address(self._server_name) is None
             ):
-                extensions.append(SNIClientExtension(self._hostname))
+                extensions.append(SNIClientExtension(self._server_name))
 
         # Status Request
         if self._enable_status_request:

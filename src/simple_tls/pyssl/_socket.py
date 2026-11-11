@@ -110,7 +110,7 @@ class SSLSocket(_ssl.SSLSocket):
         if not server_side:
             config = tls.TLSConfiguration(
                 is_server=server_side,
-                server_hostname=str_to_bytes(self.server_hostname),
+                server_name=str_to_bytes(self.server_hostname),
                 peer_ech_configs=self._peer_ech_configs,
                 session=session.session if session is not None else None,
                 **config_kwargs,
@@ -496,7 +496,7 @@ class SSLSocket(_ssl.SSLSocket):
 
         config = tls.TLSConfiguration(
             is_server=False,
-            server_hostname=str_to_bytes(self.server_hostname),
+            server_name=str_to_bytes(self.server_hostname),
             peer_ech_configs=self._peer_ech_configs,
             session=self.session.session if self.session is not None else None,
             **self._context._config_data(),

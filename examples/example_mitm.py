@@ -132,7 +132,7 @@ class SSLConnection:
             certificate_compressions=self._certificate_compressions,
             alpn_protocols=self._alpn_protocols,
             alps=self._alps,
-            server_hostname=self._server_hostname,
+            server_name=self._server_hostname,
             peer_ech_configs=self._peer_ech_configs,
         )
         self._conn = stls.TLSConnection(configuration=config)

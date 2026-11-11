@@ -163,8 +163,8 @@ class TLSConnection:
         self._warning_alert_received: int = 0
 
     @property
-    def server_hostname(self) -> bytes | None:
-        return self._handshake.hostname
+    def server_name(self) -> bytes | None:
+        return self._handshake.server_name
 
     @property
     def handshake_complete(self) -> bool:

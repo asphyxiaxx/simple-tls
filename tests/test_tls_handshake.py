@@ -139,7 +139,7 @@ def create_server_config(**kwargs):
 
 
 def create_client_config(**kwargs):
-    kwargs.setdefault("server_hostname", b"localhost")
+    kwargs.setdefault("server_name", b"localhost")
     kwargs.setdefault("verify_mode", VerifyMode.CERT_REQUIRED)
     kwargs.setdefault("check_hostname", True)
     kwargs.setdefault("castore", load_cafile())
