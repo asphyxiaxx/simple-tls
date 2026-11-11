@@ -171,7 +171,7 @@ class TLSConfiguration:
     verify_mode: VerifyMode = VerifyMode.CERT_NONE
     """Peer certificate verification policy mode."""
 
-    check_hostname: bool = False
+    check_server_name: bool = False
     """Whether to verify that the peer certificate matches `server_name`."""
 
     castore: Store | None = None

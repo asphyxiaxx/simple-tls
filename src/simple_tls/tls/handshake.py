@@ -1048,7 +1048,7 @@ class TLSHandshake:
         if not self.is_server:
             purpose = ExtendedKeyUsageOID.SERVER_AUTH
 
-            if configuration.check_hostname and hostname:
+            if configuration.check_server_name and hostname:
                 san_validator = SANValidator(hostname)
                 ee_policy = ee_policy.require_present(
                     san_validator.oid, san_validator

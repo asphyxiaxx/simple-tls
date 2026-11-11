@@ -432,7 +432,7 @@ class SSLContext(_ssl.SSLContext):
             "npn_protocols": self._npn_protocols,
             "alpn_protocols": self._alpn_protocols,
             "castore": self._castore_builder.build(),
-            "check_hostname": self._check_hostname,
+            "check_server_name": self._check_hostname,
             "credential": self._credential,
             "dh_parameters": self._dh_parameters,
             "post_handshake_auth": self._post_handshake_auth,

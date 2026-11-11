@@ -185,8 +185,8 @@ class TLSHandshakeClient(TLSHandshake):
         server_name = configuration.server_name
         if server_name is not None:
             check_server_name(server_name)
-        elif configuration.check_hostname:
-            raise ValueError("check_hostname requires server_name")
+        elif configuration.check_server_name:
+            raise ValueError("check_server_name requires server_name")
 
         # Check if any of the user's requested cipher suites require ECDHE
         if not self._ecc_groups and any(

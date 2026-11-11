@@ -125,7 +125,7 @@ class SSLConnection:
             minimum_version=self._minimum_version,
             maximum_version=self._maximum_version,
             verify_mode=self._verify_mode,
-            check_hostname=check_hostname,
+            check_server_name=check_hostname,
             castore=self._castore,
             credential=self._credential,
             supported_groups=self._supported_groups,
