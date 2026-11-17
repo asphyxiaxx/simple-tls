@@ -2208,11 +2208,7 @@ class TLSHandshakeServer(TLSHandshake):
         outer_hello.extensions.replace(ech_ext)
         return aad
 
-    def _apply_ech_acceptance(
-        self,
-        server_hello: ServerHello,
-        is_hrr: bool,
-    ) -> None:
+    def _apply_ech_acceptance(self, hello: ServerHello, is_hrr: bool) -> None:
         assert self._key_schedule is not None
 
         client_random = self._client_random
@@ -2223,23 +2219,24 @@ class TLSHandshakeServer(TLSHandshake):
             label = b"hrr ech accept confirmation"
 
             ech_ext = ECHHRRExtension(bytes(8))
-            server_hello.extensions.append(ech_ext)
-            transcript.update_hash(self._pack_message(server_hello))
+            hello.extensions.append(ech_ext)
+            transcript.update_hash(self._pack_message(hello))
 
             accept_confirmation = key_schedule.ech_accept_confirmation(
                 client_random, label, transcript
             )
             ech_ext.data = accept_confirmation
-            server_hello.extensions.replace(ech_ext)
+            hello.extensions.replace(ech_ext)
         else:
             label = b"ech accept confirmation"
 
-            ori_random = server_hello.random
-            server_hello.random = ori_random[:-8] + bytes(8)
-            transcript.update_hash(self._pack_message(server_hello))
+            server_random = self._server_random
+            hello.random = server_random[:-8] + bytes(8)
+            transcript.update_hash(self._pack_message(hello))
 
             accept_confirmation = key_schedule.ech_accept_confirmation(
                 client_random, label, transcript
             )
-            server_hello.random = ori_random[:-8] + accept_confirmation
-            self._server_random = server_hello.random
+            server_random = server_random[:-8] + accept_confirmation
+            self._server_random = server_random
+            hello.random = server_random
