@@ -23,6 +23,7 @@ from __future__ import annotations
 import enum
 import struct
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import ClassVar, TypeVar, Union
 
 from cryptography import exceptions
@@ -523,27 +524,33 @@ class CipherSuite:
     def setup_send(
         self, pk_r: PublicKeyTypes, info: bytes
     ) -> tuple[bytes, SenderContext]:
-        mode = Mode.BASE
         shared_secret, enc = self.kem.encap(pk_r)
-        return enc, self._key_schedule(
-            SenderContext, mode, shared_secret, info
+        context = self._key_schedule(
+            SenderContext, Mode.BASE, shared_secret, info
         )
+        return enc, context
 
     def setup_recv(
         self, enc: bytes, sk_r: PrivateKeyTypes, info: bytes
     ) -> ReceiverContext:
-        mode = Mode.BASE
         shared_secret = self.kem.decap(enc, sk_r)
-        return self._key_schedule(ReceiverContext, mode, shared_secret, info)
+        context = self._key_schedule(
+            ReceiverContext, Mode.BASE, shared_secret, info
+        )
+        return context
 
     def setup_psk_send(
-        self, pk_r: PublicKeyTypes, info: bytes, psk: bytes, psk_id: bytes
+        self,
+        pk_r: PublicKeyTypes,
+        info: bytes,
+        psk: bytes,
+        psk_id: bytes,
     ) -> tuple[bytes, SenderContext]:
-        mode = Mode.PSK
         shared_secret, enc = self.kem.encap(pk_r)
-        return enc, self._key_schedule(
-            SenderContext, mode, shared_secret, info, psk, psk_id
+        context = self._key_schedule(
+            SenderContext, Mode.PSK, shared_secret, info, psk, psk_id
         )
+        return enc, context
 
     def setup_psk_recv(
         self,
@@ -553,11 +560,11 @@ class CipherSuite:
         psk: bytes,
         psk_id: bytes,
     ) -> ReceiverContext:
-        mode = Mode.PSK
         shared_secret = self.kem.decap(enc, sk_r)
-        return self._key_schedule(
-            ReceiverContext, mode, shared_secret, info, psk, psk_id
+        context = self._key_schedule(
+            ReceiverContext, Mode.PSK, shared_secret, info, psk, psk_id
         )
+        return context
 
     def setup_auth_send(
         self,
@@ -565,11 +572,11 @@ class CipherSuite:
         info: bytes,
         sk_s: PrivateKeyTypes,
     ) -> tuple[bytes, SenderContext]:
-        mode = Mode.AUTH
         shared_secret, enc = self.kem.auth_encap(pk_r, sk_s)
-        return enc, self._key_schedule(
-            SenderContext, mode, shared_secret, info
+        context = self._key_schedule(
+            SenderContext, Mode.AUTH, shared_secret, info
         )
+        return enc, context
 
     def setup_auth_recv(
         self,
@@ -578,9 +585,11 @@ class CipherSuite:
         info: bytes,
         pk_s: PublicKeyTypes,
     ) -> ReceiverContext:
-        mode = Mode.AUTH
         shared_secret = self.kem.auth_decap(enc, sk_r, pk_s)
-        return self._key_schedule(ReceiverContext, mode, shared_secret, info)
+        context = self._key_schedule(
+            ReceiverContext, Mode.AUTH, shared_secret, info
+        )
+        return context
 
     def setup_auth_psk_send(
         self,
@@ -590,11 +599,11 @@ class CipherSuite:
         psk: bytes,
         psk_id: bytes,
     ) -> tuple[bytes, SenderContext]:
-        mode = Mode.AUTH_PSK
         shared_secret, enc = self.kem.auth_encap(pk_r, sk_s)
-        return enc, self._key_schedule(
-            SenderContext, mode, shared_secret, info, psk, psk_id
+        context = self._key_schedule(
+            SenderContext, Mode.AUTH_PSK, shared_secret, info, psk, psk_id
         )
+        return enc, context
 
     def setup_auth_psk_recv(
         self,
@@ -605,11 +614,11 @@ class CipherSuite:
         psk: bytes,
         psk_id: bytes,
     ) -> ReceiverContext:
-        mode = Mode.AUTH_PSK
         shared_secret = self.kem.auth_decap(enc, sk_r, pk_s)
-        return self._key_schedule(
-            ReceiverContext, mode, shared_secret, info, psk, psk_id
+        context = self._key_schedule(
+            ReceiverContext, Mode.AUTH_PSK, shared_secret, info, psk, psk_id
         )
+        return context
 
 
 _KEMS: dict[int, type[DHKEM]] = {
@@ -637,25 +646,19 @@ _AEADS: dict[int, type[AEAD]] = {
         AEAD_ChaCha20Poly1305,
     )
 }
-_CACHE: dict[tuple[int, int, int], CipherSuite] = {}
 
 
+@lru_cache(maxsize=128)
 def create_suite(kem_id: int, kdf_id: int, aead_id: int) -> CipherSuite:
     id_pairs = (kem_id, kdf_id, aead_id)
-    try:
-        return _CACHE[id_pairs]
-    except KeyError:
-        pass
-
     name_pairs = ("KEM", "KDF", "AEAD")
     maps = (_KEMS, _KDFS, _AEADS)
     args = []
 
-    for name, id, map in zip(name_pairs, id_pairs, maps, strict=True):
+    for name, id_, map_ in zip(name_pairs, id_pairs, maps, strict=True):
         try:
-            args.append(map[id])  # type: ignore
+            args.append(map_[id_])  # type: ignore
         except KeyError:
-            raise ValueError(f"'{id} is unsupported for {name}") from None
+            raise ValueError(f"'{id_} is unsupported for {name}") from None
 
-    _CACHE[id_pairs] = cipher_suite = CipherSuite(*args)
-    return cipher_suite
+    return CipherSuite(*args)
