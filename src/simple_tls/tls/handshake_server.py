@@ -181,6 +181,9 @@ class ClientHelloInfo:
     supported_groups: Sequence[int] | None
     """List of supported key exchange groups or elliptic curves offered"""
 
+    alpn_protocols: Sequence[bytes] | None
+    """List of supported ALPN protocols offered"""
+
 
 @dataclass
 class HandshakeContext:
@@ -191,6 +194,9 @@ class HandshakeContext:
 
     verify_mode: VerifyMode
     """Override client certificate verification"""
+
+    alpn_protocol: bytes | None = None
+    """Set the ALPN protocol for this connection"""
 
     alert_description: int | None = None
     """"""
@@ -432,6 +438,13 @@ class TLSHandshakeServer(TLSHandshake):
         if sni_ext is not None:
             self._server_name = sni_ext.hostname
 
+        # ALPN protocols
+        alpn_ext = extensions.get(ALPNClientExtension)
+        if alpn_ext is not None:
+            peer_alpn_protocols = alpn_ext.protocols
+        else:
+            peer_alpn_protocols = None
+
         if self._client_hello_callback is not None:
             client_hello_info = ClientHelloInfo(
                 server_name=self._server_name,
@@ -446,6 +459,7 @@ class TLSHandshakeServer(TLSHandshake):
                 ),
                 signature_algorithms=self._peer_signature_algorithms,
                 supported_groups=self._peer_supported_groups,
+                alpn_protocols=peer_alpn_protocols,
             )
             handshake_context = HandshakeContext(
                 credential=self._credential,
@@ -465,6 +479,18 @@ class TLSHandshakeServer(TLSHandshake):
             # override current configuration
             self._credential = handshake_context.credential
             self._verify_mode = handshake_context.verify_mode
+            self._alpn_protocol = handshake_context.alpn_protocol
+
+        if (
+            self._alpn_protocol is None
+            and self._alpn_protocols
+            and peer_alpn_protocols is not None
+        ):
+            self._alpn_protocol = negotiate(
+                self._alpn_protocols,
+                peer_alpn_protocols,
+                AlertNoApplicationProtocol("no supported ALPN protocols"),
+            )
 
         if version >= TLSVersion.TLSv1_3:
             self._set_state(ServerState.SELECT_PARAMETERS_TLS13)
@@ -1916,14 +1942,6 @@ class TLSHandshakeServer(TLSHandshake):
         version = self.protocol_version()
         cipher_suite = self._cipher_suite
         self._extensions_recv = set(extensions.get_types())
-
-        alpn_ext = extensions.get(ALPNClientExtension)
-        if self._alpn_protocols and alpn_ext is not None:
-            self._alpn_protocol = negotiate(
-                self._alpn_protocols,
-                alpn_ext.protocols,
-                AlertNoApplicationProtocol("no supported ALPN protocols"),
-            )
 
         if version >= TLSVersion.TLSv1_3:
             # Certificate compressions extension
