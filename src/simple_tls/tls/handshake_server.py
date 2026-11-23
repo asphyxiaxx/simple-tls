@@ -459,7 +459,11 @@ class TLSHandshakeServer(TLSHandshake):
                 ),
                 signature_algorithms=self._peer_signature_algorithms,
                 supported_groups=self._peer_supported_groups,
-                alpn_protocols=tuple(peer_alpn_protocols),
+                alpn_protocols=(
+                    tuple(peer_alpn_protocols)
+                    if peer_alpn_protocols is not None
+                    else None
+                ),
             )
             handshake_context = HandshakeContext(
                 credential=self._credential,
