@@ -383,16 +383,16 @@ class TLSHandshakeServer(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received incorrect protocol version"
                 )
-            offered_versions = supported_vers_ext.data
+            peer_supported_versions = supported_vers_ext.data
         else:
-            offered_versions = [self._client_version]
+            peer_supported_versions = [self._client_version]
 
         supported_versions = range(
             self._maximum_version, self._minimum_version - 1, -1
         )
         version = negotiate(
             supported_versions,
-            offered_versions,
+            peer_supported_versions,
             AlertProtocolVersion("no supported protocol version"),
         )
         self._version = version
@@ -453,13 +453,13 @@ class TLSHandshakeServer(TLSHandshake):
                 cipher_suites=self._peer_cipher_suites,
                 protocol_version=version,
                 supported_versions=(
-                    tuple(offered_versions)
+                    tuple(peer_supported_versions)
                     if supported_vers_ext is not None
                     else None
                 ),
                 signature_algorithms=self._peer_signature_algorithms,
                 supported_groups=self._peer_supported_groups,
-                alpn_protocols=peer_alpn_protocols,
+                alpn_protocols=tuple(peer_alpn_protocols),
             )
             handshake_context = HandshakeContext(
                 credential=self._credential,
