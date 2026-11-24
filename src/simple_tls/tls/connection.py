@@ -163,12 +163,20 @@ class TLSConnection:
         self._warning_alert_received: int = 0
 
     @property
+    def handshake_complete(self) -> bool:
+        return self._handshake.session_established
+
+    @property
     def server_name(self) -> bytes | None:
         return self._handshake.server_name
 
     @property
-    def handshake_complete(self) -> bool:
-        return self._handshake.session_established
+    def public_server_name(self) -> bytes | None:
+        return self._handshake.public_server_name
+
+    @property
+    def ech_server_name(self) -> bytes | None:
+        return self._handshake.ech_server_name
 
     @property
     def session_reused(self) -> bool:

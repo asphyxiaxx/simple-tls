@@ -213,31 +213,15 @@ class TLSHandshakeServer(TLSHandshake):
     ) -> None:
         # Initialization
         super().__init__(configuration)
-
         self._client_hello_callback = client_hello_callback
 
-        # Encrypt Then Mac
+        # Configurations
         self._enable_etm: bool = configuration.encrypt_then_mac
-
-        # Extended Master Secret
         self._enable_ems: bool = configuration.extended_master_secret
-
-        # Post Handshake Authentication
         self._enable_pha: bool = configuration.post_handshake_auth
-
-        # Early data
         self._enable_early_data: bool = configuration.early_data
-
-        # Ticket max early data
         self._ticket_max_early_data: int = configuration.max_early_data_size
-
-        # Cookie for HRR
-        self._cookie: bytes | None = None
-
-        # DH parameters
         self._dh_parameters: DHParameters | None = configuration.dh_parameters
-
-        # ECH Configs
         self._ech_keys: tuple[ECHKey, ...] = (
             tuple(configuration.ech_keys)
             if configuration.ech_keys is not None
@@ -250,9 +234,11 @@ class TLSHandshakeServer(TLSHandshake):
         self._npn_expected: bool = False
         self._ticket_expected: bool = False
         self._certificate_requested: bool = False
+        self._cookie: bytes | None = None
         self._pre_shared_key: _PreSharedKey | None = None
         self._key_exchange: BaseKeyExchange | None = None
         self._ech_context: ECHContext | None = None
+        self._public_server_name: bytes | None = None
 
         # Peer item
         self._peer_cipher_suites: tuple[int, ...] | None = None
@@ -262,17 +248,11 @@ class TLSHandshakeServer(TLSHandshake):
 
         # Negotiated variable
         self._psk_index: int | None = None
-        """PSK index selected"""
         self._group_id: int | None = None
-        """gorup id (TLSv1)"""
         self._group_id_hrr: int | None = None
-        """gorup id for key share (TLSv1.3)"""
         self._signing_signature_algorithm: int | None = None
-        """signature algorithm to be used with signing"""
         self._post_handshake_auth: bool = False
-        """True when PHA negotiated"""
         self._certificate_compression: int | None = None
-        """Certificate compression algorithm negotiated"""
 
         # ruff: disable[E501]
         self._handle_dispatch = {
@@ -324,6 +304,16 @@ class TLSHandshakeServer(TLSHandshake):
         return self._state == ServerState.DONE
 
     @property
+    def public_server_name(self) -> bytes | None:
+        return self._public_server_name
+
+    @property
+    def ech_server_name(self) -> bytes | None:
+        if self._ech_context is not None:
+            return self._ech_context.public_name
+        return None
+
+    @property
     def peer_cipher_suites(self) -> tuple[int, ...] | None:
         return self._peer_cipher_suites
 
@@ -359,6 +349,7 @@ class TLSHandshakeServer(TLSHandshake):
             outer_sni_ext = client_hello.extensions.get(SNIClientExtension)
             if outer_sni_ext is not None:
                 public_server_name = outer_sni_ext.hostname
+                self._public_server_name = public_server_name
             ech_server_name = self._ech_context.public_name
 
             self.message_cb(Direction.READ, client_hello)
@@ -1861,7 +1852,7 @@ class TLSHandshakeServer(TLSHandshake):
         if not self._session_reused:
             self._session.not_resumable = False
 
-        self._session_establish = True
+        self._session_established = True
 
         self._set_state(ServerState.DONE)
         return Status.OK
@@ -1976,12 +1967,11 @@ class TLSHandshakeServer(TLSHandshake):
                         "received invalid renegotiation info extension"
                     )
                 self._secure_renegotiation = True
-            else:
-                if (
-                    CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV
-                    in self._peer_cipher_suites
-                ):
-                    self._secure_renegotiation = True
+            elif (
+                CipherSuite.TLS_EMPTY_RENEGOTIATION_INFO_SCSV
+                in self._peer_cipher_suites
+            ):
+                self._secure_renegotiation = True
 
             # Extended master secret extension
             ems_ext = extensions.get(ExtendedMasterSecretExtension)

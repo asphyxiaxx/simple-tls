@@ -338,7 +338,7 @@ class TLSHandshake:
         self._is_early_version: bool = False
         self._client_version: int = UNSPECIFIED
         self._session: TLSSession | None = None
-        self._session_establish: bool = False
+        self._session_established: bool = False
         self._session_reused: bool = False
         self._session_id: bytes = b""
         self._cipher_suite: CipherSuite | None = None
@@ -385,13 +385,13 @@ class TLSHandshake:
 
     @property
     def session(self) -> TLSSession | None:
-        if self._session_establish:
+        if self._session_established:
             return self._session
         return None
 
     @property
     def session_established(self) -> bool:
-        return self._session_establish
+        return self._session_established
 
     @property
     def session_reused(self) -> bool:
@@ -400,6 +400,14 @@ class TLSHandshake:
     @property
     def server_name(self) -> bytes | None:
         return self._server_name
+
+    @property
+    def public_server_name(self) -> bytes | None:
+        return None
+
+    @property
+    def ech_server_name(self) -> bytes | None:
+        return None
 
     @property
     def version(self) -> int:

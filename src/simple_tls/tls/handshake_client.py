@@ -201,38 +201,20 @@ class TLSHandshakeClient(TLSHandshake):
         self._server_name = server_name
         self._new_session_callback = new_session_callback
 
-        # Compressions
+        # Configurations
         self._compresion_methods: tuple[int, ...] = (Compression.NULL,)
-
-        # Encrypt Then Mac
         self._enable_etm: bool = configuration.encrypt_then_mac
-
-        # Extended Master Secret
         self._enable_ems: bool = configuration.extended_master_secret
-
-        # Post Handshake Authentication
         self._enable_pha: bool = configuration.post_handshake_auth
-
-        # Early data
         self._enable_early_data: bool = configuration.early_data
-
-        # Status Request
         self._enable_status_request: bool = configuration.status_request
-
-        # Signed certificate timestamp
         self._enable_scts: bool = configuration.signed_certificate_timestamp
-
-        # Client Hello Padding
         self._enable_client_hello_padding: bool = (
             configuration.client_hello_padding
         )
-
-        # Permute extensions
         self._enable_permute_extensions: bool = (
             configuration.permute_extensions
         )
-
-        # Grease
         self._enable_grease: bool = configuration.grease
 
         # Temporary State
@@ -272,7 +254,6 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Negotiated variable
         self._signing_signature_algorithm: int | None = None
-        """signature algorithm to be used with signing"""
 
         # ruff: disable[E501]
         self._handle_dispatch = {
@@ -321,6 +302,18 @@ class TLSHandshakeClient(TLSHandshake):
     @property
     def done(self) -> bool:
         return self._state == ClientState.DONE
+
+    @property
+    def public_server_name(self) -> bytes | None:
+        if self._ech_context is not None:
+            return self._ech_context.public_name
+        return None
+
+    @property
+    def ech_server_name(self) -> bytes | None:
+        if self._ech_context is not None:
+            return self._ech_context.public_name
+        return None
 
     @property
     def peer_ech_retry_configs(self) -> tuple[ECHConfig, ...] | None:
@@ -1645,7 +1638,7 @@ class TLSHandshakeClient(TLSHandshake):
                 session.not_resumable = False
                 self._new_session_callback(session)
 
-        self._session_establish = True
+        self._session_established = True
 
         self._set_state(ClientState.DONE)
         return Status.OK
@@ -2317,10 +2310,11 @@ class TLSHandshakeClient(TLSHandshake):
                 if ri_ext.data:
                     raise AlertIllegalParameter("invalid renegotation data")
                 self._secure_renegotiation = True
-            elif not self.configuration.legacy_server_connect:
-                raise AlertInsufficientSecurity(
-                    "peer does not support secure renegotiation"
-                )
+            else:
+                if not self.configuration.legacy_server_connect:
+                    raise AlertInsufficientSecurity(
+                        "peer does not support secure renegotiation"
+                    )
 
             # Session ticket extension
             session_ticket_ext = extensions.get(SessionTicketExtension)
