@@ -8,8 +8,8 @@
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -22,9 +22,9 @@
 
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
-#include <stdlib.h>
-#include <math.h>
 #include <limits.h>
+#include <math.h>
+#include <stdlib.h>
 
 #define MAX_PADDING_SIZE 256
 #define MAX_MAC_SIZE 64
@@ -33,59 +33,43 @@
  * For 64-bit systems, this becomes 63. For 32-bit, it becomes 31. */
 #define SHIFT_AMOUNT(v) ((sizeof(v) * CHAR_BIT) - 1)
 
-static inline size_t ct_msb_s(size_t val)
-{
+static inline size_t ct_msb_s(size_t val) {
     return 0 - (val >> SHIFT_AMOUNT(val));
 }
 
 /* Return SIZE_MAX if a < b, else 0, in constant time */
-static inline size_t ct_lt_s(size_t a, size_t b)
-{
+static inline size_t ct_lt_s(size_t a, size_t b) {
     return ct_msb_s((a ^ ((a ^ b) | (((a - b)) ^ b))));
 }
 
 /* Return SIZE_MAX if a > b, else 0, in constant time */
-static inline size_t ct_gt_s(size_t a, size_t b)
-{
-    return ct_lt_s(b, a);
-}
+static inline size_t ct_gt_s(size_t a, size_t b) { return ct_lt_s(b, a); }
 
 /* Return SIZE_MAX if a <= b, else 0, in constant time */
-static inline size_t ct_le_s(size_t a, size_t b)
-{
-    return ~ct_gt_s(a, b);
-}
+static inline size_t ct_le_s(size_t a, size_t b) { return ~ct_gt_s(a, b); }
 
 /* Return SIZE_MAX if a >= b, else 0, in constant time */
-static inline size_t ct_ge_s(size_t a, size_t b)
-{
-    return ~ct_lt_s(a, b);
-}
+static inline size_t ct_ge_s(size_t a, size_t b) { return ~ct_lt_s(a, b); }
 
 /* Return SIZE_MAX if val == 0, else 0, in constant time */
-static inline size_t ct_is_zero_s(size_t val)
-{
+static inline size_t ct_is_zero_s(size_t val) {
     return ct_msb_s(~val & (val - 1));
 }
 
 /* Return SIZE_MAX if a == b, else 0, in constant time */
-static inline size_t ct_eq_s(size_t a, size_t b)
-{
+static inline size_t ct_eq_s(size_t a, size_t b) {
     return ct_is_zero_s((a ^ b) /* 0 if equal */);
 }
 
-static inline uint8_t ct_select_u8(uint8_t mask, uint8_t a, uint8_t b)
-{
+static inline uint8_t ct_select_u8(uint8_t mask, uint8_t a, uint8_t b) {
     return (mask & a) | (~mask & b);
 }
 
-static inline size_t ct_select_s(size_t mask, size_t a, size_t b)
-{
+static inline size_t ct_select_s(size_t mask, size_t a, size_t b) {
     return (mask & a) | (~mask & b);
 }
 
-int randombytes(uint8_t *buf, size_t len)
-{
+int randombytes(uint8_t *buf, size_t len) {
     PyObject *os, *urandom, *bytes;
 
     os = PyImport_ImportModule("os");
@@ -102,8 +86,7 @@ int randombytes(uint8_t *buf, size_t len)
     if (NULL == bytes)
         return -1;
 
-    if (PyBytes_Check(bytes))
-    {
+    if (PyBytes_Check(bytes)) {
         memcpy(buf, PyBytes_AS_STRING(bytes), len);
         Py_DECREF(bytes);
         return 0;
@@ -114,12 +97,10 @@ int randombytes(uint8_t *buf, size_t len)
     return -1;
 }
 
-static int cbc_get_mac(const uint8_t *data, size_t *data_len,
-                       size_t block_size, size_t mac_size,
-                       const uint8_t randmac[MAX_MAC_SIZE],
+static int cbc_get_mac(const uint8_t *data, size_t *data_len, size_t block_size,
+                       size_t mac_size, const uint8_t randmac[MAX_MAC_SIZE],
                        uint8_t mac[MAX_MAC_SIZE], size_t ori_data_len,
-                       size_t bad_pad_mask)
-{
+                       size_t bad_pad_mask) {
     size_t pad_len, mac_start, scan_start, i, j;
 
     /* If it is a block cipher, the last byte is the padding length.
@@ -146,13 +127,11 @@ static int cbc_get_mac(const uint8_t *data, size_t *data_len,
     memset(mac, 0, mac_size);
 
     /* Do the Matric scan */
-    for (i = 0; i < mac_size; i++)
-    {
+    for (i = 0; i < mac_size; i++) {
         uint8_t extracted_byte = 0;
         size_t target_idx = mac_start + i;
 
-        for (j = scan_start; j < ori_data_len; j++)
-        {
+        for (j = scan_start; j < ori_data_len; j++) {
             /* If the index (j) matches the target index, extract the byte */
             size_t is_match = ct_eq_s(j, target_idx);
             extracted_byte |= (data[j] & is_match);
@@ -169,8 +148,7 @@ static int cbc_get_mac(const uint8_t *data, size_t *data_len,
 static int cbc_remove_pad_and_mac(const uint8_t *data, size_t *data_len,
                                   size_t block_size, size_t mac_size,
                                   const uint8_t randmac[MAX_MAC_SIZE],
-                                  uint8_t mac[MAX_MAC_SIZE])
-{
+                                  uint8_t mac[MAX_MAC_SIZE]) {
     size_t overhead, ori_data_len, pad_len, max_pad, scan_bound;
     size_t bad_pad_mask = 0;
     size_t i;
@@ -184,8 +162,7 @@ static int cbc_remove_pad_and_mac(const uint8_t *data, size_t *data_len,
 
     ori_data_len = *data_len;
 
-    if (block_size > 1)
-    {
+    if (block_size > 1) {
         pad_len = data[ori_data_len - 1];
 
         /* Check if padding length is valid */
@@ -194,12 +171,10 @@ static int cbc_remove_pad_and_mac(const uint8_t *data, size_t *data_len,
 
         /* Check if padding bytes is all correct. */
         /* Scan backwards from the end of the buffer up to 256 bytes. */
-        scan_bound = ((ori_data_len < MAX_PADDING_SIZE)
-                          ? ori_data_len
-                          : MAX_PADDING_SIZE);
+        scan_bound = ((ori_data_len < MAX_PADDING_SIZE) ? ori_data_len
+                                                        : MAX_PADDING_SIZE);
 
-        for (i = 0; i < scan_bound; i++)
-        {
+        for (i = 0; i < scan_bound; i++) {
             size_t is_within_padding = ct_le_s(i, pad_len);
             uint8_t actual_byte = data[(ori_data_len - 1) - i];
 
@@ -214,8 +189,7 @@ static int cbc_remove_pad_and_mac(const uint8_t *data, size_t *data_len,
                        ori_data_len, bad_pad_mask);
 }
 
-static PyObject *Py_cbc_remove_pad_and_mac(PyObject *self, PyObject *args)
-{
+static PyObject *Py_cbc_remove_pad_and_mac(PyObject *self, PyObject *args) {
     Py_buffer data;
     Py_ssize_t block_size, mac_size;
 
@@ -225,15 +199,14 @@ static PyObject *Py_cbc_remove_pad_and_mac(PyObject *self, PyObject *args)
 
     block_size = 16;
 
-    if (!PyArg_ParseTuple(args, "y*n|n", &data, &mac_size, &block_size))
-    {
+    if (!PyArg_ParseTuple(args, "y*n|n", &data, &mac_size, &block_size)) {
         return NULL;
     }
 
-    if (mac_size > MAX_MAC_SIZE)
-    {
+    if (mac_size > MAX_MAC_SIZE) {
         PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError, "mac_digest_size cannot larger then 64");
+        PyErr_SetString(PyExc_ValueError,
+                        "mac_digest_size cannot larger then 64");
         return NULL;
     }
 
@@ -242,16 +215,15 @@ static PyObject *Py_cbc_remove_pad_and_mac(PyObject *self, PyObject *args)
 
     output_len = data.len;
 
-    rv = cbc_remove_pad_and_mac((const uint8_t *)data.buf, &output_len, block_size,
-                                mac_size, (const uint8_t *)randmac, extracted_mac);
+    rv = cbc_remove_pad_and_mac((const uint8_t *)data.buf, &output_len,
+                                block_size, mac_size, (const uint8_t *)randmac,
+                                extracted_mac);
     PyBuffer_Release(&data);
-    if (rv == -1)
-    {
+    if (rv == -1) {
         PyErr_SetString(PyExc_RuntimeError, "Unable to remove padding and MAC");
         return NULL;
     }
-    if (rv == 0)
-    {
+    if (rv == 0) {
         PyErr_SetString(PyExc_ValueError, "Data is publicly invalid");
         return NULL;
     }
@@ -259,8 +231,7 @@ static PyObject *Py_cbc_remove_pad_and_mac(PyObject *self, PyObject *args)
     return Py_BuildValue("ny#", output_len, extracted_mac, mac_size);
 }
 
-static PyObject *Py_strxor(PyObject *self, PyObject *args)
-{
+static PyObject *Py_strxor(PyObject *self, PyObject *args) {
     Py_buffer in1, in2;
     PyObject *ret;
     uint8_t *out_buf, *in1_buf, *in2_buf;
@@ -270,11 +241,9 @@ static PyObject *Py_strxor(PyObject *self, PyObject *args)
 
     ret = NULL;
 
-    if (in1.len != in2.len)
-    {
-        PyErr_SetString(
-            PyExc_ValueError,
-            "Only byte strings of equal length can be xored");
+    if (in1.len != in2.len) {
+        PyErr_SetString(PyExc_ValueError,
+                        "Only byte strings of equal length can be xored");
         goto cleanup;
     }
 
@@ -295,20 +264,17 @@ cleanup:
 }
 
 static PyMethodDef utils_methods[] = {
-    {"cbc_remove_pad_and_mac", (PyCFunction)Py_cbc_remove_pad_and_mac, METH_VARARGS, ""},
+    {"cbc_remove_pad_and_mac", (PyCFunction)Py_cbc_remove_pad_and_mac,
+     METH_VARARGS, ""},
     {"strxor", (PyCFunction)Py_strxor, METH_VARARGS, "XOR two byte strings"},
     {NULL, NULL, 0, NULL}};
 
 struct PyModuleDef utils_module = {
-    PyModuleDef_HEAD_INIT,
-    .m_name = "utils",
-    .m_doc = "utils module",
-    .m_size = -1,
-    .m_methods = utils_methods,
+    PyModuleDef_HEAD_INIT, .m_name = "utils",          .m_doc = "utils module",
+    .m_size = -1,          .m_methods = utils_methods,
 };
 
-PyObject *add_utils()
-{
+PyObject *add_utils() {
     PyObject *m = PyModule_Create(&utils_module);
     if (NULL == m)
         return NULL;

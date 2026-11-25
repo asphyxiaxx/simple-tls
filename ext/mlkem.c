@@ -8,8 +8,8 @@
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
  *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -22,34 +22,33 @@
 
 #define PY_SSIZE_T_CLEAN
 
-#include <Python.h>
 #include "mlkem_native/mlkem_native_all.h"
+#include <Python.h>
 
 extern int randombytes(uint8_t *buf, size_t len);
 
-static PyObject* KEM_keygen(PyObject *self, PyObject *args) 
-{
+static PyObject *KEM_keygen(PyObject *self, PyObject *args) {
     Py_buffer coins;
     int level, rv;
 
-    /* Prepare buffers using the largest possible sizes (1024) allows us 
+    /* Prepare buffers using the largest possible sizes (1024) allows us
      * to reuse one stack variable */
-    uint8_t pk[MLKEM1024_PUBLICKEYBYTES]; 
+    uint8_t pk[MLKEM1024_PUBLICKEYBYTES];
     uint8_t sk[MLKEM1024_SECRETKEYBYTES];
     size_t pk_len, sk_len;
 
-    if (!PyArg_ParseTuple(args, "iy*", &level, &coins)) 
+    if (!PyArg_ParseTuple(args, "iy*", &level, &coins))
         return NULL;
 
     if ((size_t)coins.len != 2 * MLKEM_SYMBYTES) {
-        PyErr_Format(PyExc_ValueError, "Expected coins length '%zu' (not '%zu')",
+        PyErr_Format(PyExc_ValueError,
+                     "Expected coins length '%zu' (not '%zu')",
                      2 * MLKEM_SYMBYTES, coins.len);
         PyBuffer_Release(&coins);
         return NULL;
     }
 
-    switch (level)
-    {
+    switch (level) {
     case 512:
         rv = mlkem512_keypair_derand(pk, sk, (const uint8_t *)coins.buf);
         pk_len = MLKEM512_PUBLICKEYBYTES;
@@ -70,7 +69,8 @@ static PyObject* KEM_keygen(PyObject *self, PyObject *args)
 
     default:
         /* Invalid parameter level — mark as unusable */
-        PyErr_Format(PyExc_ValueError, "Parameter level '%d' unavailable", level);
+        PyErr_Format(PyExc_ValueError, "Parameter level '%d' unavailable",
+                     level);
         PyBuffer_Release(&coins);
         return NULL;
     }
@@ -84,34 +84,33 @@ static PyObject* KEM_keygen(PyObject *self, PyObject *args)
     return Py_BuildValue("y#y#", pk, pk_len, sk, sk_len);
 }
 
-static PyObject* KEM_encaps(PyObject *self, PyObject *args) 
-{
+static PyObject *KEM_encaps(PyObject *self, PyObject *args) {
     Py_buffer pk, coins;
     PyObject *res;
     int level, rv;
 
-    /* Prepare buffers using the largest possible sizes (1024) allows us 
+    /* Prepare buffers using the largest possible sizes (1024) allows us
      * to reuse one stack variable */
-    uint8_t ct[MLKEM1024_CIPHERTEXTBYTES]; 
+    uint8_t ct[MLKEM1024_CIPHERTEXTBYTES];
     uint8_t ss[MLKEM1024_BYTES];
     size_t ct_len, ss_len, pk_len;
 
     int (*enc_derand)(uint8_t *ct, uint8_t *ss, const uint8_t *pk,
                       const uint8_t *coins);
 
-    if (!PyArg_ParseTuple(args, "iy*y*", &level, &pk, &coins)) 
+    if (!PyArg_ParseTuple(args, "iy*y*", &level, &pk, &coins))
         return NULL;
 
     res = NULL;
 
     if ((size_t)coins.len != MLKEM_SYMBYTES) {
-        PyErr_Format(PyExc_ValueError, "Expected coins length '%zu' (not '%zu')",
-                     MLKEM_SYMBYTES, coins.len);
+        PyErr_Format(PyExc_ValueError,
+                     "Expected coins length '%zu' (not '%zu')", MLKEM_SYMBYTES,
+                     coins.len);
         goto cleanup;
     }
 
-    switch (level)
-    {
+    switch (level) {
     case 512:
         enc_derand = mlkem512_enc_derand;
         ct_len = MLKEM512_CIPHERTEXTBYTES;
@@ -135,7 +134,8 @@ static PyObject* KEM_encaps(PyObject *self, PyObject *args)
 
     default:
         /* Invalid parameter level — mark as unusable */
-        PyErr_Format(PyExc_ValueError, "Parameter level '%d' unavailable", level);
+        PyErr_Format(PyExc_ValueError, "Parameter level '%d' unavailable",
+                     level);
         goto cleanup;
     }
 
@@ -145,7 +145,8 @@ static PyObject* KEM_encaps(PyObject *self, PyObject *args)
         goto cleanup;
     }
 
-    rv = enc_derand(ct, ss, (const uint8_t *)pk.buf, (const uint8_t *)coins.buf);
+    rv =
+        enc_derand(ct, ss, (const uint8_t *)pk.buf, (const uint8_t *)coins.buf);
     if (rv != 0) {
         PyErr_Format(PyExc_ValueError, "encaps failed with code '%d'", rv);
         goto cleanup;
@@ -159,26 +160,24 @@ cleanup:
     return res;
 }
 
-static PyObject* KEM_decaps(PyObject *self, PyObject *args) 
-{
+static PyObject *KEM_decaps(PyObject *self, PyObject *args) {
     Py_buffer ct, sk;
     PyObject *res;
     int level, rv;
 
-    /* Prepare buffers using the largest possible sizes (1024) allows us 
+    /* Prepare buffers using the largest possible sizes (1024) allows us
      * to reuse one stack variable */
     uint8_t ss[MLKEM1024_BYTES];
     size_t ss_len, ct_len, sk_len;
 
     int (*dec)(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
 
-    if (!PyArg_ParseTuple(args, "iy*y*", &level, &ct, &sk)) 
+    if (!PyArg_ParseTuple(args, "iy*y*", &level, &ct, &sk))
         return NULL;
 
     res = NULL;
 
-    switch (level)
-    {
+    switch (level) {
     case 512:
         dec = mlkem512_dec;
         ss_len = MLKEM512_BYTES;
@@ -202,7 +201,8 @@ static PyObject* KEM_decaps(PyObject *self, PyObject *args)
 
     default:
         /* Invalid parameter level — mark as unusable */
-        PyErr_Format(PyExc_ValueError, "Parameter level '%d' unavailable", level);
+        PyErr_Format(PyExc_ValueError, "Parameter level '%d' unavailable",
+                     level);
         goto cleanup;
     }
 
@@ -211,7 +211,7 @@ static PyObject* KEM_decaps(PyObject *self, PyObject *args)
                      ct_len, ct.len);
         goto cleanup;
     }
-    
+
     if ((size_t)sk.len != sk_len) {
         PyErr_Format(PyExc_ValueError, "Expected sk length '%zu' (not '%zu')",
                      sk_len, sk.len);
@@ -236,19 +236,15 @@ static PyMethodDef mlkem_methods[] = {
     {"keygen", (PyCFunction)KEM_keygen, METH_VARARGS, ""},
     {"encaps", (PyCFunction)KEM_encaps, METH_VARARGS, ""},
     {"decaps", (PyCFunction)KEM_decaps, METH_VARARGS, ""},
-    {NULL, NULL, 0, NULL}
+    {NULL, NULL, 0, NULL},
 };
 
 static PyModuleDef mlkem_module = {
-    PyModuleDef_HEAD_INIT,
-    .m_name = "mlkem",
-    .m_doc = "ML-KEM module",
-    .m_size = -1,
-    .m_methods = mlkem_methods,
+    PyModuleDef_HEAD_INIT, .m_name = "mlkem",          .m_doc = "ML-KEM module",
+    .m_size = -1,          .m_methods = mlkem_methods,
 };
 
-PyObject *add_mlkem() 
-{
+PyObject *add_mlkem() {
     PyObject *m = PyModule_Create(&mlkem_module);
     if (NULL == m)
         return NULL;
