@@ -90,10 +90,10 @@ class TLSCipher:
         encrypt_then_mac: bool = False,
     ) -> None:
         self.open: Callable[
-            [int, int, Buffer, int, bytes, WritableBuffer], int
+            [int, int, Buffer, int, Buffer, WritableBuffer], int
         ]
         self.seal: Callable[
-            [int, int, Buffer, int, bytes, WritableBuffer], int
+            [int, int, Buffer, int, Buffer, WritableBuffer], int
         ]
 
         self._cipher: _AEADCipherType | _CipherType | None = None
@@ -292,7 +292,7 @@ class TLSCipher:
         record_version: int,
         plaintext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         assert self._variable_nonce_len == 8
@@ -335,7 +335,7 @@ class TLSCipher:
         record_version: int,
         plaintext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         mac = cast(hmac.HMAC, self._mac)
@@ -375,7 +375,7 @@ class TLSCipher:
         record_version: int,
         plaintext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         mac = cast(hmac.HMAC, self._mac)
@@ -413,7 +413,7 @@ class TLSCipher:
         record_version: int,
         plaintext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         mac = cast(hmac.HMAC, self._mac)
@@ -451,7 +451,7 @@ class TLSCipher:
         record_version: int,
         ciphertext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         assert self._variable_nonce_len == 8
@@ -500,7 +500,7 @@ class TLSCipher:
         record_version: int,
         ciphertext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         mac = cast(hmac.HMAC, self._mac)
@@ -555,7 +555,7 @@ class TLSCipher:
         record_version: int,
         ciphertext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         mac = cast(hmac.HMAC, self._mac)
@@ -604,7 +604,7 @@ class TLSCipher:
         record_version: int,
         ciphertext: Buffer,
         seq_num: int,
-        header: bytes,
+        header: Buffer,
         out: WritableBuffer,
     ) -> int:
         mac = cast(hmac.HMAC, self._mac)
