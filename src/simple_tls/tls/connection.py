@@ -23,7 +23,6 @@ from __future__ import annotations
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass
-from ssl import MemoryBIO
 from typing import Any, Literal, NoReturn, overload
 
 from cryptography import x509
@@ -77,6 +76,7 @@ MessageCallback = Callable[["TLSConnection", Direction, int, int, bytes], None]
 
 
 HEADER_LENGTH = 5
+MAX_PLAINTEXT_LENGTH = 2**14
 MAX_WARNING_ALERTS = 5
 
 
@@ -98,8 +98,6 @@ class TLSConnection:
         self,
         *,
         configuration: TLSConfiguration,
-        inbio: MemoryBIO | None = None,
-        outbio: MemoryBIO | None = None,
         message_callback: MessageCallback | None = None,
         new_session_callback: NewSessionCallback | None = None,
         client_hello_callback: ClientHelloCallback | None = None,
@@ -119,41 +117,11 @@ class TLSConnection:
         handshake.setup_traffic_cb = self._setup_traffic
 
         self._handshake: TLSHandshake = handshake
-        """handshake object"""
         self._handshake_status: Status = Status.OK
-        """current handshake status"""
         self._message_callback = message_callback
-        """message callback"""
-        self._send_record_limit: int = 2**14
-        """send record limit"""
-        self._recv_record_limit: int = 2**14
-        """received record limit"""
 
-        self._inbio: MemoryBIO = inbio or MemoryBIO()
-        """incoming encrypted bytes"""
-        self._outbio: MemoryBIO = outbio or MemoryBIO()
-        """outgoing encrypted bytes (waiting to be send)"""
-
-        self._header: bytes | None = None
-        """cached record header"""
-        self._read_buf: memoryview = memoryview(
-            bytearray(self._recv_record_limit + 2048)
-        )
-        """temporary buffer to store data decrypted"""
-        self._write_buf: memoryview = memoryview(
-            bytearray(self._send_record_limit + 2 * (HEADER_LENGTH + 2048))
-        )
-        """temporary buffer to store data encrypted"""
-        self._temp_buf: memoryview = memoryview(
-            bytearray(self._send_record_limit + 2048)
-        )
-        """temporary buffer to store plaintext for TLSv1.3"""
-
-        self._pending_flight: bytearray = bytearray()
-        """pending encrypted handshake record to send"""
-        self._pending_app_data: bytearray = bytearray()
-        """unconsumed decrypted application data"""
-
+        self._send_record_limit: int = MAX_PLAINTEXT_LENGTH
+        self._recv_record_limit: int = MAX_PLAINTEXT_LENGTH
         self._write_shutdown: Shutdown = Shutdown.NONE
         self._read_shutdown: Shutdown = Shutdown.NONE
         self._write_state: ConnectionState = ConnectionState(Epoch.INITIAL)
@@ -161,6 +129,25 @@ class TLSConnection:
         self._early_data_ignored: int = 0
         self._early_data_processed: int = 0
         self._warning_alert_received: int = 0
+        self._pending_flight: bytearray = bytearray()
+        self._pending_app_data: bytearray = bytearray()
+        self._header: tuple[int, int, int] | None = None
+        self._header_data: bytearray | None = None
+
+        self._in_buf: bytearray = bytearray()
+        self._in_buf_offset: int = 0
+        self._out_buf: bytearray = bytearray()
+        self._out_buf_offset: int = 0
+
+        self._open_buf: memoryview = memoryview(
+            bytearray(MAX_PLAINTEXT_LENGTH + 2048)
+        )
+        self._seal_buf: memoryview = memoryview(
+            bytearray(MAX_PLAINTEXT_LENGTH + 2 * (HEADER_LENGTH + 2048))
+        )
+        self._seal_single_buf: memoryview = memoryview(
+            bytearray(MAX_PLAINTEXT_LENGTH + 2048)
+        )
 
     @property
     def handshake_complete(self) -> bool:
@@ -194,15 +181,39 @@ class TLSConnection:
         """
         Data from the network
         """
-        self._inbio.write(data)
+        if self._in_buf_offset > 0:
+            assert self._in_buf_offset <= len(self._in_buf)
+            del self._in_buf[: self._in_buf_offset]
+            self._in_buf_offset = 0
+
+        self._in_buf.extend(data)
 
     def bio_read(self, bufsiz: int) -> bytes:
         """
         Return data to send
         """
-        data = self._outbio.read(bufsiz)
-        if not data:
+        assert self._out_buf_offset <= len(self._out_buf)
+
+        buf = self._out_buf
+        offset = self._out_buf_offset
+        remaining = len(buf) - offset
+
+        if remaining == 0:
             raise TLSWantReadError()
+        if bufsiz == 0:
+            return b""
+        if bufsiz < 0 or bufsiz > remaining:
+            bufsiz = remaining
+
+        end = offset + bufsiz
+        data = bytes(buf[offset:end])
+
+        if len(buf) == end:
+            buf.clear()
+            self._out_buf_offset = 0
+        else:
+            self._out_buf_offset = end
+
         return data
 
     @overload
@@ -282,17 +293,16 @@ class TLSConnection:
         if self._write_shutdown != Shutdown.NONE:
             raise TLSEOFError("protocol is shutdown")
 
-        max_send_fragment = self._send_record_limit
+        fragment_len = self._send_record_limit
         is_early_data_write = not hs.is_server and hs.can_early_write
 
         if is_early_data_write:
-            max_send_fragment = min(
-                max_send_fragment,
-                hs.max_early_data - self._early_data_processed,
+            fragment_len = min(
+                fragment_len, hs.max_early_data - self._early_data_processed
             )
 
-        if len(data) > max_send_fragment:
-            data = data[:max_send_fragment]
+        if len(data) > fragment_len:
+            data = data[:fragment_len]
 
         self._write(ContentType.APPLICATION_DATA, data)
 
@@ -420,12 +430,15 @@ class TLSConnection:
         epoch: Epoch,
         context: TrafficContext | None,
     ) -> None:
+        state = ConnectionState(epoch)
+
         if context is not None:
             version = context.version
             cipher_suite = context.cipher_suite
 
             if version >= TLSVersion.TLSv1_3:
                 assert context.secret is not None
+
                 algorithm = get_algorithm(cipher_suite.prf_hash)
                 key_len, iv_len = get_key_iv_lens(cipher_suite)
                 enc_key = hkdf_expand_label(
@@ -439,11 +452,12 @@ class TLSConnection:
                 assert context.enc_key is not None
                 assert context.mac_key is not None
                 assert context.fixed_iv is not None
+
                 enc_key = context.enc_key
                 fixed_iv = context.fixed_iv
                 mac_key = context.mac_key
 
-            cipher = TLSCipher(
+            state.cipher = TLSCipher(
                 direction=direction,
                 version=version,
                 cipher_suite=cipher_suite,
@@ -452,17 +466,15 @@ class TLSConnection:
                 mac_key=mac_key,
                 encrypt_then_mac=context.encrypt_then_mac,
             )
-            state = ConnectionState(epoch, cipher)
+
             if (
                 context.version < TLSVersion.TLSv1_1
-                and cipher.is_block_cipher()
+                and state.cipher.is_block_cipher()
             ):
                 state.record_splitting = True
 
             if context.version >= TLSVersion.TLSv1_3:
                 state.hide_content_type = True
-        else:
-            state = ConnectionState(epoch)
 
         if direction == Direction.WRITE:
             assert len(self._handshake.pending_flight()) == 0
@@ -501,17 +513,17 @@ class TLSConnection:
         self._handshake.feed_data(data)
 
     def _pack_handshake(self) -> None:
-        pending_hs_data = b"".join(self._handshake.pending_flight())
-        if not pending_hs_data:
+        pending_flight = self._handshake.pending_flight()
+        if not pending_flight:
             return
 
-        fragment_size = self._send_record_limit - 1
+        fragment_len = self._send_record_limit - 1
         content_type = ContentType.HANDSHAKE
 
-        with memoryview(pending_hs_data) as view:
-            for i in range(0, len(view), fragment_size):
+        with memoryview(b"".join(pending_flight)) as view:
+            for i in range(0, len(view), fragment_len):
                 record_data = self._seal_record(
-                    content_type, view[i : i + fragment_size]
+                    content_type, view[i : i + fragment_len]
                 )
                 self._pending_flight.extend(record_data)
 
@@ -522,11 +534,10 @@ class TLSConnection:
 
         if not self._pending_flight:
             return
-
         if self._write_shutdown != Shutdown.NONE:
             return
 
-        self._outbio.write(self._pending_flight)
+        self._write_out_bio(self._pending_flight)
         self._pending_flight.clear()
 
     def _write(self, content_type: int, data: Buffer) -> None:
@@ -536,11 +547,19 @@ class TLSConnection:
             return
 
         record_data = self._seal_record(content_type, data)
-        self._outbio.write(record_data)
+        self._write_out_bio(record_data)
+
+    def _write_out_bio(self, data: Buffer) -> None:
+        if self._out_buf_offset > 0:
+            assert self._out_buf_offset <= len(self._out_buf)
+            del self._out_buf[: self._out_buf_offset]
+            self._out_buf_offset = 0
+
+        self._out_buf.extend(data)
 
     def _seal_record(self, content_type: int, plaintext: Buffer) -> memoryview:
         state = self._write_state
-        out_buf = self._write_buf
+        out_buf = self._seal_buf
         dest_view = out_buf  # Represents the remaining writable window/view
         total_written = 0
 
@@ -570,7 +589,7 @@ class TLSConnection:
 
         if state.hide_content_type:
             pt_len = len(plaintext)
-            temp_view = self._temp_buf[0 : pt_len + 1]
+            temp_view = self._seal_single_buf[0 : pt_len + 1]
             temp_view[0:pt_len] = plaintext
             temp_view[pt_len] = content_type
             plaintext = temp_view
@@ -613,49 +632,53 @@ class TLSConnection:
             raise TLSEOFError("protocol is shutdown")
 
         state = self._read_state
-        out_buf = self._read_buf
-        inbio = self._inbio
+        in_buf = self._in_buf
+        in_buf_offset = self._in_buf_offset
+        out_buf = self._open_buf
 
         # Parse header: ContentType (1), Version (2), Length (2)
         if self._header is None:
-            if inbio.pending < HEADER_LENGTH:
+            if len(in_buf) - in_buf_offset < HEADER_LENGTH:
                 raise TLSWantReadError()
-            self._header = inbio.read(HEADER_LENGTH)
 
-        header = self._header
-        assert len(header) == HEADER_LENGTH
+            header_data = in_buf[in_buf_offset : in_buf_offset + HEADER_LENGTH]
+            in_buf_offset += HEADER_LENGTH
+            header = struct.unpack("!BHH", header_data)
+            content_type, record_version, length = header
 
-        content_type, record_version, length = struct.unpack("!BHH", header)
+            if state.cipher is None:
+                version_ok = record_version >> 8 == 0x03
+            else:
+                version_ok = record_version == self._record_version()
 
-        if state.cipher is None:
-            version_ok = record_version >> 8 == 0x03
+            if not version_ok:
+                self._send_alert(
+                    AlertDescription.PROTOCOL_VERSION,
+                    "received record with wrong version number",
+                )
+            if length > self._recv_record_limit + 2048:
+                self._send_alert(
+                    AlertDescription.RECORD_OVERFLOW,
+                    "received record too large",
+                )
+
+            self._header = header
+            self._header_data = header_data
+            self._in_buf_offset = in_buf_offset
         else:
-            version_ok = record_version == self._record_version()
+            assert self._header_data is not None
+            content_type, record_version, length = self._header
+            header_data = self._header_data
 
-        if not version_ok:
-            self._send_alert(
-                AlertDescription.PROTOCOL_VERSION,
-                "received record with wrong version number",
-            )
-
-        # Check the record header fields
-        # 2**14 (default record size limit)
-        # 1024 (maximum compression overhead)
-        # 1024 (maximum encryption overhead)
-        if length > self._recv_record_limit + 1024 + 1024:
-            self._send_alert(
-                AlertDescription.RECORD_OVERFLOW,
-                "received record too large",
-            )
-
-        # Extract full record
-        if inbio.pending < length:
+        if len(in_buf) - in_buf_offset < length:
             raise TLSWantReadError()
 
-        ciphertext = inbio.read(length)
-        assert length == len(ciphertext)
+        ciphertext = in_buf[in_buf_offset : in_buf_offset + length]
+        in_buf_offset += length
 
         self._header = None
+        self._header_data = None
+        self._in_buf_offset = in_buf_offset
 
         if (
             content_type == ContentType.CHANGE_CIPHER_SPEC
@@ -696,7 +719,7 @@ class TLSConnection:
                     record_version,
                     ciphertext,
                     state.sequence_number,
-                    header,
+                    header_data,
                     out_buf,
                 )
             except InvalidTag:

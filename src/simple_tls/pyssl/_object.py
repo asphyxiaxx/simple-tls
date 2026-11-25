@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import ssl as _ssl
-from typing import TYPE_CHECKING, Literal, overload
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from cryptography.hazmat.primitives import serialization
 
@@ -9,7 +10,7 @@ from simple_tls import tls
 from simple_tls.crypto.utils import bytes_to_str, str_to_bytes
 
 from ._constants import ECHStatus, Options
-from ._exceptions import SSLEOFError, SSLWantReadError
+from ._exceptions import SSLEOFError, SSLError, SSLWantReadError
 from ._session import SSLSession
 from ._utils import (
     ECHConfigListType,
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
 
 class SSLObject(_ssl.SSLObject):
     _context: SSLContext
+    _incoming: _ssl.MemoryBIO
+    _outgoing: _ssl.MemoryBIO
     _sslobj: SSLConnection
     _session: SSLSession | None
     _sni_callback: SrvnmeCbType | None
@@ -88,13 +91,13 @@ class SSLObject(_ssl.SSLObject):
             new_session_callback = None
             client_hello_callback = self._do_sni_callback
 
-        self._sslobj = self._sslobj = SSLConnection(
+        self._sslobj = SSLConnection(
             configuration=config,
-            inbio=incoming,
-            outbio=outgoing,
             new_session_callback=new_session_callback,
             client_hello_callback=client_hello_callback,
         )
+        self._incoming = incoming
+        self._outgoing = outgoing
         self._context = context
         return self
 
@@ -146,12 +149,7 @@ class SSLObject(_ssl.SSLObject):
         If 'buffer' is provided, read into this buffer and return the
         number of bytes read.
         """
-        try:
-            return self._sslobj.read(len, buffer)  # type: ignore
-        except tls.TLSWantReadError:
-            raise SSLWantReadError from None
-        except tls.TLSEOFError:
-            raise SSLEOFError from None
+        return self._perform_io(self._sslobj.read, len, buffer)
 
     def write(self, data: ReadableBuffer) -> int:
         """
@@ -160,7 +158,7 @@ class SSLObject(_ssl.SSLObject):
 
         The 'data' argument must support the buffer interface.
         """
-        return self._sslobj.write(data)  # type: ignore
+        return self._perform_io(self._sslobj.write, data)
 
     def get_peer_ech_retry_configs(self) -> bytes | None:
         retry_configs = self._sslobj.get_peer_ech_retry_configs()
@@ -201,18 +199,16 @@ class SSLObject(_ssl.SSLObject):
 
     def get_verified_chain(self) -> list[bytes]:
         """
-        Returns verified certificate chain provided by the other
-        end of the SSL channel as a list of DER-encoded bytes.
-
-        If certificate verification was disabled method acts the same as
-        ``SSLSocket.get_unverified_chain``.
+        Returns verified certificate chain provided by the other end of the
+        SSL channel as a list of DER-encoded bytes.
         """
         chain = self._sslobj.get_verified_chain()
         return [c.public_bytes(serialization.Encoding.DER) for c in chain]
 
     def get_unverified_chain(self) -> list[bytes]:
-        """Returns raw certificate chain provided by the other
-        end of the SSL channel as a list of DER-encoded bytes.
+        """
+        Returns raw certificate chain provided by the other end of the SSL
+        channel as a list of DER-encoded bytes.
         """
         chain = self._sslobj.get_peer_cert_chain()
         return [c.public_bytes(serialization.Encoding.DER) for c in chain]
@@ -221,20 +217,22 @@ class SSLObject(_ssl.SSLObject):
         """
         Return the currently selected NPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if NPN is not supported by one
-        of the peers."""
+        of the peers.
+        """
         return bytes_to_str(self._sslobj.get_npn_negotiated())
 
     def selected_alpn_protocol(self) -> str | None:
         """
         Return the currently selected ALPN protocol as a string, or ``None``
         if a next protocol was not negotiated or if ALPN is not supported by
-        one of the peers."""
+        one of the peers.
+        """
         return bytes_to_str(self._sslobj.get_alpn_negotiated())
 
     def cipher(self) -> tuple[str, str, int] | None:
         """
-        Return the currently selected cipher as a 3-tuple ``(name,
-        ssl_version, secret_bits)``.
+        Return the currently selected cipher as a 3-tuple
+        ``(name, ssl_version, secret_bits)``.
         """
         cipher_suite = self._sslobj.get_cipher_negotitated()
         if cipher_suite is not None:
@@ -276,10 +274,7 @@ class SSLObject(_ssl.SSLObject):
         """
         Start the SSL/TLS handshake.
         """
-        try:
-            self._sslobj.do_handshake()
-        except tls.TLSWantReadError:
-            raise SSLWantReadError from None
+        self._perform_io(self._sslobj.do_handshake)
 
     def unwrap(self) -> None:
         """
@@ -323,3 +318,27 @@ class SSLObject(_ssl.SSLObject):
         context.alert_description = alert_description
         context.credential = config.get("credential", None)
         context.verify_mode = config.get("verify_mode", context.verify_mode)
+
+    def _perform_io(self, func: Callable, *args: Any) -> Any:
+        incoming_data = self._incoming.read()
+        if incoming_data:
+            self._sslobj.bio_write(incoming_data)
+
+        try:
+            return func(*args)
+        except tls.TLSWantReadError:
+            if self._incoming.eof and not incoming_data:
+                raise SSLEOFError from None
+            raise SSLWantReadError from None
+        except tls.TLSEOFError:
+            raise SSLEOFError from None
+        except tls.TLSError as exc:
+            raise SSLError(exc) from exc
+        finally:
+            try:
+                outgoing_data = self._sslobj.bio_read(-1)
+            except tls.TLSWantReadError:
+                outgoing_data = b""
+
+            if outgoing_data:
+                self._outgoing.write(outgoing_data)
