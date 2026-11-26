@@ -283,7 +283,7 @@ class TLSConnection:
                     )
 
             buffer_too_small = buffer is not None and len(buffer) < len(data)
-            if 0 <= length <= len(data) or buffer_too_small:
+            if 0 <= length < len(data) or buffer_too_small:
                 assert pending_remaining == 0
                 pending[0 : len(data)] = data
                 self._pending_app_buf_offset = 0
