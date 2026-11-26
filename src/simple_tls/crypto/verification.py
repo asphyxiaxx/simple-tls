@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import itertools
 import os
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Callable, Generator, Iterable
 from datetime import datetime, timedelta, timezone
 from os import PathLike
@@ -298,33 +298,35 @@ class Verifier:
         leaf: x509.Certificate,
         intermediates: Iterable[x509.Certificate],
     ) -> Generator[list[x509.Certificate], None, None]:
-        """Do BFS to find shortest chains first"""
+        """Do DFS to find the path"""
 
         roots = self.store.trust_map
         candidates: dict[x509.Name, list[x509.Certificate]] = defaultdict(list)
         for c in intermediates:
             candidates[c.subject].append(c)
 
-        q: deque[list[x509.Certificate]] = deque()
-        q.append([leaf])
+        chain: list[x509.Certificate] = []
 
         # avoid repeating same (subject, issuer, serial) loops
         seen_sigpairs: set[tuple[x509.Name, x509.Name, int]] = set()
 
-        while q:
-            chain = q.popleft()
+        def dfs(tip: x509.Certificate) -> Generator[list[x509.Certificate]]:
+            # Anchor reached
+            if any(tip == anchor for anchor in roots.get(tip.subject, ())):
+                if self._is_self_issued(tip) or self.allow_partial_chain:
+                    yield [*chain, tip]
 
             # Skip if this path is already at or beyond max depth
             if len(chain) >= self.max_chain_depth:
-                continue
+                return
 
-            tip = chain[-1]
+            chain.append(tip)
 
-            # Get possible issuers from intermediates and trusted roots
-            possible_issuers = itertools.chain(
+            # Try all candidate issuers for current tip
+            issuers = itertools.chain(
                 candidates.get(tip.issuer, ()), roots.get(tip.issuer, ())
             )
-            for issuer in possible_issuers:
+            for issuer in issuers:
                 # avoid immediate loop (same cert)
                 if issuer == tip:
                     continue
@@ -333,24 +335,21 @@ class Verifier:
                 if not self._aki_ski_compatible(issuer, tip):
                     continue
 
-                # avoid cycles via (leaf serials chain)
                 sigid = (tip.subject, issuer.subject, issuer.serial_number)
                 if sigid in seen_sigpairs:
                     continue
+
                 seen_sigpairs.add(sigid)
 
-                new_chain = [*chain, issuer]
+                # Choose
+                yield from dfs(issuer)
 
-                # If issuer is in store and acceptable as trust anchor,
-                # record candidate chain
-                if any(issuer == sc for sc in roots.get(issuer.subject, ())):
-                    if self._is_self_issued(issuer):
-                        yield new_chain
-                    elif self.allow_partial_chain:
-                        yield new_chain
+                # Backtrack (undo choice before trying next issuer)
+                seen_sigpairs.remove(sigid)
 
-                # continue BFS
-                q.append(new_chain)
+            chain.pop()
+
+        yield from dfs(leaf)
 
     def _verify_chain(self, chain: list[x509.Certificate]) -> None:
         assert len(chain) > 0
@@ -358,63 +357,55 @@ class Verifier:
         now = datetime.now(timezone.utc)
         skew = 300
 
-        # ca_count_below: number of CA certs below current issuer per RFC
-        # pathLen semantics
+        # Number of non-self-issued CA certificates between chain[0] (leaf)
+        # and the current issuer (chain[index + 1])
         ca_count_below = 0
 
-        # iterate from leaf up to (parent = next)
-        child_bc = None
         for index in range(len(chain) - 1):
             child = chain[index]
             issuer = chain[index + 1]
 
-            # validity
+            # Validity and signature checks
             self._verify_validity_now(child, now, skew)
-
-            # signature
             self._verify_signature(child, issuer)
 
-            # Basic constraint
+            # Issuer must have BasicConstraints with ca=True
             try:
-                bc = issuer.extensions.get_extension_for_class(
+                issuer_bc = issuer.extensions.get_extension_for_class(
                     x509.BasicConstraints
                 ).value
             except x509.ExtensionNotFound:
-                err_str = (
-                    "issuer certificate missing basic constraint extension"
-                )
-                raise PolicyViolationError(issuer, err_str) from None
+                raise PolicyViolationError(
+                    issuer,
+                    "issuer certificate missing basic constraint extension",
+                ) from None
 
-            if bc.path_length is not None and ca_count_below > bc.path_length:
-                err_str = (
+            if not issuer_bc.ca:
+                raise PolicyViolationError(
+                    issuer, "issuer certificate is not CA certificate"
+                )
+
+            # Check issuer's path_length against CAs below it in the chain
+            if (
+                issuer_bc.path_length is not None
+                and ca_count_below > issuer_bc.path_length
+            ):
+                raise PolicyViolationError(
+                    issuer,
                     f"issuer certificate violated path len constraint "
-                    f"[{ca_count_below} > {bc.path_length}]"
+                    f"[{ca_count_below} > {issuer_bc.path_length}]",
                 )
-                raise PolicyViolationError(issuer, err_str)
 
-            if not bc.ca:
-                err_str = "issuer certificate is not CA certificate"
-                raise PolicyViolationError(issuer, err_str)
+            # RFC 5280 pathLenConstraint rules
+            # Record `issuer` itself as a CA below any *higher* issuer in later
+            # iterations, provided it is not self-issued
+            if not self._is_self_issued(issuer):
+                ca_count_below += 1
 
-            if index == 0:
-                try:
-                    child_bc = child.extensions.get_extension_for_class(
-                        x509.BasicConstraints
-                    ).value
-                except x509.ExtensionNotFound:
-                    pass
-
-            # increment ca_count_below if child is CA and not self-issued
-            if child_bc is not None:
-                if child_bc.ca and not self._is_self_issued(child):
-                    ca_count_below += 1
-
-            child_bc = bc
-
-            # run ca extension policies for 'issuer'
+            # CA extension policies for 'issuer'
             self._ca_policy.verify(self, issuer)
 
-        # leaf-only policies (run once for chain[0])
+        # Leaf extension policies
         self._ee_policy.verify(self, chain[0])
 
     @staticmethod
@@ -424,11 +415,11 @@ class Verifier:
         try:
             child.verify_directly_issued_by(issuer)
         except InvalidSignature:
-            err_str = (
+            raise InvalidSignatureError(
+                child,
                 f"signature validation failed against issuer "
-                f"{issuer.subject.rfc4514_string()}"
-            )
-            raise InvalidSignatureError(child, err_str) from None
+                f"{issuer.subject.rfc4514_string()}",
+            ) from None
 
     @staticmethod
     def _verify_validity_now(
@@ -442,14 +433,15 @@ class Verifier:
         delta = timedelta(seconds=skew)
 
         if now + delta < not_before:
-            err_str = (
-                f"certificate not yet valid before {not_before.isoformat()}"
+            raise CertificateNotYetValid(
+                child,
+                f"certificate not yet valid before {not_before.isoformat()}",
             )
-            raise CertificateNotYetValid(child, err_str)
-
         if now - delta > not_after:
-            err_str = f"certificate expired at {not_after.isoformat()}"
-            raise CertificateExpired(child, err_str)
+            raise CertificateExpired(
+                child,
+                f"certificate expired at {not_after.isoformat()}",
+            )
 
     @staticmethod
     def _aki_ski_compatible(
