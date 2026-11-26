@@ -46,6 +46,7 @@ from simple_tls.tls.alerts import (
     AlertCertificateRequired,
     AlertDecodeError,
     AlertDecryptError,
+    AlertException,
     AlertHandshakeFailure,
     AlertIllegalParameter,
     AlertInternalError,
@@ -333,6 +334,7 @@ class TLSHandshake:
 
         # Temporary State
         self._state: int = 0
+        self._error: bool = False
         self._server_name: bytes | None = None
         self._version: int = UNSPECIFIED
         self._is_early_version: bool = False
@@ -516,7 +518,8 @@ class TLSHandshake:
         return chain
 
     def do_handshake(self) -> Status:
-        ret = Status.OK
+        if self._error:
+            raise ValueError("handshake is in error state, cannot continue")
 
         while not self.done:
             f = self._handle_dispatch[self.state]
@@ -524,10 +527,13 @@ class TLSHandshake:
                 ret = f()
             except ParseError as exc:
                 raise AlertDecodeError(str(exc)) from exc
+            except AlertException as exc:
+                if exc.fatal:
+                    self._error = True
+                raise
             if ret != Status.OK:
-                break
-
-        return ret
+                return ret
+        return Status.OK
 
     def trigger_post_handshake(self) -> None:
         raise NotImplementedError

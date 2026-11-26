@@ -353,8 +353,8 @@ class TLSConnection:
             elif self._handshake_status == Status.READ_END_OF_EARLY_DATA:
                 if self._handshake.can_early_read:
                     break
-                self._handshake_status = Status.OK
 
+            self._handshake_status = Status.OK
             try:
                 self._handshake_status = self._handshake.do_handshake()
             except AlertException as exc:
