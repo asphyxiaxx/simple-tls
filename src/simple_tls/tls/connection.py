@@ -129,16 +129,18 @@ class TLSConnection:
         self._early_data_ignored: int = 0
         self._early_data_processed: int = 0
         self._warning_alert_received: int = 0
-        self._pending_flight: bytearray = bytearray()
-        self._pending_app_data: bytearray = bytearray()
         self._header: tuple[int, int, int] | None = None
         self._header_data: bytearray | None = None
+        self._pending_flight: bytearray = bytearray()
 
-        self._in_buf: bytearray = bytearray()
         self._in_buf_offset: int = 0
+        self._pending_app_buf_offset: int = 0
+        self._pending_app_buf_length: int = 0
+        self._in_buf: bytearray = bytearray()
         self._out_buf: bytearray = bytearray()
-        self._out_buf_offset: int = 0
-
+        self._pending_app_buf: memoryview = memoryview(
+            bytearray(MAX_PLAINTEXT_LENGTH + 2048)
+        )
         self._open_buf: memoryview = memoryview(
             bytearray(MAX_PLAINTEXT_LENGTH + 2048)
         )
@@ -181,38 +183,37 @@ class TLSConnection:
         """
         Data from the network
         """
-        if self._in_buf_offset > 0:
-            assert self._in_buf_offset <= len(self._in_buf)
-            del self._in_buf[: self._in_buf_offset]
-            self._in_buf_offset = 0
+        buf = self._in_buf
+        offset = self._in_buf_offset
+        buf_len = len(buf)
 
-        self._in_buf.extend(data)
+        if offset > 0:
+            if offset == buf_len:
+                buf.clear()
+                self._in_buf_offset = 0
+            elif offset >= buf_len // 2:
+                del buf[:offset]
+                self._in_buf_offset = 0
 
-    def bio_read(self, bufsiz: int) -> bytes:
+        buf.extend(data)
+
+    def bio_read(self, length: int = -1) -> bytes:
         """
         Return data to send
         """
-        assert self._out_buf_offset <= len(self._out_buf)
+        if length == 0:
+            return b""
 
         buf = self._out_buf
-        offset = self._out_buf_offset
-        remaining = len(buf) - offset
 
-        if remaining == 0:
+        if not buf:
             raise TLSWantReadError()
-        if bufsiz == 0:
-            return b""
-        if bufsiz < 0 or bufsiz > remaining:
-            bufsiz = remaining
-
-        end = offset + bufsiz
-        data = bytes(buf[offset:end])
-
-        if len(buf) == end:
+        if length < 0 or length >= len(buf):
+            data = bytes(buf)
             buf.clear()
-            self._out_buf_offset = 0
         else:
-            self._out_buf_offset = end
+            data = bytes(buf[:length])
+            del buf[:length]
 
         return data
 
@@ -224,12 +225,34 @@ class TLSConnection:
 
     def read(
         self,
-        length: int = 1024,
+        length: int = -1,
         buffer: WritableBuffer | None = None,
     ) -> int | bytes:
         hs = self._handshake
+        app_data = None
+        app_data_len = 0
 
-        while not self._pending_app_data:
+        while app_data is None:
+            pending = self._pending_app_buf
+            pending_offset = self._pending_app_buf_offset
+            pending_length = self._pending_app_buf_length
+            pending_remaining = pending_length - pending_offset
+
+            if pending_remaining > 0:
+                if length < 0 or length > pending_remaining:
+                    app_data_len = pending_remaining
+                else:
+                    app_data_len = length
+
+                if buffer is not None and len(buffer) < app_data_len:
+                    raise ValueError("buffer too small")
+
+                app_data = pending[
+                    pending_offset : pending_offset + app_data_len
+                ]
+                self._pending_app_buf_offset += app_data_len
+                break
+
             if not (hs.done or hs.can_early_read):
                 self.do_handshake()
 
@@ -259,30 +282,22 @@ class TLSConnection:
                         "received too much early data",
                     )
 
-            data_len = len(data)
-            if data_len > 0 and data_len <= length:
-                if buffer is None:
-                    return data.tobytes()
-                if len(buffer) < data_len:
-                    self._pending_app_data.extend(data)
-                    raise ValueError("buffer too small")
-                buffer[:data_len] = data
-                return data_len
-
-            self._pending_app_data.extend(data)
-
-        app_data = self._pending_app_data[:length]
-        data_len = len(app_data)
+            buffer_too_small = buffer is not None and len(buffer) < len(data)
+            if 0 <= length <= len(data) or buffer_too_small:
+                assert pending_remaining == 0
+                pending[0 : len(data)] = data
+                self._pending_app_buf_offset = 0
+                self._pending_app_buf_length = len(data)
+            else:
+                app_data = data
+                app_data_len = len(data)
 
         if buffer is not None:
-            if len(buffer) < data_len:
-                raise ValueError("buffer too small")
-            buffer[:data_len] = app_data
-            del self._pending_app_data[:length]
-            return data_len
+            assert len(buffer) >= app_data_len
+            buffer[0:app_data_len] = app_data
+            return app_data_len
 
-        del self._pending_app_data[:length]
-        return bytes(app_data)
+        return app_data.tobytes()
 
     def write(self, data: Buffer) -> int:
         hs = self._handshake
@@ -314,7 +329,8 @@ class TLSConnection:
         return len(data)
 
     def pending(self) -> int:
-        return len(self._pending_app_data)
+        assert self._pending_app_buf_offset <= self._pending_app_buf_length
+        return self._pending_app_buf_length - self._pending_app_buf_offset
 
     def do_handshake(self) -> None:
         while True:
@@ -537,7 +553,7 @@ class TLSConnection:
         if self._write_shutdown != Shutdown.NONE:
             return
 
-        self._write_out_bio(self._pending_flight)
+        self._out_buf.extend(self._pending_flight)
         self._pending_flight.clear()
 
     def _write(self, content_type: int, data: Buffer) -> None:
@@ -547,15 +563,7 @@ class TLSConnection:
             return
 
         record_data = self._seal_record(content_type, data)
-        self._write_out_bio(record_data)
-
-    def _write_out_bio(self, data: Buffer) -> None:
-        if self._out_buf_offset > 0:
-            assert self._out_buf_offset <= len(self._out_buf)
-            del self._out_buf[: self._out_buf_offset]
-            self._out_buf_offset = 0
-
-        self._out_buf.extend(data)
+        self._out_buf.extend(record_data)
 
     def _seal_record(self, content_type: int, plaintext: Buffer) -> memoryview:
         state = self._write_state
