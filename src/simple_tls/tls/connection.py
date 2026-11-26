@@ -873,6 +873,7 @@ class TLSConnection:
                 self._write_shutdown = Shutdown.ERROR
 
         if fatal:
+            self._read_shutdown = Shutdown.ERROR
             raise TLSLocalAlert(description, reason)
 
     def _process_alert(self, data: Buffer) -> None:
