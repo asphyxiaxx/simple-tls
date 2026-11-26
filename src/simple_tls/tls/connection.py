@@ -346,7 +346,7 @@ class TLSConnection:
             elif self._handshake_status == Status.WRITE_CHANGE_CIPHER_SPEC:
                 self._write_ccs()
             elif self._handshake_status == Status.EARLY_RETURN:
-                if isinstance(self._handshake, TLSHandshakeClient):
+                if not self._handshake.is_server:
                     assert self._handshake.ech_status != ECHStatus.REJECTED
                 self._handshake_status = Status.OK
                 break
@@ -362,7 +362,7 @@ class TLSConnection:
 
             if self._handshake_status == Status.OK:
                 assert self._handshake.done
-                if isinstance(self._handshake, TLSHandshakeClient):
+                if not self._handshake.is_server:
                     assert self._handshake.ech_status != ECHStatus.REJECTED
                 break
 
