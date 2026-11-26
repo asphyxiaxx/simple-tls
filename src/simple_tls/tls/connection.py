@@ -80,10 +80,6 @@ MAX_PLAINTEXT_LENGTH = 2**14
 MAX_WARNING_ALERTS = 5
 
 
-class SkipDataException(Exception):
-    pass
-
-
 @dataclass(slots=True)
 class ConnectionState:
     epoch: Epoch
@@ -229,11 +225,10 @@ class TLSConnection:
         buffer: WritableBuffer | None = None,
     ) -> int | bytes:
         hs = self._handshake
-        app_data = None
+        app_data: Buffer | None = None
         app_data_len = 0
 
         while app_data is None:
-            pending = self._pending_app_buf
             pending_offset = self._pending_app_buf_offset
             pending_length = self._pending_app_buf_length
             pending_remaining = pending_length - pending_offset
@@ -247,7 +242,7 @@ class TLSConnection:
                 if buffer is not None and len(buffer) < app_data_len:
                     raise ValueError("buffer too small")
 
-                app_data = pending[
+                app_data = self._pending_app_buf[
                     pending_offset : pending_offset + app_data_len
                 ]
                 self._pending_app_buf_offset += app_data_len
@@ -256,7 +251,13 @@ class TLSConnection:
             if not (hs.done or hs.can_early_read):
                 self.do_handshake()
 
-            content_type, data = self._open_record()
+            try:
+                content_type, data = self._open_record()
+            except TLSEOFError:
+                if self._read_shutdown == Shutdown.CLOSE_NOTIFY:
+                    app_data = b""
+                    break
+                raise
 
             if content_type != ContentType.APPLICATION_DATA:
                 if content_type != ContentType.HANDSHAKE:
@@ -285,19 +286,19 @@ class TLSConnection:
             buffer_too_small = buffer is not None and len(buffer) < len(data)
             if 0 <= length < len(data) or buffer_too_small:
                 assert pending_remaining == 0
-                pending[0 : len(data)] = data
+                self._pending_app_buf[0 : len(data)] = data
                 self._pending_app_buf_offset = 0
                 self._pending_app_buf_length = len(data)
             else:
                 app_data = data
-                app_data_len = len(data)
 
         if buffer is not None:
+            app_data_len = len(app_data)
             assert len(buffer) >= app_data_len
             buffer[0:app_data_len] = app_data
             return app_data_len
 
-        return app_data.tobytes()
+        return bytes(app_data)
 
     def write(self, data: Buffer) -> int:
         hs = self._handshake
@@ -629,177 +630,172 @@ class TLSConnection:
         return out_len
 
     def _open_record(self) -> tuple[int, memoryview]:
-        while True:
-            try:
-                return self._open_record_internal()
-            except SkipDataException:
-                pass
-
-    def _open_record_internal(self) -> tuple[int, memoryview]:
-        if self._read_shutdown != Shutdown.NONE:
-            raise TLSEOFError("protocol is shutdown")
-
         state = self._read_state
         in_buf = self._in_buf
-        in_buf_offset = self._in_buf_offset
         out_buf = self._open_buf
 
-        # Parse header: ContentType (1), Version (2), Length (2)
-        if self._header is None:
-            if len(in_buf) - in_buf_offset < HEADER_LENGTH:
+        while True:
+            if self._read_shutdown != Shutdown.NONE:
+                raise TLSEOFError("protocol is shutdown")
+
+            in_buf_offset = self._in_buf_offset
+
+            # Parse header: ContentType (1), Version (2), Length (2)
+            if self._header is None:
+                if len(in_buf) - in_buf_offset < HEADER_LENGTH:
+                    raise TLSWantReadError()
+
+                header_data = in_buf[
+                    in_buf_offset : in_buf_offset + HEADER_LENGTH
+                ]
+                in_buf_offset += HEADER_LENGTH
+                header = struct.unpack("!BHH", header_data)
+                content_type, record_version, length = header
+
+                if state.cipher is None:
+                    version_ok = record_version >> 8 == 0x03
+                else:
+                    version_ok = record_version == self._record_version()
+
+                if not version_ok:
+                    self._send_alert(
+                        AlertDescription.PROTOCOL_VERSION,
+                        "received record with wrong version number",
+                    )
+                if length > self._recv_record_limit + 2048:
+                    self._send_alert(
+                        AlertDescription.RECORD_OVERFLOW,
+                        "received record too large",
+                    )
+
+                self._header = header
+                self._header_data = header_data
+                self._in_buf_offset = in_buf_offset
+            else:
+                assert self._header_data is not None
+                content_type, record_version, length = self._header
+                header_data = self._header_data
+
+            if len(in_buf) - in_buf_offset < length:
                 raise TLSWantReadError()
 
-            header_data = in_buf[in_buf_offset : in_buf_offset + HEADER_LENGTH]
-            in_buf_offset += HEADER_LENGTH
-            header = struct.unpack("!BHH", header_data)
-            content_type, record_version, length = header
+            ciphertext = in_buf[in_buf_offset : in_buf_offset + length]
 
-            if state.cipher is None:
-                version_ok = record_version >> 8 == 0x03
+            self._header = None
+            self._header_data = None
+            self._in_buf_offset = in_buf_offset + length
+
+            if (
+                content_type == ContentType.CHANGE_CIPHER_SPEC
+                and self._has_final_version()
+                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+            ):
+                self._verify_ccs(ciphertext)
+
+                if self._handshake.session_established:
+                    self._send_alert(
+                        AlertDescription.UNEXPECTED_MESSAGE,
+                        "received unexpected change cipher spec message",
+                    )
+                continue
+
+            if (
+                self._handshake.skip_early_data
+                and state.cipher is None
+                and content_type == ContentType.APPLICATION_DATA
+            ):
+                self._skip_early_data(len(ciphertext))
+                continue
+
+            # Check for cleartext alerts received during an encrypted epoch.
+            if (
+                content_type == ContentType.ALERT
+                and state.hide_content_type
+                and state.sequence_number == 0
+            ):
+                self._process_alert(ciphertext)
+                continue
+
+            if state.cipher is not None:
+                try:
+                    pt_len = state.cipher.open(
+                        content_type,
+                        record_version,
+                        ciphertext,
+                        state.sequence_number,
+                        header_data,
+                        out_buf,
+                    )
+                except InvalidTag:
+                    if self._handshake.skip_early_data:
+                        self._skip_early_data(len(ciphertext))
+                        continue
+                    self._send_alert(
+                        AlertDescription.BAD_RECORD_MAC,
+                        "record payload decryption failed",
+                    )
+                else:
+                    state.sequence_number += 1
             else:
-                version_ok = record_version == self._record_version()
+                pt_len = len(ciphertext)
+                out_buf[0:pt_len] = ciphertext
 
-            if not version_ok:
-                self._send_alert(
-                    AlertDescription.PROTOCOL_VERSION,
-                    "received record with wrong version number",
-                )
-            if length > self._recv_record_limit + 2048:
+            if self._handshake.skip_early_data:
+                self._handshake.close_early_data()
+
+            if state.hide_content_type:
+                if content_type != ContentType.APPLICATION_DATA:
+                    self._send_alert(
+                        AlertDescription.ILLEGAL_PARAMETER,
+                        "received record with outer content type is not "
+                        "application data in TLSv1.3",
+                    )
+                pt_limit = self._recv_record_limit + 1
+            else:
+                pt_limit = self._recv_record_limit
+
+            # RFC 5246 section 6.2.1
+            # RFC 8446 section 5.4
+            if pt_len > pt_limit:
                 self._send_alert(
                     AlertDescription.RECORD_OVERFLOW,
                     "received record too large",
                 )
 
-            self._header = header
-            self._header_data = header_data
-            self._in_buf_offset = in_buf_offset
-        else:
-            assert self._header_data is not None
-            content_type, record_version, length = self._header
-            header_data = self._header_data
+            if state.hide_content_type:
+                content_type, pt_len = self._unpad_data_tls13(out_buf[:pt_len])
 
-        if len(in_buf) - in_buf_offset < length:
-            raise TLSWantReadError()
-
-        ciphertext = in_buf[in_buf_offset : in_buf_offset + length]
-        in_buf_offset += length
-
-        self._header = None
-        self._header_data = None
-        self._in_buf_offset = in_buf_offset
-
-        if (
-            content_type == ContentType.CHANGE_CIPHER_SPEC
-            and self._has_final_version()
-            and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
-        ):
-            self._verify_ccs(ciphertext)
-
-            if self._handshake.session_established:
+            # RFC 8446 Section 5.1
+            # Implementations MUST NOT send zero-length fragments of Handshake
+            # types, even if those fragments contain padding.
+            # RFC 5246 Section 6.2.1
+            # Implementations MUST NOT send zero-length fragments of content
+            # types other than Application Data.
+            if content_type != ContentType.APPLICATION_DATA and pt_len == 0:
                 self._send_alert(
                     AlertDescription.UNEXPECTED_MESSAGE,
-                    "received unexpected change cipher spec message",
+                    "received record with empty message",
                 )
-            raise SkipDataException()
 
-        if (
-            self._handshake.skip_early_data
-            and state.cipher is None
-            and content_type == ContentType.APPLICATION_DATA
-        ):
-            self._skip_early_data(len(ciphertext))
-            raise SkipDataException()
+            if content_type == ContentType.ALERT:
+                self._process_alert(out_buf[:pt_len])
+                continue
 
-        # Check for cleartext alerts received during an encrypted epoch.
-        # In TLS 1.3, encrypted records ALWAYS have an outer content_type
-        # of 23. If it is 21, the peer aborted before/during key generation.
-        if (
-            content_type == ContentType.ALERT
-            and state.hide_content_type
-            and state.sequence_number == 0
-        ):
-            self._process_alert(ciphertext)
-
-        if state.cipher is not None:
-            try:
-                pt_len = state.cipher.open(
-                    content_type,
-                    record_version,
-                    ciphertext,
-                    state.sequence_number,
-                    header_data,
-                    out_buf,
-                )
-            except InvalidTag:
-                if self._handshake.skip_early_data:
-                    self._skip_early_data(len(ciphertext))
-                    raise SkipDataException() from None
-
+            # RFC 8446 Section 5.1
+            # TLS 1.3 Handshake messages MUST NOT be interleaved with other
+            # messages
+            if (
+                content_type != ContentType.HANDSHAKE
+                and self._handshake.has_unprocessed_data()
+                and self._has_final_version()
+                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+            ):
                 self._send_alert(
-                    AlertDescription.BAD_RECORD_MAC,
-                    "record payload decryption failed",
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "handshake messages interleaved with other record types",
                 )
-            else:
-                state.sequence_number += 1
-        else:
-            pt_len = len(ciphertext)
-            out_buf[0:pt_len] = ciphertext
 
-        if self._handshake.skip_early_data:
-            self._handshake.close_early_data()
-
-        if state.hide_content_type:
-            if content_type != ContentType.APPLICATION_DATA:
-                self._send_alert(
-                    AlertDescription.ILLEGAL_PARAMETER,
-                    "received record with outer content type is not "
-                    "application data in TLSv1.3",
-                )
-            pt_limit = self._recv_record_limit + 1
-        else:
-            pt_limit = self._recv_record_limit
-
-        # RFC 5246 section 6.2.1
-        # RFC 8446 section 5.4
-        if pt_len > pt_limit:
-            self._send_alert(
-                AlertDescription.RECORD_OVERFLOW,
-                "received record too large",
-            )
-
-        if state.hide_content_type:
-            content_type, pt_len = self._unpad_data_tlsv1_3(out_buf[:pt_len])
-
-        # RFC 8446 Section 5.1
-        # Implementations MUST NOT send zero-length fragments of Handshake
-        # types, even if those fragments contain padding.
-        # RFC 5246 Section 6.2.1
-        # Implementations MUST NOT send zero-length fragments of content
-        # types other than Application Data.
-        if content_type != ContentType.APPLICATION_DATA and pt_len == 0:
-            self._send_alert(
-                AlertDescription.UNEXPECTED_MESSAGE,
-                "received record with empty message",
-            )
-
-        if content_type == ContentType.ALERT:
-            self._process_alert(out_buf[:pt_len])
-
-        # RFC 8446 Section 5.1
-        # TLS 1.3 Handshake messages MUST NOT be interleaved with other
-        # messages
-        if (
-            content_type != ContentType.HANDSHAKE
-            and self._handshake.has_unprocessed_data()
-            and self._has_final_version()
-            and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
-        ):
-            self._send_alert(
-                AlertDescription.UNEXPECTED_MESSAGE,
-                "handshake messages interleaved with other record types",
-            )
-
-        return content_type, out_buf[:pt_len]
+            return content_type, out_buf[:pt_len]
 
     def _skip_early_data(self, ciphertext_length: int) -> None:
         self._early_data_ignored += ciphertext_length
@@ -821,7 +817,7 @@ class TLSConnection:
             return False
         return True
 
-    def _unpad_data_tlsv1_3(self, data: Buffer) -> tuple[int, int]:
+    def _unpad_data_tls13(self, data: Buffer) -> tuple[int, int]:
         for pos in range(len(data) - 1, -1, -1):
             value = data[pos]
             if value != 0:
@@ -879,7 +875,7 @@ class TLSConnection:
         if fatal:
             raise TLSLocalAlert(description, reason)
 
-    def _process_alert(self, data: Buffer) -> NoReturn:
+    def _process_alert(self, data: Buffer) -> None:
         if len(data) != 2:
             self._send_alert(
                 AlertDescription.DECODE_ERROR,
@@ -889,10 +885,14 @@ class TLSConnection:
         level = data[0]
         description = data[1]
 
+        if level == AlertLevel.FATAL:
+            self._read_shutdown = Shutdown.ERROR
+            raise TLSRemoteAlert(description)
+
         if level == AlertLevel.WARNING:
             if description == AlertDescription.CLOSE_NOTIFY:
                 self._read_shutdown = Shutdown.CLOSE_NOTIFY
-                raise TLSEOFError()
+                return
 
             if (
                 self._has_final_version()
@@ -905,18 +905,11 @@ class TLSConnection:
                 )
 
             self._warning_alert_received += 1
-
             if self._warning_alert_received > MAX_WARNING_ALERTS:
                 self._send_alert(
                     AlertDescription.UNEXPECTED_MESSAGE,
                     "received too many warning alerts",
                 )
-
-            raise SkipDataException()
-
-        if level == AlertLevel.FATAL:
-            self._read_shutdown = Shutdown.ERROR
-            raise TLSRemoteAlert(description)
 
         self._send_alert(
             AlertDescription.UNEXPECTED_MESSAGE,
