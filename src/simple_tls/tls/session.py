@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography import x509
 
 from simple_tls.codec import Parser, Writer
-from simple_tls.tls.constants import UNSPECIFIED, CipherSuite
+from simple_tls.tls.constants import CipherSuite
 from simple_tls.tls.enums import Protocol
 from simple_tls.tls.utils import Buffer, utcnow
 
@@ -43,7 +43,7 @@ class TLSSession:
     """indicate this session was create by server side"""
     not_resumable: bool = False
     """"""
-    version: int = UNSPECIFIED
+    version: int | None = None
     """TLS version"""
     cipher_suite: CipherSuite | None = None
     """selected cipher suite"""
@@ -121,10 +121,6 @@ class TLSSession:
     def obfuscated_age(self) -> int:
         ticket_age = int((utcnow() - self.time).total_seconds() * 1000)
         return (ticket_age + self.ticket_age_add) % (1 << 32)
-
-    def protocol_version(self) -> int:
-        assert self.version != UNSPECIFIED
-        return self.version
 
     def copy(
         self,
@@ -204,14 +200,17 @@ class TLSSession:
         )
 
     def to_bytes(self) -> bytes:
+        if self.version is None:
+            raise ValueError("cannot serialize without version")
+        if self.cipher_suite is None:
+            raise ValueError("cannot serialize without cipher_suite")
+
         writer = Writer()
 
         writer.write_int(self.protocol.value, 1)
         writer.write_int(int(self.is_server), 1)
         writer.write_int(self.version, 2)
-        writer.write_int(
-            self.cipher_suite.id if self.cipher_suite is not None else 0, 2
-        )
+        writer.write_int(self.cipher_suite.id, 2)
         writer.write_prefixed_bytes(self.secret, 2)
         writer.write_prefixed_bytes(self.session_id, 2)
         writer.write_prefixed_bytes(self.ticket, 2)

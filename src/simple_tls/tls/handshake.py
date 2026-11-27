@@ -132,6 +132,7 @@ from simple_tls.tls.utils import (
     get_algorithm,
     prf,
     version_from_wire,
+    version_to_wire,
 )
 
 _M = TypeVar("_M", bound="HandshakeMessage")
@@ -336,7 +337,7 @@ class TLSHandshake:
         self._state: int = 0
         self._error: bool = False
         self._server_name: bytes | None = None
-        self._version: int = UNSPECIFIED
+        self._version: int | None = None
         self._is_early_version: bool = False
         self._client_version: int = UNSPECIFIED
         self._session: TLSSession | None = None
@@ -412,7 +413,7 @@ class TLSHandshake:
         return None
 
     @property
-    def version(self) -> int:
+    def version(self) -> int | None:
         return self._version
 
     @property
@@ -462,6 +463,12 @@ class TLSHandshake:
     @property
     def cipher_suite(self) -> CipherSuite | None:
         return self._cipher_suite
+
+    @property
+    def protocol_version(self) -> int | None:
+        if self._version is not None:
+            return version_to_wire(self._protocol, self._version)
+        return None
 
     @property
     def npn_protocol(self) -> bytes | None:
@@ -546,10 +553,6 @@ class TLSHandshake:
         self._can_early_read = False
         self._can_early_write = False
 
-    def protocol_version(self) -> int:
-        assert self._version != UNSPECIFIED
-        return self._version
-
     def feed_data(self, data: Buffer) -> None:
         self._incoming_data.extend(data)
 
@@ -619,7 +622,7 @@ class TLSHandshake:
             self._transcript.update_hash(handshake_data)
 
     def _set_state(self, state: int) -> None:
-        # print("TLS {} -> {}".format(self.state, state))
+        # print(f"TLS {self.state} -> {state}")
         self._state = state
 
     def _setup_traffic(self, direction: Direction) -> None:
@@ -639,13 +642,12 @@ class TLSHandshake:
             secret = self._enc_secret.get(epoch, None)
 
         if secret is not None:
-            assert self._session is not None
-            session = self._session
-            assert session.cipher_suite is not None
+            assert self._version is not None
+            assert self._cipher_suite is not None
 
             traffic = TrafficContext(
-                version=session.protocol_version(),
-                cipher_suite=session.cipher_suite,
+                version=self._version,
+                cipher_suite=self._cipher_suite,
                 client_random=self._client_random,
                 server_random=self._server_random,
                 secret=secret,
@@ -661,9 +663,10 @@ class TLSHandshake:
         label: bytes,
         transcript: Transcript | None = None,
     ) -> bytes:
+        assert self._version != UNSPECIFIED
         assert self._cipher_suite is not None
 
-        if self.version == TLSVersion.TLSv1_2:
+        if self._version == TLSVersion.TLSv1_2:
             hash_algorithm = cast(int, self._cipher_suite.prf_hash)
             algorithm = get_algorithm(hash_algorithm)
         else:
@@ -689,8 +692,10 @@ class TLSHandshake:
         secret: bytes,
         label: bytes,
     ) -> bytes:
-        if self.version == TLSVersion.TLSv1_2:
-            assert self._cipher_suite is not None
+        assert self._version is not None
+        assert self._cipher_suite is not None
+
+        if self._version == TLSVersion.TLSv1_2:
             hash_algorithm = cast(int, self._cipher_suite.prf_hash)
             algorithm = get_algorithm(hash_algorithm)
         else:
@@ -708,9 +713,10 @@ class TLSHandshake:
         )
 
     def _derive_key(self, secret: bytes) -> None:
+        assert self._version is not None
         assert self._cipher_suite is not None
 
-        version = self.protocol_version()
+        version = self._version
         cipher_suite = self._cipher_suite
         encrypt_then_mac = self._encrypt_then_mac
         seed = self._server_random + self._client_random
@@ -813,13 +819,15 @@ class TLSHandshake:
         self._setup_traffic_tls13(direction, epoch)
 
     def _write_key_update(self, message_type: int) -> None:
+        assert self._version is not None
+
+        if self._version < TLSVersion.TLSv1_3:
+            raise ValueError("key update is only support for TLSv1.3")
         if message_type not in (
             KeyUpdateMessageType.UPDATE_NOT_REQUESTED,
             KeyUpdateMessageType.UPDATE_REQUESTED,
         ):
             raise ValueError(f"unsupported message_type '{message_type}'")
-        if self.protocol_version() < TLSVersion.TLSv1_3:
-            raise ValueError("key update is only support for TLSv1.3")
 
         key_update = KeyUpdate(message_type)
         self.message_cb(Direction.WRITE, key_update)
@@ -832,13 +840,13 @@ class TLSHandshake:
         self.close_early_data()
 
     def _get_new_session(self) -> TLSSession:
-        version = self.protocol_version()
-        session = TLSSession(
+        assert self._version != UNSPECIFIED
+
+        return TLSSession(
             is_server=self.is_server,
-            version=version,
+            version=self._version,
             not_resumable=True,
         )
-        return session
 
     def _get_key_exchange(self, group: int) -> BaseKeyExchange | None:
         if group in ECC_GROUPS:
@@ -1187,6 +1195,7 @@ class TLSHandshake:
         cert_verify: CertificateVerify | CertificateVerifyTLS12,
         supported_sigalgs: Sequence[int],
     ) -> None:
+        assert self._version is not None
         assert session.peer_cert is not None
 
         if not cert_verify.signature:
@@ -1194,7 +1203,7 @@ class TLSHandshake:
                 "received certificate verify message with empty signature"
             )
 
-        version = self.protocol_version()
+        version = self._version
         peer_cert = session.peer_cert
         try:
             peer_public_key = load_certificate_public_key(peer_cert)

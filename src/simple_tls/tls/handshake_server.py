@@ -338,7 +338,6 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_HANDSHAKE
 
         client_hello = handshake.parse_as(ClientHello)
-
         inner_client_hello = self._decrypt_ech(client_hello)
         public_server_name = None
         ech_server_name = None
@@ -498,10 +497,11 @@ class TLSHandshakeServer(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
-        assert self._ech_status != ECHStatus.ACCEPTED
+        assert self._version is not None
         assert self._peer_cipher_suites is not None
+        assert self._ech_status != ECHStatus.ACCEPTED
 
-        version = self.protocol_version()
+        version = self._version
         supported_cipher_suites = self._cipher_suites
         peer_cipher_suites = self._peer_cipher_suites
         peer_supported_groups = self._peer_supported_groups
@@ -705,6 +705,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_key_exchange(self) -> Status:
+        assert self._version is not None
         assert self._cipher_suite is not None
 
         cipher_suite = self._cipher_suite
@@ -712,7 +713,7 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.SEND_SERVER_HELLO_DONE)
             return Status.OK
 
-        version = self.protocol_version()
+        version = self._version
         writer = Writer()
 
         if cipher_suite.kea == KeyExchange.ECDHE:
@@ -754,8 +755,10 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_hello_done(self) -> Status:
+        assert self._version is not None
+
         if self._certificate_requested:
-            version = self.protocol_version()
+            version = self._version
             cert_request: CertificateRequestTLS12 | CertificateRequest
             cert_types: list[int]
             cert_authorities: tuple[bytes, ...] = ()
@@ -839,12 +842,12 @@ class TLSHandshakeServer(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
+        assert self._version is not None
         assert self._cipher_suite is not None
         assert self._session is not None
 
         cke = handshake.parse_as(ClientKeyExchange)
-
-        version = self.protocol_version()
+        version = self._version
         cipher_suite = self._cipher_suite
         parser = Parser(cke.data)
 
@@ -921,8 +924,10 @@ class TLSHandshakeServer(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
+        assert self._version is not None
+
         cert_verify: CertificateVerifyTLS12 | CertificateVerify
-        if self.protocol_version() >= TLSVersion.TLSv1_2:
+        if self._version >= TLSVersion.TLSv1_2:
             cert_verify = handshake.parse_as(CertificateVerifyTLS12)
         else:
             cert_verify = handshake.parse_as(CertificateVerify)
@@ -932,7 +937,6 @@ class TLSHandshakeServer(TLSHandshake):
             cert_verify=cert_verify,
             supported_sigalgs=self._signature_algorithms,
         )
-
         self.message_cb(Direction.READ, cert_verify)
         self._next_handshake()
 
@@ -978,7 +982,6 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._session is not None
 
         finished = handshake.parse_as(Finished)
-
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"client finished"
@@ -1040,12 +1043,13 @@ class TLSHandshakeServer(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
+        assert self._version is not None
         assert self._peer_cipher_suites is not None
 
         if self.has_unprocessed_data():
             raise AlertUnexpectedMessage("trailing handshake data")
 
-        version = self.protocol_version()
+        version = self._version
         supported_cipher_suites = self._cipher_suites
         peer_cipher_suites = self._peer_cipher_suites
 
@@ -1269,12 +1273,13 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_hello_retry_request_tls13(self) -> Status:
+        assert self._version is not None
         assert self._cipher_suite is not None
 
         extensions = Extensions()
 
         # Supported versions
-        version = self.protocol_version()
+        version = self._version
         extensions.append(SupportedVersionsServerExtension(version))
 
         # Cookie
@@ -1320,6 +1325,7 @@ class TLSHandshakeServer(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
+        assert self._version is not None
         assert self._cipher_suite is not None
         assert self._key_schedule is not None
 
@@ -1379,7 +1385,7 @@ class TLSHandshakeServer(TLSHandshake):
         if (
             client_hello.version != self._client_version
             or supported_vers_ext is None
-            or self.protocol_version() not in supported_vers_ext.data
+            or self._version not in supported_vers_ext.data
         ):
             raise AlertProtocolVersion("received inconsistent client hello")
 
@@ -1459,6 +1465,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_hello_tls13(self) -> Status:
+        assert self._version is not None
         assert self._cipher_suite is not None
         assert self._key_schedule is not None
         assert self._session is not None
@@ -1466,7 +1473,7 @@ class TLSHandshakeServer(TLSHandshake):
 
         extensions = Extensions()
 
-        version = self.protocol_version()
+        version = self._version
         extensions.append(SupportedVersionsServerExtension(version))
 
         if self._psk_index is not None:
@@ -1759,7 +1766,6 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_HANDSHAKE
 
         cert_verify = handshake.parse_as(CertificateVerifyTLS12)
-
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
@@ -1863,7 +1869,9 @@ class TLSHandshakeServer(TLSHandshake):
             self._set_state(ServerState.DONE)
             return Status.OK
 
-        if self.protocol_version() >= TLSVersion.TLSv1_3:
+        assert self._version is not None
+
+        if self._version >= TLSVersion.TLSv1_3:
             return self._post_handshake_tls13(handshake)
         else:
             return self._post_handshake(handshake)
@@ -1931,10 +1939,11 @@ class TLSHandshakeServer(TLSHandshake):
         return handshake_data[:-total_length]
 
     def _process_extensions(self, extensions: Extensions) -> None:
+        assert self._version is not None
         assert self._cipher_suite is not None
         assert self._peer_cipher_suites is not None
 
-        version = self.protocol_version()
+        version = self._version
         cipher_suite = self._cipher_suite
         self._extensions_recv = set(extensions.get_types())
 
@@ -2009,16 +2018,18 @@ class TLSHandshakeServer(TLSHandshake):
                 self._npn_expected = True
 
     def _decrypt_session(self, ticket: bytes) -> TLSSession | None:
-        assert self._cipher_suite is not None
-
         ticket_aead = self.configuration.ticket_aead
         if ticket_aead is None or not ticket:
             return None
 
+        assert self.protocol_version is not None
+        assert self._version is not None
+        assert self._cipher_suite is not None
+
         ticket_context = TicketContext(
             server_name=self._server_name,
             cipher_suite=self._cipher_suite,
-            protocol_version=self.protocol_version(),
+            protocol_version=self.protocol_version,
         )
         session_data = ticket_aead.open(ticket, ticket_context)
         if session_data is not None:
@@ -2034,7 +2045,7 @@ class TLSHandshakeServer(TLSHandshake):
             session is not None
             and session.time_valid()
             and session.is_server
-            and session.protocol_version() == self.protocol_version()
+            and session.version == self._version
             and session.cipher_suite == self._cipher_suite
             and not session.not_resumable
         ):
@@ -2042,17 +2053,18 @@ class TLSHandshakeServer(TLSHandshake):
         return None
 
     def _encrypt_session(self, session: TLSSession) -> bytes | None:
-        assert self._cipher_suite is not None
-
         ticket_aead = self.configuration.ticket_aead
         if ticket_aead is None:
             return None
+
+        assert self.protocol_version is not None
+        assert self._cipher_suite is not None
 
         session_data = session.to_bytes()
         ticket_context = TicketContext(
             server_name=self._server_name,
             cipher_suite=self._cipher_suite,
-            protocol_version=self.protocol_version(),
+            protocol_version=self.protocol_version,
         )
         ticket = ticket_aead.seal(session_data, ticket_context)
         if ticket is not None:

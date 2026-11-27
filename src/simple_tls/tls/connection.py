@@ -31,7 +31,6 @@ from simple_tls.tls.alerts import AlertException
 from simple_tls.tls.cipher import InvalidTag, TLSCipher, get_key_iv_lens
 from simple_tls.tls.config import TLSConfiguration
 from simple_tls.tls.constants import (
-    UNSPECIFIED,
     AlertDescription,
     AlertLevel,
     CipherSuite,
@@ -69,7 +68,6 @@ from simple_tls.tls.utils import (
     WritableBuffer,
     get_algorithm,
     hkdf_expand_label,
-    version_to_wire,
 )
 
 MessageCallback = Callable[["TLSConnection", Direction, int, int, bytes], None]
@@ -174,6 +172,22 @@ class TLSConnection:
     @property
     def ech_status(self) -> ECHStatus:
         return self._handshake.ech_status
+
+    @property
+    def protocol_version(self) -> int | None:
+        return self._handshake.protocol_version
+
+    @property
+    def cipher_suite(self) -> CipherSuite | None:
+        return self._handshake.cipher_suite
+
+    @property
+    def npn_negotiated(self) -> bytes | None:
+        return self._handshake.npn_protocol
+
+    @property
+    def alpn_negotiated(self) -> bytes | None:
+        return self._handshake.alpn_protocol
 
     def bio_write(self, data: Buffer) -> None:
         """
@@ -379,14 +393,6 @@ class TLSConnection:
 
         self._handshake.send_key_update(message_type)
 
-    def get_protocol_version(self) -> TLSVersion | None:
-        if self._has_final_version():
-            protocol = self._handshake.configuration.protocol
-            version = self._handshake.protocol_version()
-            wire_version = version_to_wire(protocol, version)
-            return TLSVersion(wire_version)
-        return None
-
     def get_peer_ciphers(self) -> list[CipherSuite] | None:
         if self._handshake.peer_cipher_suites is not None:
             out: list[CipherSuite] = []
@@ -416,15 +422,6 @@ class TLSConnection:
     def get_verified_chain(self) -> list[x509.Certificate]:
         return self._handshake.get_verified_chain()
 
-    def get_npn_negotiated(self) -> bytes | None:
-        return self._handshake.npn_protocol
-
-    def get_alpn_negotiated(self) -> bytes | None:
-        return self._handshake.alpn_protocol
-
-    def get_cipher_negotitated(self) -> CipherSuite | None:
-        return self._handshake.cipher_suite
-
     # Callbacks
 
     def _do_hs_callback(
@@ -434,7 +431,11 @@ class TLSConnection:
     ) -> None:
         if self._message_callback is None:
             return
-        version = self._handshake.version
+        if self._has_final_version():
+            version = self._version()
+        else:
+            version = TLSVersion.TLSv1
+
         content_type = ContentType.HANDSHAKE
         data = message.to_bytes()
         self._message_callback(self, direction, version, content_type, data)
@@ -688,7 +689,7 @@ class TLSConnection:
             if (
                 content_type == ContentType.CHANGE_CIPHER_SPEC
                 and self._has_final_version()
-                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+                and self._version() >= TLSVersion.TLSv1_3
             ):
                 self._verify_ccs(ciphertext)
 
@@ -788,7 +789,7 @@ class TLSConnection:
                 content_type != ContentType.HANDSHAKE
                 and self._handshake.has_unprocessed_data()
                 and self._has_final_version()
-                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+                and self._version() >= TLSVersion.TLSv1_3
             ):
                 self._send_alert(
                     AlertDescription.UNEXPECTED_MESSAGE,
@@ -805,13 +806,18 @@ class TLSConnection:
                 "received too many early data",
             )
 
+    def _version(self) -> int:
+        assert self._handshake.version is not None
+        return self._handshake.version
+
     def _record_version(self) -> int:
-        if self._handshake.version == UNSPECIFIED:
+        version = self._handshake.version
+        if version is None:
             return TLSVersion.TLSv1
-        return min(TLSVersion.TLSv1_2, self._handshake.version)
+        return min(TLSVersion.TLSv1_2, version)
 
     def _has_final_version(self) -> bool:
-        if self._handshake.version == UNSPECIFIED:
+        if self._handshake.version is None:
             return False
         if self._handshake.is_early_version:
             return False
@@ -897,7 +903,7 @@ class TLSConnection:
 
             if (
                 self._has_final_version()
-                and self._handshake.protocol_version() >= TLSVersion.TLSv1_3
+                and self._version() >= TLSVersion.TLSv1_3
                 and description != AlertDescription.USER_CANCELLED
             ):
                 self._send_alert(

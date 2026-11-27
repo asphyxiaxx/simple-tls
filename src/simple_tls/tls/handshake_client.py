@@ -366,21 +366,12 @@ class TLSHandshakeClient(TLSHandshake):
                     payload=get_random_bytes(get_random_int(180, 205)),
                 )
 
-        session = self._offered_session
-        if (
-            session is not None
-            and not session.is_server
-            and session.time_valid()
-            and session.protocol_version() >= self._minimum_version
-            and session.protocol_version() <= self._maximum_version
-            and not (
-                session.protocol_version() < TLSVersion.TLSv1_3
-                and self._ech_context is not None
-            )
-        ):
+        session = self._get_offered_session()
+        if session is not None:
+            assert session.version is not None
             assert session.cipher_suite is not None
 
-            if session.protocol_version() >= TLSVersion.TLSv1_3:
+            if session.version >= TLSVersion.TLSv1_3:
                 if session.ticket:
                     identity = PSKIdentity(
                         identity=session.ticket,
@@ -439,6 +430,7 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._offered_session is not None
         offered_session = self._offered_session
         assert offered_session.cipher_suite is not None
+        assert offered_session.version is not None
 
         self._session = offered_session.copy(include_noauth=True)
         self._version = offered_session.version
@@ -481,8 +473,8 @@ class TLSHandshakeClient(TLSHandshake):
         server_hello = handshake.parse_as(ServerHello)
 
         # Update version
-        server_version = server_hello.version
-        if not TLSVersion.TLSv1 <= server_version <= TLSVersion.TLSv1_2:
+        version = server_hello.version
+        if not TLSVersion.TLSv1 <= version <= TLSVersion.TLSv1_2:
             raise AlertProtocolVersion("received invalid protocol version")
 
         extensions = server_hello.extensions
@@ -493,7 +485,7 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received unexpected supported version extension"
                 )
-            if not server_version == TLSVersion.TLSv1_2:
+            if not version == TLSVersion.TLSv1_2:
                 raise AlertIllegalParameter(
                     "received invalid protocol version"
                 )
@@ -501,18 +493,18 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received unknown protocol version"
                 )
-            server_version = supported_vers_ext.data
+            version = supported_vers_ext.data
 
-        if server_version < self._minimum_version:
+        if version < self._minimum_version:
             raise AlertProtocolVersion(
                 "received protocol version older than specified"
             )
-        if server_version > self._maximum_version:
+        if version > self._maximum_version:
             raise AlertProtocolVersion(
                 "received protocol version newer than specified"
             )
 
-        self._version = server_version
+        self._version = version
         self._is_early_version = False
 
         # Compression method
@@ -523,16 +515,17 @@ class TLSHandshakeClient(TLSHandshake):
             assert self._offered_session is not None
             offered_session = self._offered_session
 
-            if self._version != offered_session.version:
-                assert self.protocol_version() <= TLSVersion.TLSv1_2
-                assert offered_session.protocol_version() >= TLSVersion.TLSv1_3
+            if version != offered_session.version:
+                assert version <= TLSVersion.TLSv1_2
+                assert offered_session.version is not None
+                assert offered_session.version >= TLSVersion.TLSv1_3
 
                 raise AlertProtocolVersion(
                     "cannot negotiate TLSv1.2 or below since early data "
                     "has been sent"
                 )
 
-        if self.protocol_version() >= TLSVersion.TLSv1_3:
+        if version >= TLSVersion.TLSv1_3:
             self._set_state(ClientState.COMPAT_CSS_TLS13)
             return Status.OK
 
@@ -542,7 +535,7 @@ class TLSHandshakeClient(TLSHandshake):
         if (
             sentinel in (TLS12_DOWNGRADE_SENTINEL, TLS11_DOWNGRADE_SENTINEL)
             and self._maximum_version >= TLSVersion.TLSv1_3
-            and self.protocol_version() < TLSVersion.TLSv1_3
+            and version < TLSVersion.TLSv1_3
         ):
             raise AlertIllegalParameter("protocol downgrade detected")
 
@@ -550,7 +543,7 @@ class TLSHandshakeClient(TLSHandshake):
         if (
             sentinel == TLS11_DOWNGRADE_SENTINEL
             and self._maximum_version == TLSVersion.TLSv1_2
-            and self.protocol_version() < TLSVersion.TLSv1_2
+            and version < TLSVersion.TLSv1_2
         ):
             raise AlertIllegalParameter("protocol downgrade detected")
 
@@ -571,10 +564,9 @@ class TLSHandshakeClient(TLSHandshake):
         if cipher_suite not in self._cipher_suites:
             raise AlertIllegalParameter("received unexpected cipher suite")
 
-        if not (
-            cipher_suite.minimum_version
-            <= self.protocol_version()
-            <= cipher_suite.maximum_version
+        if (
+            version < cipher_suite.minimum_version
+            or version > cipher_suite.maximum_version
         ):
             raise AlertIllegalParameter("received invalid cipher suite")
 
@@ -589,19 +581,21 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertIllegalParameter(
                     "received echoed invalid session id"
                 )
-            if self._offered_session.version != self._version:
+            offered_session = self._offered_session
+
+            if offered_session.version != version:
                 raise AlertIllegalParameter(
                     "received invalid protocol version"
                 )
-            if self._offered_session.cipher_suite != self._cipher_suite:
+            if offered_session.cipher_suite != cipher_suite:
                 raise AlertIllegalParameter("received invalid cipher suite")
 
             self._session_reused = True
-            session = self._offered_session.copy(include_noauth=True)
+            session = offered_session.copy(include_noauth=True)
         else:
             session = self._get_new_session()
             session.session_id = server_hello.session_id
-            session.cipher_suite = self._cipher_suite
+            session.cipher_suite = cipher_suite
 
         self._session = session
 
@@ -672,7 +666,6 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._session is not None
 
         certificate_status = handshake.parse_as(CertificateStatus)
-
         self._session.ocsp_response = certificate_status.ocsp
 
         self.message_cb(Direction.READ, certificate_status)
@@ -693,11 +686,11 @@ class TLSHandshakeClient(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
+        assert self._version is not None
         assert self._session is not None
 
         ske = handshake.parse_as(ServerKeyExchange)
-
-        version = self.protocol_version()
+        version = self._version
         session = self._session
         parser = Parser(ske.data)
         parser.set_bookmark()
@@ -809,7 +802,7 @@ class TLSHandshakeClient(TLSHandshake):
             return Status.OK
 
         cert_request: CertificateRequestTLS12 | CertificateRequest
-        if self.protocol_version() == TLSVersion.TLSv1_2:
+        if self._version == TLSVersion.TLSv1_2:
             cert_request = handshake.parse_as(CertificateRequestTLS12)
         else:
             cert_request = handshake.parse_as(CertificateRequest)
@@ -839,7 +832,9 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.SEND_CLIENT_KEY_EXCHANGE)
             return Status.OK
 
-        version = self.protocol_version()
+        assert self._version is not None
+
+        version = self._version
         signature_algorithm: int | None = None
 
         if self._credential is not None:
@@ -886,10 +881,11 @@ class TLSHandshakeClient(TLSHandshake):
         return Status.OK
 
     def _do_send_client_key_exchange(self) -> Status:
+        assert self._version is not None
         assert self._cipher_suite is not None
         assert self._session is not None
 
-        version = self.protocol_version()
+        version = self._version
         cipher_suite = self._cipher_suite
         session = self._session
 
@@ -969,7 +965,7 @@ class TLSHandshakeClient(TLSHandshake):
             signature = priv_key.sign(transcript, signature_algorithm)
 
             cert_verify: CertificateVerifyTLS12 | CertificateVerify
-            if self.protocol_version() == TLSVersion.TLSv1_2:
+            if self._version == TLSVersion.TLSv1_2:
                 cert_verify = CertificateVerifyTLS12(
                     signature, signature_algorithm
                 )
@@ -1057,7 +1053,6 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._session is not None
 
         finished = handshake.parse_as(Finished)
-
         master_secret = self._session.secret
         expected_verify_data = self._derive_finished_verify_data(
             master_secret, b"server finished"
@@ -1089,6 +1084,8 @@ class TLSHandshakeClient(TLSHandshake):
         if handshake is None:
             return Status.READ_HANDSHAKE
 
+        assert self._version is not None
+
         server_hello = handshake.parse_as(ServerHello)
 
         if self.has_unprocessed_data():
@@ -1105,10 +1102,9 @@ class TLSHandshakeClient(TLSHandshake):
         if cipher_suite not in self._cipher_suites:
             raise AlertIllegalParameter("received invalid cipher suite")
 
-        if not (
-            cipher_suite.minimum_version
-            <= self.protocol_version()
-            <= cipher_suite.maximum_version
+        if (
+            self._version < cipher_suite.minimum_version
+            or self._version > cipher_suite.maximum_version
         ):
             raise AlertIllegalParameter("received invalid cipher suite")
 
@@ -1498,7 +1494,6 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._session is not None
 
         cert_verify = handshake.parse_as(CertificateVerifyTLS12)
-
         self._process_certificate_verify(
             session=self._session,
             cert_verify=cert_verify,
@@ -1623,13 +1618,14 @@ class TLSHandshakeClient(TLSHandshake):
 
         if not self._session_reused:
             assert self._session is not None
-
             session = self._session
+            assert session.version is not None
+
             session.not_resumable = False
 
             if (
                 self._new_session_callback is not None
-                and session.protocol_version() <= TLSVersion.TLSv1_2
+                and session.version <= TLSVersion.TLSv1_2
                 and (session.ticket or session.session_id)
             ):
                 session = session.copy(
@@ -1649,10 +1645,11 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.DONE)
             return Status.OK
 
-        if self.protocol_version() >= TLSVersion.TLSv1_3:
+        assert self._version is not None
+
+        if self._version >= TLSVersion.TLSv1_3:
             return self._post_handshake_tls13(handshake)
-        else:
-            return self._post_handshake(handshake)
+        return self._post_handshake(handshake)
 
     def _do_process_update_traffic(self) -> Status:
         self._set_state(ClientState.COMPLETE_UPDATE_TRAFFIC)
@@ -2228,6 +2225,7 @@ class TLSHandshakeClient(TLSHandshake):
         return False
 
     def _process_extensions(self, extensions: Extensions) -> None:
+        assert self._version is not None
         assert self._cipher_suite is not None
 
         extensions_recv = extensions.get_types()
@@ -2241,7 +2239,7 @@ class TLSHandshakeClient(TLSHandshake):
         if not self._extensions_sent.issuperset(extensions_recv):
             raise AlertUnsupportedExtension("received unexpected extensions")
 
-        version = self.protocol_version()
+        version = self._version
         cipher_suite = self._cipher_suite
         allowed_extensions: set[int] = set(
             (
@@ -2368,6 +2366,8 @@ class TLSHandshakeClient(TLSHandshake):
         self,
         cert_request: CertificateRequestTLS13,
     ) -> None:
+        assert self._version is not None
+
         extensions = cert_request.extensions
 
         sigalg_ext = extensions.get(SignatureAlgorithmsExtension)
@@ -2400,7 +2400,7 @@ class TLSHandshakeClient(TLSHandshake):
                 raise AlertInternalError(str(exc)) from None
 
             _, supported_sigalgs = self._sigalgs_for_pubkey(
-                version=self.protocol_version(),
+                version=self._version,
                 public_key=public_key,
                 public_key_oid=x509_cert.public_key_algorithm_oid,
                 supported_sigalgs=self._signing_signature_algorithms,
@@ -2474,6 +2474,30 @@ class TLSHandshakeClient(TLSHandshake):
             )
 
         return None
+
+    def _get_offered_session(self) -> TLSSession | None:
+        session = self._offered_session
+        if session is None:
+            return None
+        if session.is_server:
+            return None
+        if not session.time_valid():
+            return None
+        if session.version is None:
+            return None
+        if session.cipher_suite is None:
+            return None
+        if (
+            session.version < self._minimum_version
+            or session.version > self._maximum_version
+        ):
+            return None
+        if (
+            session.version < TLSVersion.TLSv1_3
+            and self._ech_context is not None
+        ):
+            return None
+        return session
 
     @classmethod
     def _update_binders(

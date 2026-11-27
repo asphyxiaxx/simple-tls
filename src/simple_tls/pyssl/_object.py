@@ -219,7 +219,7 @@ class SSLObject(_ssl.SSLObject):
         if a next protocol was not negotiated or if NPN is not supported by one
         of the peers.
         """
-        return bytes_to_str(self._sslobj.get_npn_negotiated())
+        return bytes_to_str(self._sslobj.npn_negotiated)
 
     def selected_alpn_protocol(self) -> str | None:
         """
@@ -227,14 +227,14 @@ class SSLObject(_ssl.SSLObject):
         if a next protocol was not negotiated or if ALPN is not supported by
         one of the peers.
         """
-        return bytes_to_str(self._sslobj.get_alpn_negotiated())
+        return bytes_to_str(self._sslobj.alpn_negotiated)
 
     def cipher(self) -> tuple[str, str, int] | None:
         """
         Return the currently selected cipher as a 3-tuple
         ``(name, ssl_version, secret_bits)``.
         """
-        cipher_suite = self._sslobj.get_cipher_negotitated()
+        cipher_suite = self._sslobj.cipher_suite
         if cipher_suite is not None:
             cipher = get_cipher_tuple(cipher_suite)
             assert cipher is not None
@@ -295,7 +295,7 @@ class SSLObject(_ssl.SSLObject):
         Return a string identifying the protocol version used by the
         current SSL channel.
         """
-        version = self._sslobj.get_protocol_version()
+        version = self._sslobj.protocol_version
         if version is not None:
             return get_version_name(version)
         return None
