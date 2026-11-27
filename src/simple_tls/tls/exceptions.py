@@ -39,6 +39,10 @@ class TLSEOFError(TLSError):
     pass
 
 
+class TLSZeroReturnError(TLSError):
+    pass
+
+
 class TLSWantReadError(TLSError):
     pass
 

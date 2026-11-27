@@ -55,6 +55,7 @@ from simple_tls.tls.exceptions import (
     TLSLocalAlert,
     TLSRemoteAlert,
     TLSWantReadError,
+    TLSZeroReturnError,
 )
 from simple_tls.tls.extensions import ECHConfig
 from simple_tls.tls.handshake_server import ClientHelloInfo, HandshakeContext
@@ -93,6 +94,7 @@ __all__ = [
     "TLSSession",
     "TLSVersion",
     "TLSWantReadError",
+    "TLSZeroReturnError",
     "TicketAEAD",
     "TicketContext",
     "VerifyMode",

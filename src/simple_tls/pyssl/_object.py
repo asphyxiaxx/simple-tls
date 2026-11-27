@@ -330,7 +330,7 @@ class SSLObject(_ssl.SSLObject):
             if self._incoming.eof and not incoming_data:
                 raise SSLEOFError from None
             raise SSLWantReadError from None
-        except tls.TLSEOFError:
+        except (tls.TLSEOFError, tls.TLSZeroReturnError):
             raise SSLEOFError from None
         except tls.TLSError as exc:
             raise SSLError(exc) from exc

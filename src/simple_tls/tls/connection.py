@@ -51,6 +51,7 @@ from simple_tls.tls.exceptions import (
     TLSLocalAlert,
     TLSRemoteAlert,
     TLSWantReadError,
+    TLSZeroReturnError,
 )
 from simple_tls.tls.extensions import ECHConfig
 from simple_tls.tls.handshake import TLSHandshake, TrafficContext
@@ -239,7 +240,7 @@ class TLSConnection:
         buffer: WritableBuffer | None = None,
     ) -> int | bytes:
         hs = self._handshake
-        app_data: Buffer | None = None
+        app_data = None
         app_data_len = 0
 
         while app_data is None:
@@ -269,8 +270,7 @@ class TLSConnection:
                 content_type, data = self._open_record()
             except TLSEOFError:
                 if self._read_shutdown == Shutdown.CLOSE_NOTIFY:
-                    app_data = b""
-                    break
+                    raise TLSZeroReturnError()
                 raise
 
             if content_type != ContentType.APPLICATION_DATA:
@@ -312,7 +312,7 @@ class TLSConnection:
             buffer[0:app_data_len] = app_data
             return app_data_len
 
-        return bytes(app_data)
+        return app_data.tobytes()
 
     def write(self, data: Buffer) -> int:
         hs = self._handshake

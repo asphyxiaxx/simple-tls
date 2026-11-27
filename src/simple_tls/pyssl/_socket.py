@@ -595,7 +595,7 @@ class SSLSocket(_ssl.SSLSocket):
             except tls.TLSWantReadError:
                 self._tls_send()
                 self._tls_recv()
-            except tls.TLSEOFError:
+            except (tls.TLSEOFError, tls.TLSZeroReturnError):
                 raise SSLEOFError from None
             except tls.TLSError as exc:
                 self._tls_send()
