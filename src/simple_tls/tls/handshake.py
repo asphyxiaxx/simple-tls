@@ -339,7 +339,7 @@ class TLSHandshake:
         self._server_name: bytes | None = None
         self._version: int | None = None
         self._is_early_version: bool = False
-        self._client_version: int = UNSPECIFIED
+        self._client_version: int | None = None
         self._session: TLSSession | None = None
         self._session_established: bool = False
         self._session_reused: bool = False
@@ -663,7 +663,7 @@ class TLSHandshake:
         label: bytes,
         transcript: Transcript | None = None,
     ) -> bytes:
-        assert self._version != UNSPECIFIED
+        assert self._version is not None
         assert self._cipher_suite is not None
 
         if self._version == TLSVersion.TLSv1_2:
@@ -840,7 +840,7 @@ class TLSHandshake:
         self.close_early_data()
 
     def _get_new_session(self) -> TLSSession:
-        assert self._version != UNSPECIFIED
+        assert self._version is not None
 
         return TLSSession(
             is_server=self.is_server,

@@ -638,6 +638,7 @@ class TLSHandshakeServer(TLSHandshake):
         return Status.OK
 
     def _do_send_server_hello(self) -> Status:
+        assert self._client_version is not None
         assert self._cipher_suite is not None
 
         extensions = Extensions()
@@ -1274,6 +1275,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_send_hello_retry_request_tls13(self) -> Status:
         assert self._version is not None
+        assert self._client_version is not None
         assert self._cipher_suite is not None
 
         extensions = Extensions()
@@ -1326,6 +1328,7 @@ class TLSHandshakeServer(TLSHandshake):
             return Status.READ_HANDSHAKE
 
         assert self._version is not None
+        assert self._client_version is not None
         assert self._cipher_suite is not None
         assert self._key_schedule is not None
 
@@ -1466,6 +1469,7 @@ class TLSHandshakeServer(TLSHandshake):
 
     def _do_send_server_hello_tls13(self) -> Status:
         assert self._version is not None
+        assert self._client_version is not None
         assert self._cipher_suite is not None
         assert self._key_schedule is not None
         assert self._session is not None

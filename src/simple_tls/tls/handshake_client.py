@@ -1763,6 +1763,8 @@ class TLSHandshakeClient(TLSHandshake):
         )
 
     def _build_client_hello(self, is_hrr: bool) -> ClientHello:
+        assert self._client_version is not None
+
         client_hello = ClientHello(
             version=self._client_version,
             random=self._client_random,
@@ -1790,6 +1792,7 @@ class TLSHandshakeClient(TLSHandshake):
         return client_hello
 
     def _build_encrypted_client_hello(self, is_hrr: bool) -> ClientHello:
+        assert self._client_version is not None
         assert self._ech_context is not None
         assert self._inner_transcript is not None
         assert self._inner_client_random is not None
