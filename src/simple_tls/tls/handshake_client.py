@@ -434,6 +434,7 @@ class TLSHandshakeClient(TLSHandshake):
 
         self._session = offered_session.copy(include_noauth=True)
         self._version = offered_session.version
+        self._cipher_suite = offered_session.cipher_suite
         self._is_early_version = True
 
         # Early data extension is included in ClientHello
