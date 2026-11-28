@@ -1404,24 +1404,24 @@ class TLSHandshakeClient(TLSHandshake):
             session.local_alps = offered_session.local_alps
             session.peer_alps = offered_session.peer_alps
         else:
+            alps_ext = extensions.get(ALPSExtension)
+            if alps_ext is not None:
+                if self._alpn_protocol is None:
+                    raise AlertIllegalParameter(
+                        "received unexpected ALPS extension"
+                    )
+                if self._alpn_protocol not in self._alps:
+                    raise AlertIllegalParameter(
+                        "received ALPS extension for unsupported ALPN"
+                    )
+
+                session.has_alps = True
+                session.local_alps = self._alps[self._alpn_protocol]
+                session.peer_alps = alps_ext.settings
+
             if self._early_data_offered:
                 assert self._early_data_status == EarlyDataStatus.REJECTED
                 self._setup_traffic_tls13(Direction.WRITE, Epoch.HANDSHAKE)
-
-        alps_ext = extensions.get(ALPSExtension)
-        if alps_ext is not None:
-            if self._alpn_protocol is None:
-                raise AlertIllegalParameter(
-                    "received unexpected ALPS extension"
-                )
-            if self._alpn_protocol not in self._alps:
-                raise AlertIllegalParameter(
-                    "received ALPS extension for unsupported ALPN"
-                )
-
-            session.has_alps = True
-            session.local_alps = self._alps[self._alpn_protocol]
-            session.peer_alps = alps_ext.settings
 
         session.early_alpn = self._alpn_protocol
 
