@@ -10,7 +10,12 @@ from simple_tls import tls
 from simple_tls.crypto.utils import bytes_to_str, str_to_bytes
 
 from ._constants import ECHStatus, Options
-from ._exceptions import SSLEOFError, SSLError, SSLWantReadError
+from ._exceptions import (
+    SSLEOFError,
+    SSLError,
+    SSLWantReadError,
+    SSLZeroReturnError,
+)
 from ._session import SSLSession
 from ._utils import (
     ECHConfigListType,
@@ -149,7 +154,12 @@ class SSLObject(_ssl.SSLObject):
         If 'buffer' is provided, read into this buffer and return the
         number of bytes read.
         """
-        return self._perform_io(self._sslobj.read, len, buffer)
+        try:
+            return self._perform_io(self._sslobj.read, len, buffer)
+        except SSLZeroReturnError:
+            if buffer is not None:
+                return 0  # type: ignore
+            return b""
 
     def write(self, data: ReadableBuffer) -> int:
         """
@@ -330,8 +340,10 @@ class SSLObject(_ssl.SSLObject):
             if self._incoming.eof and not incoming_data:
                 raise SSLEOFError from None
             raise SSLWantReadError from None
-        except (tls.TLSEOFError, tls.TLSZeroReturnError):
+        except tls.TLSEOFError:
             raise SSLEOFError from None
+        except tls.TLSZeroReturnError:
+            raise SSLZeroReturnError from None
         except tls.TLSError as exc:
             raise SSLError(exc) from exc
         finally:

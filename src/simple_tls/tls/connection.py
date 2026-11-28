@@ -270,7 +270,7 @@ class TLSConnection:
                 content_type, data = self._open_record()
             except TLSEOFError:
                 if self._read_shutdown == Shutdown.CLOSE_NOTIFY:
-                    raise TLSZeroReturnError()
+                    raise TLSZeroReturnError from None
                 raise
 
             if content_type != ContentType.APPLICATION_DATA:

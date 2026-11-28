@@ -17,6 +17,7 @@ from ._exceptions import (
     SSLError,
     SSLWantReadError,
     SSLWantWriteError,
+    SSLZeroReturnError,
 )
 from ._session import SSLSession
 from ._utils import (
@@ -255,7 +256,7 @@ class SSLSocket(_ssl.SSLSocket):
 
         try:
             return self._drive_tls(self._sslobj.read, len, buffer)
-        except SSLEOFError:
+        except (SSLEOFError, SSLZeroReturnError):
             if self.suppress_ragged_eofs:
                 if buffer is None:
                     return b""
@@ -595,8 +596,10 @@ class SSLSocket(_ssl.SSLSocket):
             except tls.TLSWantReadError:
                 self._tls_send()
                 self._tls_recv()
-            except (tls.TLSEOFError, tls.TLSZeroReturnError):
+            except tls.TLSEOFError:
                 raise SSLEOFError from None
+            except tls.TLSZeroReturnError:
+                raise SSLZeroReturnError from None
             except tls.TLSError as exc:
                 self._tls_send()
                 raise SSLError(exc) from exc
