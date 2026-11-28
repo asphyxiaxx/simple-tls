@@ -1130,12 +1130,12 @@ class TLSHandshake:
         handshake: Handshake,
         session: TLSSession,
         allow_anon: bool,
-        compression_supported: bool,
+        allow_compression: bool,
     ) -> CompressedCertificate | CertificateTLS13:
         c_certificate: CompressedCertificate | None = None
 
         if handshake.handshake_type == HandshakeType.COMPRESSED_CERTIFICATE:
-            if not compression_supported:
+            if not allow_compression:
                 raise AlertUnexpectedMessage(
                     "received unexpected compressed certificate"
                 )

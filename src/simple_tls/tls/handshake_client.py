@@ -1471,7 +1471,7 @@ class TLSHandshakeClient(TLSHandshake):
             handshake=handshake,
             session=self._session,
             allow_anon=False,
-            compression_supported=(
+            allow_compression=(
                 ExtensionType.COMPRESS_CERTIFICATE in self._extensions_sent
             ),
         )
@@ -1516,10 +1516,6 @@ class TLSHandshakeClient(TLSHandshake):
         assert self._key_schedule.generation == 2
 
         finished = handshake.parse_as(Finished)
-
-        if self.has_unprocessed_data():
-            raise AlertUnexpectedMessage("trailing handshake data")
-
         expected_verify_data = self._key_schedule.finished_verify_data(
             self._dec_secret[Epoch.HANDSHAKE], self._transcript
         )
@@ -1733,11 +1729,8 @@ class TLSHandshakeClient(TLSHandshake):
 
         if handshake.handshake_type == HandshakeType.KEY_UPDATE:
             key_update = handshake.parse_as(KeyUpdate)
-
-            if self.has_unprocessed_data():
-                raise AlertUnexpectedMessage("trailing handshake data")
-
             message_type = key_update.message_type
+
             if message_type not in (
                 KeyUpdateMessageType.UPDATE_NOT_REQUESTED,
                 KeyUpdateMessageType.UPDATE_REQUESTED,

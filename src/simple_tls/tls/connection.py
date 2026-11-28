@@ -448,6 +448,15 @@ class TLSConnection:
         epoch: Epoch,
         context: TrafficContext | None,
     ) -> None:
+        if direction == Direction.WRITE:
+            assert len(self._handshake.pending_flight()) == 0
+        else:
+            if self._handshake.has_unprocessed_data():
+                self._send_alert(
+                    AlertDescription.UNEXPECTED_MESSAGE,
+                    "handshake messages interleaved during cipher change",
+                )
+
         state = ConnectionState(epoch)
 
         if context is not None:
@@ -495,7 +504,6 @@ class TLSConnection:
                 state.hide_content_type = True
 
         if direction == Direction.WRITE:
-            assert len(self._handshake.pending_flight()) == 0
             self._write_state = state
         else:
             self._read_state = state

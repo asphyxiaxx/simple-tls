@@ -1679,10 +1679,6 @@ class TLSHandshakeServer(TLSHandshake):
                 return Status.READ_HANDSHAKE
 
             end_of_early_data = handshake.parse_as(EndOfEarlyData)
-
-            if self.has_unprocessed_data():
-                raise AlertUnexpectedMessage("trailing handshake data")
-
             self._close_early_data()
 
             self.message_cb(Direction.READ, end_of_early_data)
@@ -1744,7 +1740,7 @@ class TLSHandshakeServer(TLSHandshake):
             handshake=handshake,
             session=self._session,
             allow_anon=(self._verify_mode != VerifyMode.CERT_REQUIRED),
-            compression_supported=True,
+            allow_compression=True,
         )
         if (
             self._session.peer_cert is not None
@@ -1789,10 +1785,6 @@ class TLSHandshakeServer(TLSHandshake):
         assert self._key_schedule is not None
 
         finished = handshake.parse_as(Finished)
-
-        if self.has_unprocessed_data():
-            raise AlertUnexpectedMessage("trailing handshake data")
-
         expected_verify_data = self._key_schedule.finished_verify_data(
             self._dec_secret[Epoch.HANDSHAKE], self._transcript
         )
@@ -1897,11 +1889,8 @@ class TLSHandshakeServer(TLSHandshake):
     def _post_handshake_tls13(self, handshake: Handshake) -> Status:
         if handshake.handshake_type == HandshakeType.KEY_UPDATE:
             key_update = handshake.parse_as(KeyUpdate)
-
-            if self.has_unprocessed_data():
-                raise AlertUnexpectedMessage("trailing handshake data")
-
             message_type = key_update.message_type
+
             if message_type not in (
                 KeyUpdateMessageType.UPDATE_NOT_REQUESTED,
                 KeyUpdateMessageType.UPDATE_REQUESTED,
