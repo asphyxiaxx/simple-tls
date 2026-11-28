@@ -371,8 +371,11 @@ class TLSHandshakeClient(TLSHandshake):
             assert session.version is not None
             assert session.cipher_suite is not None
 
+            reused = False
+
             if session.version >= TLSVersion.TLSv1_3:
                 if session.ticket:
+                    reused = True
                     identity = PSKIdentity(
                         identity=session.ticket,
                         obfuscated_ticket_age=session.obfuscated_age(),
@@ -398,12 +401,17 @@ class TLSHandshakeClient(TLSHandshake):
                         self._early_data_offered = True
             else:
                 if session.ticket:
+                    reused = True
                     # Generate random session_id so it track
                     # the session is resumed
                     self._session_id = get_random_bytes(32)
                     self._session_ticket = session.ticket
                 elif session.session_id:
+                    reused = True
                     self._session_id = session.session_id
+
+            if reused:
+                self._session = session.copy(include_noauth=True)
 
         if (
             self._new_session_callback is not None
@@ -427,14 +435,13 @@ class TLSHandshakeClient(TLSHandshake):
             self._set_state(ClientState.READ_SERVER_HELLO)
             return Status.OK
 
-        assert self._offered_session is not None
-        offered_session = self._offered_session
-        assert offered_session.cipher_suite is not None
-        assert offered_session.version is not None
+        session = self._session
+        assert session is not None
+        assert session.version is not None
+        assert session.cipher_suite is not None
 
-        self._session = offered_session.copy(include_noauth=True)
-        self._version = offered_session.version
-        self._cipher_suite = offered_session.cipher_suite
+        self._version = session.version
+        self._cipher_suite = session.cipher_suite
         self._is_early_version = True
 
         # Early data extension is included in ClientHello
@@ -513,13 +520,12 @@ class TLSHandshakeClient(TLSHandshake):
             raise AlertIllegalParameter("received invalid compression method")
 
         if self._early_data_offered:
-            assert self._offered_session is not None
-            offered_session = self._offered_session
+            assert self._session is not None
+            assert self._session.version is not None
 
-            if version != offered_session.version:
+            if version != self._session.version:
                 assert version <= TLSVersion.TLSv1_2
-                assert offered_session.version is not None
-                assert offered_session.version >= TLSVersion.TLSv1_3
+                assert self._session.version >= TLSVersion.TLSv1_3
 
                 raise AlertProtocolVersion(
                     "cannot negotiate TLSv1.2 or below since early data "
@@ -575,30 +581,25 @@ class TLSHandshakeClient(TLSHandshake):
 
         # Session ID
         if self._session_id and server_hello.session_id == self._session_id:
-            if (
-                self._offered_session is None
-                or self._ech_status == ECHStatus.REJECTED
-            ):
+            if self._session is None or self._ech_status == ECHStatus.REJECTED:
                 raise AlertIllegalParameter(
                     "received echoed invalid session id"
                 )
-            offered_session = self._offered_session
 
-            if offered_session.version != version:
+            session = self._session
+            if session.version != version:
                 raise AlertIllegalParameter(
                     "received invalid protocol version"
                 )
-            if offered_session.cipher_suite != cipher_suite:
+            if session.cipher_suite != cipher_suite:
                 raise AlertIllegalParameter("received invalid cipher suite")
 
             self._session_reused = True
-            session = offered_session.copy(include_noauth=True)
         else:
             session = self._get_new_session()
             session.session_id = server_hello.session_id
             session.cipher_suite = cipher_suite
-
-        self._session = session
+            self._session = session
 
         # Process extensions
         self._process_extensions(extensions)
@@ -1269,15 +1270,15 @@ class TLSHandshakeClient(TLSHandshake):
 
             allowed_extensions.add(ExtensionType.PRE_SHARED_KEY)
 
-            assert self._offered_session is not None
-            offered_session = self._offered_session
-            assert offered_session.cipher_suite is not None
+            reused_session = self._session
+            assert reused_session is not None
+            assert reused_session.cipher_suite is not None
 
-            if offered_session.version != self._version:
+            if reused_session.version != self._version:
                 raise AlertIllegalParameter(
                     "received protocol version mismatch"
                 )
-            if offered_session.cipher_suite.prf_hash != cipher_suite.prf_hash:
+            if reused_session.cipher_suite.prf_hash != cipher_suite.prf_hash:
                 raise AlertIllegalParameter("received invalid cipher suite")
 
             # Selected index
@@ -1291,7 +1292,7 @@ class TLSHandshakeClient(TLSHandshake):
             self._key_schedule = key_schedule
             self._pre_shared_keys.clear()
 
-            session = offered_session.copy()
+            session = reused_session.copy()
             session.renew_timeout(100)
             self._session_reused = True
         else:
@@ -1300,7 +1301,7 @@ class TLSHandshakeClient(TLSHandshake):
             key_schedule.extract(None)
             session = self._get_new_session()
 
-        session.cipher_suite = self._cipher_suite
+        session.cipher_suite = cipher_suite
         self._session = session
 
         kex_ext = extensions.get(KeyShareServerExtension)
